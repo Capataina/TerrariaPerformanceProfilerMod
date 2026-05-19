@@ -15,7 +15,9 @@ namespace PerformanceProfiler.UI;
 /// The F9 profiler overlay: a dark panel, custom-drawn via <see cref="ProfilerTheme"/>
 /// to match design/Mockups.html. It shows the overall per-tick stats and, below
 /// them, the btop-style foldable per-mod CPU tree. Clicking a mod row folds it
-/// open into a Systems / Players / NPCs / Projectiles breakdown.
+/// open into a Systems / Players / NPCs / Projectiles breakdown; clicking a
+/// category row further reveals its hottest hooks. The list scrolls if it
+/// overflows MaxModRows.
 /// </summary>
 public sealed class ProfilerOverlay : UIState
 {
@@ -51,57 +53,65 @@ internal readonly struct ModRow : IComparable<ModRow>
 /// <summary>
 /// The custom-drawn overlay panel. Everything is hand-drawn in <see cref="DrawSelf"/>
 /// with <see cref="ProfilerTheme"/>; no stock tModLoader widget chrome is used.
-/// Draggable by its header strip; the per-mod rows fold open on click.
+/// Draggable by its header strip. Mod rows fold open on click; category sub-rows
+/// fold open to reveal their hottest hooks. The list scrolls with the mouse wheel.
 /// </summary>
 internal sealed class OverlayPanel : UIElement
 {
     public const float PanelWidth = 640f;
 
-    private const float HeaderHeight = 26f;
-    private const float MetricToggleX = 422f;
-    private const float PauseToggleX = 500f;
-    private const float ToggleY = 5f;
-    private const float MetricToggleWidth = 68f;
-    private const float PauseToggleWidth = 92f;
-    private const float ToggleHeight = 16f;
-    private const float StatGap = 24f;
-    private const float HealthTopOffset = 106f;
-    private const float ListDividerOffset = 202f;
-    private const float RowsTopOffset = 230f;
-    private const float RowHeight = 17f;
-    private const float SubRowHeight = 15f;
-    private const float HookRowHeight = 14f;
-    private const int MaxModRows = 12;
+    private const float HeaderHeight    = 28f;
+    private const float MetricToggleX   = 426f;
+    private const float PauseToggleX    = 506f;
+    private const float ToggleY         = 6f;
+    private const float MetricToggleW   = 70f;
+    private const float PauseToggleW    = 90f;
+    private const float ToggleHeight    = 16f;
+    private const float StatStartY      = 12f;   // px below header bottom
+    private const float StatGap         = 22f;
+    private const float HealthTopOffset = 100f;
+    private const float DividerOffset   = 148f;
+    private const float RowsTopOffset   = 172f;
+    private const float RowHeight       = 18f;
+    private const float SubRowHeight    = 16f;
+    private const float HookRowHeight   = 14f;
+    private const int   MaxModRows      = 12;
+    private const int   BarH_Mod        = 10;
+    private const int   BarH_Cat        = 8;
+    private const int   BarH_Hook       = 6;
+    private const float ScrollTrackW    = 4f;
+    private const float ScrollTrackGap  = 8f;
 
-    private bool _dragging;
+    private bool    _dragging;
     private Vector2 _dragOffset;
-    private bool _showAverage;
-    private bool _paused;
+    private bool    _showAverage;
+    private bool    _paused;
+    private int     _scrollOffset;
 
     // Per-mod cost rows, reused and sorted each frame without allocating.
     private ModRow[] _rows = Array.Empty<ModRow>();
-    private int _rowCount;
+    private int      _rowCount;
     private double[] _frozenCategoryMs = Array.Empty<double>();
-    private double[] _frozenHookMs = Array.Empty<double>();
+    private double[] _frozenHookMs     = Array.Empty<double>();
 
-    // ModIds whose rows are folded open. Keyed by ModId so the set survives the
-    // rows being re-sorted every frame.
+    // ModIds whose top-level rows are folded open.
     private readonly HashSet<int> _expanded = new HashSet<int>();
+
+    // (modId, categoryId) pairs whose hook sub-rows are visible.
+    private readonly HashSet<(int modId, int catId)> _expandedCats = new HashSet<(int, int)>();
 
     private float _appliedHeight;
 
     /// <summary>The panel height with every mod row collapsed.</summary>
     public static float CollapsedHeight(int modCount)
     {
-        int shown = modCount < MaxModRows ? modCount : MaxModRows;
-        float height = RowsTopOffset + shown * RowHeight + 10f;
-        if (modCount > shown)
-        {
-            height += 14f; // room for the "+ N more" line
-        }
-
-        return height;
+        int shown  = modCount < MaxModRows ? modCount : MaxModRows;
+        float h    = RowsTopOffset + shown * RowHeight + 10f;
+        if (modCount > shown) h += 14f;
+        return h;
     }
+
+    // ---- Input ---------------------------------------------------------------
 
     public override void LeftMouseDown(UIMouseEvent evt)
     {
@@ -110,24 +120,25 @@ internal sealed class OverlayPanel : UIElement
         float localY = evt.MousePosition.Y - GetDimensions().Position().Y;
         float localX = evt.MousePosition.X - GetDimensions().Position().X;
 
-        // The header strip starts a drag, the way a window title bar works.
         if (localY <= HeaderHeight)
         {
-            if (ClickHeaderControl(localX, localY))
-            {
-                return;
-            }
-
-            _dragging = true;
+            if (ClickHeaderControl(localX, localY)) return;
+            _dragging  = true;
             _dragOffset = evt.MousePosition - GetDimensions().Position();
             return;
         }
 
-        // A click on a mod row folds it open or shut.
-        int modId = ModRowAt(localY);
-        if (modId >= 0 && !_expanded.Remove(modId))
+        HitTestRows(localY, out int modId, out int catId);
+        if (modId < 0) return;
+
+        if (catId >= 0)
         {
-            _expanded.Add(modId);
+            var key = (modId, catId);
+            if (!_expandedCats.Remove(key)) _expandedCats.Add(key);
+        }
+        else
+        {
+            if (!_expanded.Remove(modId)) _expanded.Add(modId);
         }
     }
 
@@ -137,61 +148,57 @@ internal sealed class OverlayPanel : UIElement
         _dragging = false;
     }
 
+    public override void ScrollWheel(UIScrollWheelEvent evt)
+    {
+        base.ScrollWheel(evt);
+        if (!IsMouseHovering) return;
+        int maxOffset = Math.Max(0, _rowCount - MaxModRows);
+        _scrollOffset = evt.ScrollWheelValue > 0
+            ? Math.Max(_scrollOffset - 1, 0)
+            : Math.Min(_scrollOffset + 1, maxOffset);
+    }
+
+    // ---- Update --------------------------------------------------------------
+
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
 
         if (IsMouseHovering || _dragging)
-        {
             Main.LocalPlayer.mouseInterface = true;
-        }
 
         if (_dragging)
         {
-            if (!Main.mouseLeft)
-            {
-                _dragging = false;
-            }
-            else
-            {
-                FollowMouse();
-            }
+            if (!Main.mouseLeft) _dragging = false;
+            else                 FollowMouse();
         }
 
-        // Rebuild the sorted rows once per frame so DrawSelf and the click
-        // hit-test agree, then resize the panel for the current fold state.
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (collector != null)
-        {
-            if (!_paused)
-            {
-                BuildSortedRows(SelectedCategoryMs(collector));
-            }
+        if (collector == null) return;
 
-            ApplyHeight(SelectedCategoryMs(collector), SelectedHookMs(collector));
-        }
+        if (!_paused) BuildSortedRows(SelectedCategoryMs(collector));
+
+        // Clamp scroll after row rebuild so a mod-count drop doesn't strand the offset.
+        int maxOff = Math.Max(0, _rowCount - MaxModRows);
+        if (_scrollOffset > maxOff) _scrollOffset = maxOff;
+
+        ApplyHeight(SelectedCategoryMs(collector), SelectedHookMs(collector));
     }
 
     private bool ClickHeaderControl(float localX, float localY)
     {
-        if (localY < ToggleY || localY > ToggleY + ToggleHeight)
-        {
-            return false;
-        }
+        if (localY < ToggleY || localY > ToggleY + ToggleHeight) return false;
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (localX >= MetricToggleX && localX <= MetricToggleX + MetricToggleWidth)
+
+        if (localX >= MetricToggleX && localX <= MetricToggleX + MetricToggleW)
         {
             _showAverage = !_showAverage;
-            if (_paused && collector != null)
-            {
-                CaptureSnapshot(collector);
-            }
-
+            if (_paused && collector != null) CaptureSnapshot(collector);
             return true;
         }
 
-        if (localX >= PauseToggleX && localX <= PauseToggleX + PauseToggleWidth)
+        if (localX >= PauseToggleX && localX <= PauseToggleX + PauseToggleW)
         {
             _paused = !_paused;
             if (_paused && collector != null)
@@ -199,125 +206,125 @@ internal sealed class OverlayPanel : UIElement
                 CaptureSnapshot(collector);
                 BuildSortedRows(_frozenCategoryMs);
             }
-
             return true;
         }
 
         return false;
     }
 
-    /// <summary>Returns the ModId of the row at panel-local y, or -1 if y is not on a mod row.</summary>
-    private int ModRowAt(float localY)
+    // ---- Hit-test ------------------------------------------------------------
+
+    /// <summary>
+    /// Maps a panel-local Y to the row it lands on.
+    /// <paramref name="modId"/> is -1 on miss. <paramref name="catId"/> is -1
+    /// when the hit is a mod row (not a category sub-row).
+    /// </summary>
+    private void HitTestRows(float localY, out int modId, out int catId)
     {
+        modId = -1;
+        catId = -1;
         int catCount = PerModAttribution.CategoryCount;
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
+        int visible = Math.Min(_rowCount - _scrollOffset, MaxModRows);
         float y = RowsTopOffset;
 
-        for (int i = 0; i < visible; i++)
+        for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
         {
-            if (localY >= y && localY < y + RowHeight)
-            {
-                return _rows[i].ModId;
-            }
-
+            if (localY >= y && localY < y + RowHeight) { modId = _rows[i].ModId; return; }
             y += RowHeight;
-            if (_expanded.Contains(_rows[i].ModId))
-            {
-                IReadOnlyList<double>? categoryMs = collector != null ? SelectedCategoryMs(collector) : null;
-                for (int c = 0; c < catCount; c++)
-                {
-                    if (categoryMs != null)
-                    {
-                        int cell = _rows[i].ModId * catCount + c;
-                        double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                        if (catMs <= 0.0005d)
-                        {
-                            continue;
-                        }
-                    }
 
-                    y += SubRowHeight;
-                    if (collector != null)
-                    {
-                        y += CountVisibleHooks(_rows[i].ModId, c, SelectedHookMs(collector)) * HookRowHeight;
-                    }
+            if (!_expanded.Contains(_rows[i].ModId)) continue;
+
+            IReadOnlyList<double>? categoryMs = collector != null ? SelectedCategoryMs(collector) : null;
+            for (int c = 0; c < catCount; c++)
+            {
+                if (categoryMs != null)
+                {
+                    int cell  = _rows[i].ModId * catCount + c;
+                    double ms = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                    if (ms <= 0.0005d) continue;
                 }
+
+                if (localY >= y && localY < y + SubRowHeight) { modId = _rows[i].ModId; catId = c; return; }
+                y += SubRowHeight;
+
+                if (_expandedCats.Contains((_rows[i].ModId, c)) && collector != null)
+                    y += CountVisibleHooks(_rows[i].ModId, c, SelectedHookMs(collector)) * HookRowHeight;
             }
         }
-
-        return -1;
     }
 
-    /// <summary>Resizes the panel to fit the current fold state.</summary>
+    // ---- Height management ---------------------------------------------------
+
     private void ApplyHeight(IReadOnlyList<double> categoryMs, IReadOnlyList<double> hookMs)
     {
         int catCount = PerModAttribution.CategoryCount;
-        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
-        float height = RowsTopOffset + 10f;
+        int visible  = Math.Min(_rowCount - _scrollOffset, MaxModRows);
+        float h      = RowsTopOffset + 10f;
 
-        for (int i = 0; i < visible; i++)
+        for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
         {
-            height += RowHeight;
-            if (_expanded.Contains(_rows[i].ModId))
-            {
-                for (int c = 0; c < catCount; c++)
-                {
-                    int cell = _rows[i].ModId * catCount + c;
-                    double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                    if (catMs <= 0.0005d)
-                    {
-                        continue;
-                    }
+            h += RowHeight;
+            if (!_expanded.Contains(_rows[i].ModId)) continue;
 
-                    height += SubRowHeight;
-                    height += CountVisibleHooks(_rows[i].ModId, c, hookMs) * HookRowHeight;
-                }
+            for (int c = 0; c < catCount; c++)
+            {
+                int cell    = _rows[i].ModId * catCount + c;
+                double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                if (catMs <= 0.0005d) continue;
+
+                h += SubRowHeight;
+                if (_expandedCats.Contains((_rows[i].ModId, c)))
+                    h += CountVisibleHooks(_rows[i].ModId, c, hookMs) * HookRowHeight;
             }
         }
 
-        if (_rowCount > visible)
-        {
-            height += 14f;
-        }
+        if (_rowCount > _scrollOffset + visible) h += 14f;
 
-        if (Math.Abs(height - _appliedHeight) > 0.5f)
+        if (Math.Abs(h - _appliedHeight) > 0.5f)
         {
-            _appliedHeight = height;
-            Height.Set(height, 0f);
+            _appliedHeight = h;
+            Height.Set(h, 0f);
             Recalculate();
         }
     }
 
-    /// <summary>Moves the panel so the grabbed point stays under the cursor, clamped on-screen.</summary>
+    // ---- Drag ----------------------------------------------------------------
+
     private void FollowMouse()
     {
         Vector2 target = Main.MouseScreen - _dragOffset;
-        float maxX = Main.screenWidth - GetDimensions().Width;
+        float maxX = Main.screenWidth  - GetDimensions().Width;
         float maxY = Main.screenHeight - GetDimensions().Height;
-
         Left.Set(MathHelper.Clamp(target.X, 0f, maxX < 0f ? 0f : maxX), 0f);
-        Top.Set(MathHelper.Clamp(target.Y, 0f, maxY < 0f ? 0f : maxY), 0f);
+        Top.Set(MathHelper.Clamp(target.Y,  0f, maxY < 0f ? 0f : maxY), 0f);
         Recalculate();
     }
+
+    // ---- Drawing -------------------------------------------------------------
 
     protected override void DrawSelf(SpriteBatch spriteBatch)
     {
         Rectangle area = GetDimensions().ToRectangle();
 
-        // Panel surface and header strip.
+        // Panel surface.
         ProfilerTheme.DrawPanel(spriteBatch, area, ProfilerTheme.Panel, ProfilerTheme.Border);
+
+        // Header strip with left accent bar.
         Rectangle header = new Rectangle(area.X, area.Y, area.Width, (int)HeaderHeight);
         ProfilerTheme.FillRect(spriteBatch, header, ProfilerTheme.Header);
         ProfilerTheme.DrawBorder(spriteBatch, header, ProfilerTheme.Border);
-        DrawText(spriteBatch, "PERFORMANCE PROFILER", new Vector2(area.X + 10, area.Y + 7), ProfilerTheme.Accent, 0.82f);
-        DrawHeaderToggle(spriteBatch, area.X + MetricToggleX, area.Y + ToggleY, MetricToggleWidth,
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X, area.Y, 2, (int)HeaderHeight), ProfilerTheme.Accent);
+
+        DrawText(spriteBatch, "PERFORMANCE PROFILER",
+            new Vector2(area.X + 12, area.Y + 8), ProfilerTheme.Accent, 0.82f);
+        DrawHeaderToggle(spriteBatch, area.X + MetricToggleX, area.Y + ToggleY, MetricToggleW,
             _showAverage ? "30S AVG" : "NOW", _showAverage);
-        DrawHeaderToggle(spriteBatch, area.X + PauseToggleX, area.Y + ToggleY, PauseToggleWidth,
+        DrawHeaderToggle(spriteBatch, area.X + PauseToggleX, area.Y + ToggleY, PauseToggleW,
             _paused ? "PAUSED" : "LIVE", _paused);
 
-        float x = area.X + 14;
-        float y = area.Y + HeaderHeight + 14f;
+        float x = area.X + 14f;
+        float y = area.Y + HeaderHeight + StatStartY;
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null || collector.History.Count == 0)
@@ -326,126 +333,159 @@ internal sealed class OverlayPanel : UIElement
             return;
         }
 
-        // ---- Overall per-tick stats ----
+        // ---- Per-tick stats --------------------------------------------------
         RingBuffer<TickFrame> history = collector.History;
         TickFrame latest = history.Newest;
 
-        DrawStat(spriteBatch, "tick", $"{latest.FrameTimeMs:F2} ms", x, y, ProfilerTheme.Amber);
-        DrawStat(spriteBatch, "avg 30s", $"{AverageFrameTimeMs(history):F2} ms", x + 250f, y, ProfilerTheme.Text);
-        DrawStat(spriteBatch, "gc pause", $"{latest.GcTimeMs:F2} ms", x, y + StatGap, ProfilerTheme.Good);
+        DrawStat(spriteBatch, "tick",    $"{latest.FrameTimeMs:F2} ms",           x,        y,            ProfilerTheme.Amber);
+        DrawStat(spriteBatch, "avg 30s", $"{AverageFrameTimeMs(history):F2} ms",  x + 250f, y,            ProfilerTheme.Text);
+        DrawStat(spriteBatch, "gc",      $"{latest.GcTimeMs:F2} ms",              x,        y + StatGap,  ProfilerTheme.Good);
         DrawStat(spriteBatch, "entities",
             $"npc {latest.NpcCount}   proj {latest.ProjectileCount}   dust {latest.DustCount}",
             x + 250f, y + StatGap, ProfilerTheme.Text);
-        DrawText(spriteBatch, $"tick #{latest.TickIndex}", new Vector2(x, y + StatGap * 2f + 4f),
-            ProfilerTheme.TextDim, 0.72f);
+        DrawText(spriteBatch, $"tick #{latest.TickIndex}",
+            new Vector2(x, y + StatGap * 2f + 2f), ProfilerTheme.TextDim, 0.72f);
+
+        // Thin separator below stats.
+        ProfilerTheme.FillRect(spriteBatch,
+            new Rectangle(area.X + 8, area.Y + (int)HealthTopOffset - 6, area.Width - 16, 1),
+            ProfilerTheme.Border);
 
         DrawProfilerHealth(spriteBatch, area, x, area.Y + HealthTopOffset);
-
-        // ---- Foldable per-mod CPU tree ----
         DrawModTree(spriteBatch, area, collector);
     }
 
-    /// <summary>Draws aggregate measurement coverage so cheap-looking mods cannot hide unmeasured hooks.</summary>
     private static void DrawProfilerHealth(SpriteBatch spriteBatch, Rectangle area, float x, float y)
     {
         CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods);
-        double coverage = total > 0 ? measured / (double)total : 1d;
-        Color coverageColor = coverage >= 0.95d ? ProfilerTheme.Good : coverage >= 0.75d ? ProfilerTheme.Amber : ProfilerTheme.Danger;
+        double coverage    = total > 0 ? measured / (double)total : 1d;
+        Color  covColor    = coverage >= 0.95d ? ProfilerTheme.Good
+                           : coverage >= 0.75d ? ProfilerTheme.Amber
+                           : ProfilerTheme.Danger;
 
-        DrawText(spriteBatch, "PROFILER HEALTH", new Vector2(x, y), ProfilerTheme.Accent, 0.68f);
-        DrawText(spriteBatch, $"hooks {measured}/{total} ({coverage:P0})", new Vector2(x + 142f, y), coverageColor, 0.68f);
-        DrawText(spriteBatch, $"mods full {fullMods}  partial {partialMods}", new Vector2(x + 342f, y), ProfilerTheme.TextMuted, 0.68f);
+        DrawText(spriteBatch, "PROFILER HEALTH",                               new Vector2(x,        y), ProfilerTheme.Accent,   0.68f);
+        DrawText(spriteBatch, $"hooks {measured}/{total} ({coverage:P0})",     new Vector2(x + 142f, y), covColor,               0.68f);
+        DrawText(spriteBatch, $"full {fullMods}  partial {partialMods}",       new Vector2(x + 358f, y), ProfilerTheme.TextMuted, 0.68f);
 
-        ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, area.Width - 28, 8), ProfilerTheme.Border);
-        int fill = (int)((area.Width - 28) * coverage);
+        int barW = area.Width - 28;
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x,    (int)y + 18, barW,                     10), ProfilerTheme.Border);
+        int fill = (int)(barW * coverage);
         if (fill > 0)
-        {
-            ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, fill, 8), coverageColor);
-        }
+            ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, fill, 10), covColor);
     }
 
-    /// <summary>Draws the foldable per-mod cost tree with colour-graded bars.</summary>
     private void DrawModTree(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
     {
-        int dividerY = area.Y + (int)ListDividerOffset;
-        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, dividerY, area.Width - 16, 1), ProfilerTheme.Border);
-        DrawText(spriteBatch, "PER-MOD CPU   ·   click a mod to fold open", new Vector2(area.X + 14, dividerY + 8f),
-            ProfilerTheme.Accent, 0.72f);
+        int divY = area.Y + (int)DividerOffset;
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
+        DrawText(spriteBatch, "PER-MOD CPU   ·   click to expand",
+            new Vector2(area.X + 18, divY + 6f), ProfilerTheme.Accent, 0.72f);
 
         if (_rowCount == 0)
         {
-            DrawText(spriteBatch, "no per-mod data yet", new Vector2(area.X + 14, area.Y + RowsTopOffset),
-                ProfilerTheme.TextMuted, 0.72f);
+            DrawText(spriteBatch, "no per-mod data yet",
+                new Vector2(area.X + 14, area.Y + RowsTopOffset), ProfilerTheme.TextMuted, 0.72f);
             return;
         }
 
         IReadOnlyList<double> categoryMs = SelectedCategoryMs(collector);
-        IReadOnlyList<double> hookMs = SelectedHookMs(collector);
-        int catCount = PerModAttribution.CategoryCount;
-        double maxMs = _rows[0].TotalMs; // rows are sorted most-expensive first
-        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
-        float rowY = area.Y + RowsTopOffset;
+        IReadOnlyList<double> hookMs     = SelectedHookMs(collector);
+        int    catCount  = PerModAttribution.CategoryCount;
+        double maxMs     = _rows[0].TotalMs;
+        int    visible   = Math.Min(_rowCount - _scrollOffset, MaxModRows);
+        bool   hasScroll = _rowCount > MaxModRows;
+        float  rowY      = area.Y + RowsTopOffset;
+        float  mouseY    = Main.MouseScreen.Y;
 
-        for (int i = 0; i < visible; i++)
+        // Scroll indicator track.
+        if (hasScroll)
         {
-            ModRow row = _rows[i];
-            bool expanded = _expanded.Contains(row.ModId);
+            float trackX = area.X + area.Width - ScrollTrackGap;
+            float trackY = area.Y + RowsTopOffset;
+            float trackH = visible * RowHeight;
+            ProfilerTheme.FillRect(spriteBatch,
+                new Rectangle((int)trackX, (int)trackY, (int)ScrollTrackW, (int)trackH),
+                ProfilerTheme.Border);
+            float thumbH  = Math.Max(20f, trackH * MaxModRows / _rowCount);
+            float fraction = _rowCount > MaxModRows ? (float)_scrollOffset / (_rowCount - MaxModRows) : 0f;
+            float thumbY  = trackY + fraction * (trackH - thumbH);
+            ProfilerTheme.FillRect(spriteBatch,
+                new Rectangle((int)trackX, (int)thumbY, (int)ScrollTrackW, (int)thumbH),
+                ProfilerTheme.TextMuted);
+        }
+
+        int contentW = area.Width - 2 - (hasScroll ? (int)(ScrollTrackGap + ScrollTrackW + 2) : 0);
+
+        for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
+        {
+            ModRow row      = _rows[i];
+            bool   expanded = _expanded.Contains(row.ModId);
+            bool   hovered  = IsMouseHovering && mouseY >= rowY && mouseY < rowY + RowHeight;
+
+            if (hovered)
+                ProfilerTheme.FillRect(spriteBatch,
+                    new Rectangle(area.X + 1, (int)rowY, contentW, (int)RowHeight),
+                    ProfilerTheme.RowHover);
+
             DrawModRow(spriteBatch, row, area.X, rowY, maxMs, expanded);
             rowY += RowHeight;
 
-            if (expanded)
-            {
-                for (int c = 0; c < catCount; c++)
-                {
-                    int cell = row.ModId * catCount + c;
-                    double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                    if (catMs <= 0.0005d)
-                    {
-                        continue;
-                    }
+            if (!expanded) continue;
 
-                    DrawCategoryRow(spriteBatch, PerModAttribution.CategoryNames[c], catMs, row.TotalMs, area.X, rowY);
-                    rowY += SubRowHeight;
+            for (int c = 0; c < catCount; c++)
+            {
+                int    cell  = row.ModId * catCount + c;
+                double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                if (catMs <= 0.0005d) continue;
+
+                bool catExpanded = _expandedCats.Contains((row.ModId, c));
+                bool catHovered  = IsMouseHovering && mouseY >= rowY && mouseY < rowY + SubRowHeight;
+
+                if (catHovered)
+                    ProfilerTheme.FillRect(spriteBatch,
+                        new Rectangle(area.X + 1, (int)rowY, contentW, (int)SubRowHeight),
+                        ProfilerTheme.RowHover);
+
+                DrawCategoryRow(spriteBatch, PerModAttribution.CategoryNames[c],
+                    catMs, row.TotalMs, area.X, rowY, catExpanded);
+                rowY += SubRowHeight;
+
+                if (catExpanded)
                     rowY = DrawHotHookRows(spriteBatch, row.ModId, c, catMs, hookMs, area.X, rowY);
-                }
             }
         }
 
-        if (_rowCount > visible)
-        {
-            DrawText(spriteBatch, $"+ {_rowCount - visible} more mods", new Vector2(area.X + 14, rowY + 1f),
-                ProfilerTheme.TextDim, 0.66f);
-        }
+        if (_rowCount > _scrollOffset + visible)
+            DrawText(spriteBatch, $"+ {_rowCount - _scrollOffset - visible} more",
+                new Vector2(area.X + 14, rowY + 1f), ProfilerTheme.TextDim, 0.66f);
     }
 
-    /// <summary>Draws one mod row: a fold marker, the name, a colour-graded cost bar, the value.</summary>
     private static void DrawModRow(SpriteBatch spriteBatch, ModRow row, int panelX, float y, double maxMs, bool expanded)
     {
-        DrawText(spriteBatch, expanded ? "-" : "+", new Vector2(panelX + 12, y), ProfilerTheme.TextMuted, 0.7f);
-        DrawText(spriteBatch, Truncate(row.Name, 34), new Vector2(panelX + 26, y), ProfilerTheme.Text, 0.78f);
-
-        DrawBar(spriteBatch, panelX + 356, (int)y + 3, row.TotalMs, maxMs);
-        DrawText(spriteBatch, row.TotalMs.ToString("F3"), new Vector2(panelX + 540, y), ProfilerTheme.Amber, 0.72f);
-        DrawText(spriteBatch, CoverageBadge(row.ModId), new Vector2(panelX + 590, y), CoverageColor(row.ModId), 0.58f);
+        DrawText(spriteBatch, expanded ? "−" : "+", new Vector2(panelX + 12, y + 2), ProfilerTheme.Accent, 0.72f);
+        DrawText(spriteBatch, Truncate(row.Name, 34), new Vector2(panelX + 26, y + 2), ProfilerTheme.Text, 0.78f);
+        DrawBar(spriteBatch, panelX + 356, (int)y + 4, row.TotalMs, maxMs, BarH_Mod);
+        DrawText(spriteBatch, row.TotalMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.Amber, 0.72f);
+        DrawText(spriteBatch, CoverageBadge(row.ModId), new Vector2(panelX + 592, y + 2), CoverageColor(row.ModId), 0.58f);
     }
 
-    /// <summary>Draws an indented category sub-row beneath an expanded mod row.</summary>
     private static void DrawCategoryRow(SpriteBatch spriteBatch, string label, double catMs, double modTotalMs,
-        int panelX, float y)
+        int panelX, float y, bool expanded)
     {
-        DrawText(spriteBatch, label, new Vector2(panelX + 44, y), ProfilerTheme.TextMuted, 0.68f);
-        DrawBar(spriteBatch, panelX + 356, (int)y + 3, catMs, modTotalMs);
-        DrawText(spriteBatch, catMs.ToString("F3"), new Vector2(panelX + 540, y), ProfilerTheme.TextMuted, 0.64f);
+        DrawText(spriteBatch, expanded ? "−" : "+", new Vector2(panelX + 30, y + 2), ProfilerTheme.TextDim, 0.62f);
+        DrawText(spriteBatch, label, new Vector2(panelX + 44, y + 2), ProfilerTheme.TextMuted, 0.68f);
+        DrawBar(spriteBatch, panelX + 356, (int)y + 4, catMs, modTotalMs, BarH_Cat);
+        DrawText(spriteBatch, catMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.TextMuted, 0.64f);
     }
 
-    /// <summary>Draws the hottest registered hooks beneath one category row.</summary>
     private static float DrawHotHookRows(SpriteBatch spriteBatch, int modId, int categoryId, double categoryMs,
         IReadOnlyList<double> hookMs, int panelX, float y)
     {
-        int firstHook = -1;
-        int secondHook = -1;
-        double firstMs = 0d;
-        double secondMs = 0d;
+        int    firstHook  = -1;
+        int    secondHook = -1;
+        double firstMs    = 0d;
+        double secondMs   = 0d;
         FindTopHooks(modId, categoryId, hookMs, ref firstHook, ref firstMs, ref secondHook, ref secondMs);
 
         if (firstHook >= 0)
@@ -463,19 +503,20 @@ internal sealed class OverlayPanel : UIElement
         return y;
     }
 
-    private static void DrawHookRow(SpriteBatch spriteBatch, string label, double hookMs, double categoryMs, int panelX, float y)
+    private static void DrawHookRow(SpriteBatch spriteBatch, string label, double hookMs, double categoryMs,
+        int panelX, float y)
     {
         DrawText(spriteBatch, Truncate(label, 42), new Vector2(panelX + 64, y), ProfilerTheme.TextDim, 0.6f);
-        DrawBar(spriteBatch, panelX + 356, (int)y + 3, hookMs, categoryMs);
+        DrawBar(spriteBatch, panelX + 356, (int)y + 2, hookMs, categoryMs, BarH_Hook);
         DrawText(spriteBatch, hookMs.ToString("F3"), new Vector2(panelX + 540, y), ProfilerTheme.TextDim, 0.58f);
     }
 
     private static int CountVisibleHooks(int modId, int categoryId, IReadOnlyList<double> hookMs)
     {
-        int firstHook = -1;
-        int secondHook = -1;
-        double firstMs = 0d;
-        double secondMs = 0d;
+        int    firstHook  = -1;
+        int    secondHook = -1;
+        double firstMs    = 0d;
+        double secondMs   = 0d;
         FindTopHooks(modId, categoryId, hookMs, ref firstHook, ref firstMs, ref secondHook, ref secondMs);
         return (firstHook >= 0 ? 1 : 0) + (secondHook >= 0 ? 1 : 0);
     }
@@ -488,63 +529,45 @@ internal sealed class OverlayPanel : UIElement
         for (int i = 0; i < n; i++)
         {
             HookDescriptor hook = hooks[i];
-            if (hook.ModId != modId || hook.CategoryId != categoryId)
-            {
-                continue;
-            }
+            if (hook.ModId != modId || hook.CategoryId != categoryId) continue;
 
             double ms = hookMs[i];
-            if (ms <= 0.0005d)
-            {
-                continue;
-            }
+            if (ms <= 0.0005d) continue;
 
             if (ms > firstMs)
             {
-                secondHook = firstHook;
-                secondMs = firstMs;
-                firstHook = i;
-                firstMs = ms;
+                secondHook = firstHook; secondMs = firstMs;
+                firstHook  = i;         firstMs  = ms;
             }
             else if (ms > secondMs)
             {
-                secondHook = i;
-                secondMs = ms;
+                secondHook = i; secondMs = ms;
             }
         }
     }
 
-    /// <summary>Draws a dim track with a graded fill, <paramref name="value"/> relative to <paramref name="max"/>.</summary>
-    private static void DrawBar(SpriteBatch spriteBatch, int barX, int barY, double value, double max)
+    private static void DrawBar(SpriteBatch spriteBatch, int barX, int barY, double value, double max, int height)
     {
         const int barWidth = 170;
-        ProfilerTheme.FillRect(spriteBatch, new Rectangle(barX, barY, barWidth, 8), ProfilerTheme.Border);
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(barX, barY, barWidth, height), ProfilerTheme.Border);
 
         double fraction = max > 0d ? value / max : 0d;
-        if (fraction < 0d)
-        {
-            fraction = 0d;
-        }
-
+        if (fraction < 0d) fraction = 0d;
         int fillWidth = (int)(barWidth * fraction);
         if (fillWidth > 0)
-        {
             ProfilerTheme.FillRect(spriteBatch,
-                new Rectangle(barX, barY, fillWidth, 8), ProfilerTheme.CostColor(fraction));
-        }
+                new Rectangle(barX, barY, fillWidth, height), ProfilerTheme.CostColor(fraction));
     }
 
-    /// <summary>Fills and sorts <see cref="_rows"/> from the collector's per-mod totals.</summary>
+    // ---- Data helpers --------------------------------------------------------
+
     private void BuildSortedRows(IReadOnlyList<double> categoryMs)
     {
-        string[] names = HookInterceptor.ProfiledModNames;
-        int catCount = PerModAttribution.CategoryCount;
-        int n = names.Length;
+        string[] names    = HookInterceptor.ProfiledModNames;
+        int      catCount = PerModAttribution.CategoryCount;
+        int      n        = names.Length;
 
-        if (_rows.Length < n)
-        {
-            _rows = new ModRow[n];
-        }
+        if (_rows.Length < n) _rows = new ModRow[n];
 
         for (int i = 0; i < n; i++)
         {
@@ -552,138 +575,92 @@ internal sealed class OverlayPanel : UIElement
             for (int c = 0; c < catCount; c++)
             {
                 int cell = i * catCount + c;
-                if (cell < categoryMs.Count)
-                {
-                    total += categoryMs[cell];
-                }
+                if (cell < categoryMs.Count) total += categoryMs[cell];
             }
-
             _rows[i] = new ModRow(i, names[i], total);
         }
 
-        if (n > 1)
-        {
-            Array.Sort(_rows, 0, n);
-        }
-
+        if (n > 1) Array.Sort(_rows, 0, n);
         _rowCount = n;
     }
 
-    private IReadOnlyList<double> SelectedCategoryMs(MetricCollector collector)
-    {
-        return _paused ? _frozenCategoryMs : _showAverage ? collector.PerModCategoryAverageMs : collector.PerModCategoryMs;
-    }
+    private IReadOnlyList<double> SelectedCategoryMs(MetricCollector collector) =>
+        _paused ? _frozenCategoryMs : _showAverage ? collector.PerModCategoryAverageMs : collector.PerModCategoryMs;
 
-    private IReadOnlyList<double> SelectedHookMs(MetricCollector collector)
-    {
-        return _paused ? _frozenHookMs : _showAverage ? collector.PerHookAverageMs : collector.PerHookMs;
-    }
+    private IReadOnlyList<double> SelectedHookMs(MetricCollector collector) =>
+        _paused ? _frozenHookMs : _showAverage ? collector.PerHookAverageMs : collector.PerHookMs;
 
     private void CaptureSnapshot(MetricCollector collector)
     {
-        IReadOnlyList<double> categorySource = _showAverage ? collector.PerModCategoryAverageMs : collector.PerModCategoryMs;
-        IReadOnlyList<double> hookSource = _showAverage ? collector.PerHookAverageMs : collector.PerHookMs;
+        IReadOnlyList<double> catSrc  = _showAverage ? collector.PerModCategoryAverageMs : collector.PerModCategoryMs;
+        IReadOnlyList<double> hookSrc = _showAverage ? collector.PerHookAverageMs        : collector.PerHookMs;
 
-        if (_frozenCategoryMs.Length != categorySource.Count)
-        {
-            _frozenCategoryMs = new double[categorySource.Count];
-        }
+        if (_frozenCategoryMs.Length != catSrc.Count)  _frozenCategoryMs = new double[catSrc.Count];
+        if (_frozenHookMs.Length != hookSrc.Count)     _frozenHookMs     = new double[hookSrc.Count];
 
-        if (_frozenHookMs.Length != hookSource.Count)
-        {
-            _frozenHookMs = new double[hookSource.Count];
-        }
-
-        for (int i = 0; i < categorySource.Count; i++)
-        {
-            _frozenCategoryMs[i] = categorySource[i];
-        }
-
-        for (int i = 0; i < hookSource.Count; i++)
-        {
-            _frozenHookMs[i] = hookSource[i];
-        }
+        for (int i = 0; i < catSrc.Count;  i++) _frozenCategoryMs[i] = catSrc[i];
+        for (int i = 0; i < hookSrc.Count; i++) _frozenHookMs[i]     = hookSrc[i];
     }
+
+    // ---- Draw helpers --------------------------------------------------------
 
     private static void DrawHeaderToggle(SpriteBatch spriteBatch, float x, float y, float width, string label, bool active)
     {
         Rectangle area = new Rectangle((int)x, (int)y, (int)width, (int)ToggleHeight);
-        ProfilerTheme.FillRect(spriteBatch, area, active ? ProfilerTheme.RowHover : ProfilerTheme.Panel);
+        ProfilerTheme.FillRect(spriteBatch, area, active ? new Color(25, 40, 60) : ProfilerTheme.Panel);
         ProfilerTheme.DrawBorder(spriteBatch, area, active ? ProfilerTheme.Accent : ProfilerTheme.Border);
-        DrawText(spriteBatch, label, new Vector2(area.X + 6, area.Y + 3), active ? ProfilerTheme.Accent : ProfilerTheme.TextMuted, 0.55f);
+        DrawText(spriteBatch, label, new Vector2(area.X + 6, area.Y + 3),
+            active ? ProfilerTheme.Accent : ProfilerTheme.TextMuted, 0.55f);
     }
 
-    private static string Truncate(string text, int max)
+    private static string Truncate(string text, int max) =>
+        text.Length <= max ? text : text.Substring(0, max - 2) + "..";
+
+    private static void DrawStat(SpriteBatch spriteBatch, string label, string value,
+        float x, float y, Color valueColor)
     {
-        return text.Length <= max ? text : text.Substring(0, max - 2) + "..";
+        DrawText(spriteBatch, label,  new Vector2(x,         y), ProfilerTheme.TextMuted, 0.8f);
+        DrawText(spriteBatch, value,  new Vector2(x + 102f,  y), valueColor,              0.8f);
     }
 
-    /// <summary>Draws a "label   value" stat line: a muted label, then the value in its colour.</summary>
-    private static void DrawStat(SpriteBatch spriteBatch, string label, string value, float x, float y, Color valueColor)
-    {
-        DrawText(spriteBatch, label, new Vector2(x, y), ProfilerTheme.TextMuted, 0.8f);
-        DrawText(spriteBatch, value, new Vector2(x + 102f, y), valueColor, 0.8f);
-    }
-
-    /// <summary>Draws a line of text with the slight border that keeps it readable over gameplay.</summary>
-    private static void DrawText(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale)
-    {
+    private static void DrawText(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale) =>
         Utils.DrawBorderString(spriteBatch, text, position, color, scale);
-    }
 
     private static double AverageFrameTimeMs(RingBuffer<TickFrame> history)
     {
-        if (history.Count == 0)
-        {
-            return 0d;
-        }
-
+        if (history.Count == 0) return 0d;
         double sum = 0d;
-        for (int i = 0; i < history.Count; i++)
-        {
-            sum += history[i].FrameTimeMs;
-        }
-
+        for (int i = 0; i < history.Count; i++) sum += history[i].FrameTimeMs;
         return sum / history.Count;
     }
 
     private static string CoverageBadge(int modId)
     {
         int measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
-        int total = modId < HookInterceptor.TotalHookCounts.Count ? HookInterceptor.TotalHookCounts[modId] : 0;
+        int total    = modId < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[modId]    : 0;
         return total == measured ? "full" : measured == 0 ? "none" : $"{measured}/{total}";
     }
 
     private static Color CoverageColor(int modId)
     {
-        int measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
-        int total = modId < HookInterceptor.TotalHookCounts.Count ? HookInterceptor.TotalHookCounts[modId] : 0;
+        int    measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
+        int    total    = modId < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[modId]    : 0;
         double coverage = total > 0 ? measured / (double)total : 1d;
         return coverage >= 0.95d ? ProfilerTheme.Good : coverage >= 0.75d ? ProfilerTheme.Amber : ProfilerTheme.Danger;
     }
 
     private static void CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods)
     {
-        total = 0;
-        measured = 0;
-        fullMods = 0;
-        partialMods = 0;
+        total = 0; measured = 0; fullMods = 0; partialMods = 0;
         int mods = HookInterceptor.ProfiledModNames.Length;
-
         for (int i = 0; i < mods; i++)
         {
-            int modTotal = i < HookInterceptor.TotalHookCounts.Count ? HookInterceptor.TotalHookCounts[i] : 0;
+            int modTotal    = i < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[i]    : 0;
             int modMeasured = i < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[i] : 0;
-            total += modTotal;
+            total    += modTotal;
             measured += modMeasured;
-            if (modTotal == modMeasured)
-            {
-                fullMods++;
-            }
-            else
-            {
-                partialMods++;
-            }
+            if (modTotal == modMeasured) fullMods++;
+            else                         partialMods++;
         }
     }
 }
