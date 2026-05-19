@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Performance Profiler — Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background:
+    radial-gradient(ellipse at 10% -10%, rgba(40,28,18,0.18) 0%, transparent 50%),
+    radial-gradient(ellipse at 100% 100%, rgba(20,36,52,0.18) 0%, transparent 50%),
+    #0a0e14;
+  color: #c5c8ce;
+  overflow-x: hidden;
+  padding: 0;
+}
+
+/* ============ OVERLAY FRAME (this is an in-game F9 overlay) ============ */
+.overlay-shell {
+  margin: 16px;
+  border: 1px solid #2a2f3a;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #0a0e14 0%, #07090e 100%);
+  box-shadow: 0 0 0 1px #06070a, 0 12px 48px rgba(0,0,0,0.55);
+  overflow: hidden;
+}
+.overlay-chrome {
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(180deg, #11161f 0%, #0c1119 100%);
+  border-bottom: 1px solid #1f2329;
+  padding: 7px 14px; font-size: 10px;
+  color: #6e7480; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.overlay-chrome .left { display: flex; align-items: center; gap: 12px; }
+.overlay-chrome .dot { width: 8px; height: 8px; border-radius: 50%; background: #2a2f3a; display: inline-block; }
+.overlay-chrome .right { display: flex; gap: 14px; align-items: center; }
+.overlay-chrome kbd {
+  background: #161b22; border: 1px solid #2d333d; padding: 1px 5px;
+  border-radius: 2px; color: #c5c8ce; font-family: inherit; font-size: 9px;
+  text-transform: none; letter-spacing: 0;
+}
+.overlay-body { padding: 18px 24px 28px; }
+
+/* ============ HEADER ============ */
+.d1-header {
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid #1f2329; padding-bottom: 12px; margin-bottom: 16px;
+  gap: 18px; flex-wrap: wrap;
+}
+.d1-title { font-weight: 700; color: #79c0ff; font-size: 14px; letter-spacing: 0.08em; }
+.d1-title .v { color: #4d525d; font-weight: 400; margin-left: 8px; }
+.d1-status { display: flex; gap: 18px; font-size: 12px; flex-wrap: wrap; }
+.d1-status .label { color: #6e7480; }
+.d1-status .value { color: #c5c8ce; }
+.d1-status .value.fps { color: #f5b342; }
+.d1-status .value.tick { color: #f5b342; }
+.d1-status .value.gc { color: #95d4a3; }
+
+/* ============ MODE PILL ============ */
+.mode-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #06080c; border: 1px solid #2d4a6b; border-radius: 3px;
+  padding: 4px 10px; font-size: 11px; color: #79c0ff; cursor: pointer;
+  letter-spacing: 0.06em;
+}
+.mode-pill .label { color: #6e7480; }
+.mode-pill .overhead { color: #95d4a3; font-size: 10px; margin-left: 6px; }
+.mode-pill:hover { background: rgba(121,192,255,0.06); }
+
+/* ============ KPI STAT CARDS ============ */
+.d1-kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+  margin-bottom: 18px;
+}
+.d1-kpi {
+  border: 1px solid #1f2329; padding: 14px 16px; border-radius: 4px;
+  background: linear-gradient(180deg, #0d1117 0%, #0a0e14 100%);
+}
+.d1-kpi .label {
+  font-size: 10px; color: #6e7480; text-transform: uppercase; letter-spacing: 0.1em;
+  font-weight: 600;
+}
+.d1-kpi .big {
+  font-size: 30px; font-weight: 700; color: #fff; margin: 4px 0 2px;
+  letter-spacing: 0.02em; line-height: 1.1;
+}
+.d1-kpi .big .unit { font-size: 13px; color: #6e7480; font-weight: 500; margin-left: 4px; }
+.d1-kpi .delta { font-size: 11px; }
+.d1-kpi .delta.up { color: #95d4a3; }
+.d1-kpi .delta.down { color: #f47174; }
+.d1-kpi .delta.flat { color: #6e7480; }
+.d1-kpi .spark { height: 26px; margin-top: 10px; display: block; }
+
+/* ============ TABS ============ */
+.d1-tabs {
+  display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid #1f2329;
+  flex-wrap: wrap;
+}
+.d1-tabs button {
+  background: transparent; border: none; color: #6e7480; padding: 8px 12px;
+  font-family: inherit; font-size: 11px; cursor: pointer; border-bottom: 2px solid transparent;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.d1-tabs button:hover { color: #c5c8ce; }
+.d1-tabs button.active { color: #79c0ff; border-bottom-color: #79c0ff; }
+.d1-tabs button .gate { font-size: 9px; color: #f5b342; margin-left: 5px; }
+.d1-tab-content { display: none; }
+.d1-tab-content.active { display: block; }
+
+/* ============ PANELS / GRIDS ============ */
+.d1-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; }
+.d1-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.d1-panel {
+  border: 1px solid #1f2329; padding: 14px 16px; border-radius: 4px;
+  background: linear-gradient(180deg, #0d1117 0%, #0a0e14 100%);
+}
+.d1-panel h2 {
+  font-size: 11px; color: #79c0ff; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; margin-bottom: 12px;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.d1-panel h2 .sub { color: #4d525d; font-weight: 400; font-size: 10px; letter-spacing: 0.04em; text-transform: none; }
+
+/* ============ PILL TABS (sort mode) ============ */
+.d1-pills {
+  display: inline-flex; background: #06080c; border: 1px solid #1f2329;
+  border-radius: 3px; padding: 2px;
+}
+.d1-pills button {
+  background: transparent; border: none; color: #6e7480;
+  padding: 4px 10px; font-family: inherit; font-size: 10px;
+  cursor: pointer; border-radius: 2px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.d1-pills button.active { background: rgba(121,192,255,0.08); color: #79c0ff; }
+
+/* ============ MOD TREE ============ */
+.d1-tree { font-size: 13px; line-height: 1.9; }
+.d1-row {
+  display: grid; grid-template-columns: 30px 1fr 80px 60px; gap: 8px; align-items: center;
+  padding: 1px 0; cursor: pointer; border-radius: 2px;
+}
+.d1-row:hover { background: #161b22; }
+.d1-row .chev { color: #6e7480; user-select: none; }
+.d1-row .name { color: #c5c8ce; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d1-row .bar { position: relative; height: 8px; background: #161b22; border-radius: 1px; overflow: hidden; }
+.d1-row .bar::before {
+  content: ''; position: absolute; top: 0; left: 0; bottom: 0;
+  width: var(--w); background: var(--c); border-radius: 1px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.d1-row .pct { color: #6e7480; font-size: 11px; text-align: right; }
+.d1-row .ms { color: #f5b342; font-size: 11px; text-align: right; font-weight: 600; }
+
+.d1-row.depth-1 { padding-left: 0; }
+.d1-row.depth-2 { padding-left: 20px; font-size: 12px; }
+.d1-row.depth-2 .name { color: #9ba1ad; }
+.d1-row.depth-3 { padding-left: 40px; font-size: 11px; }
+.d1-row.depth-3 .name { color: #6e7480; font-style: italic; }
+
+.d1-row.collapsed + .child-rows { display: none; }
+.child-rows { display: contents; }
+
+.d1-cost-red { --c: #f47174; }
+.d1-cost-orange { --c: #f5b342; }
+.d1-cost-yellow { --c: #ddc36e; }
+.d1-cost-green { --c: #95d4a3; }
+.d1-cost-blue { --c: #6ba0e3; }
+.d1-cost-purple { --c: #b389e3; }
+
+/* ============ SIDE PANELS ============ */
+.d1-side h3 {
+  font-size: 11px; color: #79c0ff; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; margin-bottom: 10px;
+}
+.d1-spike-row {
+  display: grid; grid-template-columns: 60px 1fr 50px; gap: 8px;
+  font-size: 11px; padding: 3px 0; cursor: pointer; border-radius: 2px;
+}
+.d1-spike-row:hover { background: #161b22; }
+.d1-spike-row .time { color: #6e7480; }
+.d1-spike-row .text { color: #c5c8ce; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d1-spike-row .ms { color: #f47174; text-align: right; font-weight: 600; }
+
+/* ============ DORMANT CALLOUT (side panel + own tab use it) ============ */
+.dormant-row {
+  display: grid; grid-template-columns: 1fr 50px; gap: 8px;
+  font-size: 11px; padding: 6px 0; cursor: pointer;
+  border-bottom: 1px dashed #1f2329;
+}
+.dormant-row:last-child { border-bottom: none; }
+.dormant-row:hover { background: #161b22; }
+.dormant-row .name { color: #c5c8ce; }
+.dormant-row .ev { color: #6e7480; font-size: 10px; margin-top: 2px; }
+.dormant-row .cost { color: #b389e3; text-align: right; font-weight: 600; font-size: 12px; }
+
+/* ============ INSIGHT (neutral, evidence-led) ============ */
+.d1-insight {
+  background: #0d1f17; border-left: 3px solid #95d4a3; padding: 11px 14px;
+  margin-bottom: 8px; font-size: 11px; line-height: 1.55; border-radius: 0 2px 2px 0;
+  cursor: pointer; transition: transform 0.12s;
+}
+.d1-insight:hover { transform: translateX(2px); }
+.d1-insight.warn { background: #1f1a0d; border-left-color: #f5b342; }
+.d1-insight.alert { background: #1f0d0d; border-left-color: #f47174; }
+.d1-insight.dormant { background: #170d1f; border-left-color: #b389e3; }
+.d1-insight strong { color: #fff; }
+.d1-insight .ev {
+  color: #9ba1ad; font-size: 10px; margin: 6px 0; padding-left: 10px;
+  border-left: 1px solid #2a2f3a; line-height: 1.5;
+}
+.d1-insight .ev div { padding: 1px 0; }
+.d1-insight .suggest { color: #c5c8ce; font-style: italic; margin-top: 6px; font-size: 11px; }
+.d1-insight .badges { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.d1-insight .badge {
+  font-size: 9px; padding: 1px 6px; border-radius: 2px; letter-spacing: 0.06em;
+  text-transform: uppercase; font-weight: 600;
+}
+.d1-insight .badge.session { background: rgba(121,192,255,0.1); color: #79c0ff; }
+.d1-insight .badge.lifetime { background: rgba(149,212,163,0.1); color: #95d4a3; }
+.d1-insight .badge.gated { background: rgba(245,179,66,0.1); color: #f5b342; }
+
+/* ============ HEATMAP ============ */
+.d1-heatmap-wrap { display: grid; grid-template-columns: 36px 1fr; gap: 8px; }
+.d1-heatmap-ylabels {
+  display: flex; flex-direction: column; justify-content: space-between;
+  font-size: 9px; color: #4d525d; padding: 2px 0;
+}
+.d1-heatmap {
+  display: grid; grid-template-columns: repeat(80, 1fr); gap: 2px;
+}
+.d1-heat-cell {
+  aspect-ratio: 1; border-radius: 1px; cursor: pointer; transition: transform 0.08s, box-shadow 0.08s;
+  position: relative;
+}
+.d1-heat-cell:hover { transform: scale(2.2); z-index: 4; box-shadow: 0 0 0 1px #79c0ff; }
+.d1-heat-cell.marker::after {
+  content: ''; position: absolute; inset: -2px; border: 1px solid #fff;
+  border-radius: 2px; pointer-events: none;
+}
+.d1-heatmap-xlabels {
+  display: flex; justify-content: space-between; margin-top: 6px;
+  padding-left: 44px; font-size: 9px; color: #4d525d;
+}
+.d1-heat-legend {
+  display: flex; gap: 14px; align-items: center; margin-top: 10px;
+  font-size: 10px; color: #6e7480; flex-wrap: wrap;
+}
+.d1-heat-legend .swatch {
+  display: inline-block; width: 10px; height: 10px; border-radius: 1px;
+  vertical-align: middle; margin-right: 4px;
+}
+.d1-event-markers {
+  display: flex; gap: 14px; margin-top: 8px; padding-left: 44px;
+  font-size: 10px; color: #6e7480;
+}
+.d1-event-markers span { display: inline-flex; align-items: center; gap: 5px; }
+.d1-event-markers .glyph { color: #fff; font-weight: 700; }
+
+/* ============ BIOME BREAKDOWN BARS ============ */
+.d1-biome-row {
+  display: grid; grid-template-columns: 130px 60px 1fr 70px; gap: 10px;
+  align-items: center; padding: 5px 0; font-size: 12px;
+}
+.d1-biome-row .name { color: #c5c8ce; }
+.d1-biome-row .time { color: #6e7480; font-size: 11px; }
+.d1-biome-row .barwrap { position: relative; height: 8px; background: #161b22; border-radius: 1px; overflow: hidden; }
+.d1-biome-row .barwrap::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--w); background: var(--c); border-radius: 1px;
+}
+.d1-biome-row .val { font-size: 11px; text-align: right; font-weight: 600; }
+
+/* ============ EVENT PILLS ============ */
+.d1-event-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.d1-event-tabs button {
+  background: transparent; border: 1px solid #2a2f3a; color: #9ba1ad;
+  padding: 5px 12px; font-family: inherit; font-size: 11px; cursor: pointer;
+  border-radius: 3px; letter-spacing: 0.04em;
+}
+.d1-event-tabs button:hover { border-color: #3a4252; }
+.d1-event-tabs button.active {
+  background: rgba(121,192,255,0.08); border-color: #2d4a6b; color: #79c0ff;
+}
+.d1-event-tabs button .ct { color: #4d525d; margin-left: 4px; font-size: 10px; }
+
+/* ============ BOSS LEDGER ============ */
+.boss-row {
+  display: grid;
+  grid-template-columns: 200px 80px 70px 80px 80px 1fr 60px;
+  gap: 12px; align-items: center; padding: 10px 0;
+  border-bottom: 1px solid #161b22; font-size: 12px; cursor: pointer;
+}
+.boss-row:hover { background: #161b22; }
+.boss-row:last-child { border-bottom: none; }
+.boss-row .name { color: #c5c8ce; font-weight: 600; }
+.boss-row .name .biome { display: block; color: #6e7480; font-size: 10px; font-weight: 400; }
+.boss-row .time { color: #6e7480; font-size: 11px; }
+.boss-row .duration { color: #9ba1ad; font-size: 11px; }
+.boss-row .fps { font-weight: 600; }
+.boss-row .worst { color: #f47174; font-weight: 600; }
+.boss-row .top-cause { color: #9ba1ad; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.boss-row .outcome { text-align: right; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.outcome-won { color: #95d4a3; }
+.outcome-died { color: #f47174; }
+.outcome-fled { color: #f5b342; }
+
+.boss-header {
+  display: grid;
+  grid-template-columns: 200px 80px 70px 80px 80px 1fr 60px;
+  gap: 12px; align-items: center; padding: 6px 0;
+  font-size: 9px; color: #4d525d; text-transform: uppercase; letter-spacing: 0.08em;
+  border-bottom: 1px solid #1f2329; margin-bottom: 4px;
+}
+
+/* ============ CROSS-MOD CHAINS ============ */
+.chain-card {
+  border: 1px dashed #3a4252; padding: 12px 14px; margin-bottom: 10px;
+  background: #0d1117; border-radius: 4px;
+}
+.chain-flow {
+  font-size: 12px; line-height: 1.9; color: #c5c8ce; font-family: 'JetBrains Mono', monospace;
+}
+.chain-flow .step { display: inline-block; padding: 2px 8px; background: #161b22; border-radius: 2px; border: 1px solid #2a2f3a; margin: 2px 0; }
+.chain-flow .arrow { color: #4d525d; margin: 0 5px; }
+.chain-summary { font-size: 11px; color: #6e7480; margin-top: 8px; }
+.chain-summary .cost { color: #f5b342; font-weight: 600; }
+.chain-summary .pct { color: #f47174; font-weight: 600; }
+
+.research-gate {
+  background: linear-gradient(180deg, #1f1a0d 0%, #15110a 100%);
+  border-left: 3px solid #f5b342; padding: 12px 16px; margin-bottom: 14px;
+  border-radius: 0 3px 3px 0; font-size: 11px; line-height: 1.6; color: #c5c8ce;
+}
+.research-gate strong { color: #f5b342; }
+
+/* ============ SESSION RETROSPECTIVE (polished) ============ */
+.retro-card {
+  background:
+    radial-gradient(ellipse at top right, rgba(121,192,255,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at bottom left, rgba(179,137,227,0.04) 0%, transparent 60%),
+    linear-gradient(180deg, #0d1117 0%, #07090e 100%);
+  border: 1px solid #2d3344; border-radius: 6px;
+  padding: 28px 32px; position: relative; overflow: hidden;
+}
+.retro-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, #79c0ff, transparent);
+}
+.retro-kicker {
+  font-size: 10px; color: #6e7480; text-transform: uppercase; letter-spacing: 0.18em;
+  margin-bottom: 6px;
+}
+.retro-title {
+  font-size: 22px; font-weight: 700; color: #fff;
+  letter-spacing: 0.02em; margin-bottom: 4px;
+}
+.retro-meta { font-size: 12px; color: #9ba1ad; margin-bottom: 24px; }
+.retro-hero {
+  display: grid; grid-template-columns: 1fr 1px 1.5fr; gap: 24px;
+  padding-bottom: 22px; border-bottom: 1px solid #1f2329; margin-bottom: 22px;
+  align-items: center;
+}
+.retro-hero .divider { background: #1f2329; }
+.retro-hero .big-num {
+  font-size: 56px; font-weight: 700; color: #fff;
+  letter-spacing: -0.02em; line-height: 1;
+}
+.retro-hero .big-num .unit { font-size: 18px; color: #6e7480; margin-left: 6px; font-weight: 500; }
+.retro-hero .big-label { font-size: 10px; color: #6e7480; text-transform: uppercase; letter-spacing: 0.12em; margin-top: 8px; }
+.retro-hero .delta { font-size: 12px; color: #95d4a3; margin-top: 6px; }
+.retro-hero .narrative { font-size: 13px; line-height: 1.6; color: #c5c8ce; }
+.retro-hero .narrative strong { color: #fff; }
+
+.retro-podium {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+  margin-bottom: 22px;
+}
+.retro-podium-card {
+  background: rgba(255,255,255,0.02); border: 1px solid #1f2329;
+  border-radius: 4px; padding: 16px;
+}
+.retro-podium-card .rank {
+  font-size: 9px; color: #6e7480; letter-spacing: 0.12em; text-transform: uppercase;
+}
+.retro-podium-card .modname { font-size: 14px; font-weight: 700; color: #fff; margin-top: 4px; }
+.retro-podium-card .author { font-size: 10px; color: #6e7480; }
+.retro-podium-card .share { font-size: 22px; font-weight: 700; color: #f5b342; margin-top: 10px; }
+.retro-podium-card .share .small { font-size: 11px; color: #6e7480; font-weight: 500; }
+.retro-podium-card.top { border-color: #2d4a6b; background: rgba(121,192,255,0.04); }
+.retro-podium-card.top .share { color: #79c0ff; }
+
+.retro-callout {
+  background: rgba(244,113,116,0.04); border-left: 3px solid #f47174;
+  padding: 14px 18px; border-radius: 0 4px 4px 0; margin-bottom: 22px;
+}
+.retro-callout .label { font-size: 9px; color: #f47174; text-transform: uppercase; letter-spacing: 0.12em; }
+.retro-callout .title { font-size: 16px; color: #fff; font-weight: 600; margin-top: 4px; }
+.retro-callout .detail { font-size: 12px; color: #9ba1ad; margin-top: 4px; }
+
+.retro-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  margin-bottom: 22px;
+}
+.retro-block { background: rgba(255,255,255,0.015); border: 1px solid #1f2329; padding: 14px 16px; border-radius: 4px; }
+.retro-block h4 { font-size: 9px; color: #79c0ff; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 10px; }
+.retro-block .row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; color: #c5c8ce; }
+.retro-block .row .val { color: #f5b342; font-weight: 600; }
+.retro-block .row .val.purple { color: #b389e3; }
+.retro-block .row .val.green { color: #95d4a3; }
+
+.retro-dormant {
+  background: rgba(179,137,227,0.04); border-left: 3px solid #b389e3;
+  padding: 14px 18px; border-radius: 0 4px 4px 0; font-size: 12px; color: #c5c8ce;
+  line-height: 1.55;
+}
+.retro-dormant .label { font-size: 9px; color: #b389e3; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px; }
+.retro-dormant strong { color: #fff; }
+
+/* ============ COUNTERFACTUAL (used in modal) ============ */
+.cf-card {
+  background: #06080c; border: 1px solid #1f2329; border-radius: 4px;
+  padding: 14px 16px; margin-top: 14px;
+}
+.cf-row {
+  display: grid; grid-template-columns: 1fr 80px 24px 80px;
+  gap: 8px; align-items: center; padding: 4px 0;
+  font-size: 11px;
+}
+.cf-row .name { color: #9ba1ad; }
+.cf-row .cur { color: #f5b342; text-align: right; font-weight: 600; }
+.cf-row .arrow { color: #4d525d; text-align: center; }
+.cf-row .new { color: #95d4a3; text-align: right; font-weight: 600; }
+.cf-summary {
+  display: grid; grid-template-columns: 1fr 80px 24px 80px;
+  gap: 8px; padding: 8px 0;
+  margin-top: 6px; border-top: 1px solid #1f2329;
+  font-size: 12px; font-weight: 700;
+}
+.cf-summary .name { color: #fff; }
+.cf-summary .cur { color: #f5b342; text-align: right; }
+.cf-summary .arrow { color: #4d525d; text-align: center; }
+.cf-summary .new { color: #95d4a3; text-align: right; }
+
+/* ============ ENGAGEMENT (modal) ============ */
+.engage-card {
+  background: #06080c; border: 1px solid #1f2329; border-radius: 4px;
+  padding: 14px 16px; margin-top: 14px;
+}
+.engage-row {
+  display: grid; grid-template-columns: 1fr 80px;
+  gap: 8px; padding: 4px 0; font-size: 11px; align-items: center;
+}
+.engage-row .label { color: #9ba1ad; }
+.engage-row .val { text-align: right; color: #c5c8ce; font-weight: 600; }
+.engage-row .val.zero { color: #b389e3; }
+.engage-row .val.high { color: #95d4a3; }
+.engage-summary {
+  font-size: 11px; color: #c5c8ce; padding: 8px 0 4px;
+  border-top: 1px solid #1f2329; margin-top: 6px;
+  font-style: italic;
+}
+
+/* ============ MODE DROPDOWN ============ */
+.mode-menu {
+  position: absolute; top: 28px; right: 0;
+  background: #0d1117; border: 1px solid #2a2f3a; border-radius: 3px;
+  padding: 6px; min-width: 220px; z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  display: none;
+}
+.mode-menu.open { display: block; }
+.mode-menu .opt {
+  display: grid; grid-template-columns: 1fr auto;
+  padding: 7px 10px; font-size: 11px; cursor: pointer; border-radius: 2px;
+  gap: 12px;
+}
+.mode-menu .opt:hover { background: #161b22; }
+.mode-menu .opt.active { background: rgba(121,192,255,0.08); }
+.mode-menu .opt .nm { color: #c5c8ce; }
+.mode-menu .opt .ov { color: #6e7480; }
+.mode-menu .opt .desc { grid-column: 1 / -1; font-size: 10px; color: #4d525d; margin-top: 2px; }
+.mode-wrap { position: relative; }
+
+/* ============ MODAL ============ */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 999;
+  display: none; align-items: center; justify-content: center; padding: 40px;
+  backdrop-filter: blur(6px);
+}
+.modal-bg.open { display: flex; }
+.modal {
+  background: #0d1117; color: #c5c8ce; max-width: 760px; width: 100%;
+  max-height: 86vh; overflow-y: auto; padding: 28px; border-radius: 6px;
+  border: 1px solid #1f2329; font-family: 'JetBrains Mono', monospace;
+}
+.modal h2 { font-size: 18px; margin-bottom: 4px; font-weight: 700; color: #fff; font-family: inherit; }
+.modal .author { color: #6e7480; font-size: 12px; margin-bottom: 18px; }
+.modal h3 {
+  font-size: 10px; font-weight: 700; color: #79c0ff; text-transform: uppercase;
+  letter-spacing: 0.12em; margin: 18px 0 8px;
+}
+.modal p { line-height: 1.6; margin-bottom: 8px; font-size: 12px; color: #9ba1ad; }
+.modal .verdict {
+  background: rgba(149,212,163,0.06); border-left: 3px solid #95d4a3;
+  padding: 12px 14px; margin-top: 16px; border-radius: 0 3px 3px 0; font-size: 12px;
+}
+.modal-close {
+  float: right; background: transparent; border: 1px solid #2a2f3a;
+  color: #9ba1ad; padding: 4px 10px; border-radius: 3px; cursor: pointer;
+  font-family: inherit; font-size: 11px;
+}
+.modal-stat-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 8px; }
+.modal-stat {
+  background: #06080c; padding: 12px; border-radius: 3px; border: 1px solid #1f2329;
+}
+.modal-stat .lbl { font-size: 9px; color: #6e7480; text-transform: uppercase; letter-spacing: 0.1em; }
+.modal-stat .v { font-size: 20px; font-weight: 700; color: #fff; margin-top: 4px; }
+
+.evidence-card {
+  background: #06080c; border: 1px solid #1f2329; border-radius: 3px;
+  padding: 10px 14px; margin-top: 8px; font-size: 11px; color: #9ba1ad; line-height: 1.65;
+}
+.evidence-card .row { padding: 2px 0; }
+.evidence-card .row::before { content: '· '; color: #4d525d; }
+
+/* ============ HOTKEYS ============ */
+.d1-hotkeys {
+  position: fixed; bottom: 16px; right: 16px;
+  background: #0d1117; border: 1px solid #1f2329; padding: 8px 12px;
+  border-radius: 4px; font-size: 11px; color: #6e7480;
+  display: flex; gap: 14px; z-index: 50;
+}
+.d1-hotkeys kbd {
+  background: #161b22; border: 1px solid #2d333d; padding: 2px 6px;
+  border-radius: 3px; color: #c5c8ce; font-family: inherit; font-size: 10px;
+}
+
+/* ============ SPARKLINES ============ */
+.spark-line { stroke-width: 1.6; fill: none; }
+.spark-area { fill-opacity: 0.15; }
+
+</style>
+</head>
+<body>
+
+<div class="overlay-shell">
+
+  <div class="overlay-chrome">
+    <div class="left">
+      <span class="dot"></span>
+      <span>In-game overlay · toggle with <kbd>F9</kbd></span>
+    </div>
+    <div class="right">
+      <span>Terraria 1.4.4 · tModLoader v2026.1.3.2</span>
+      <span>94 mods loaded</span>
+      <span>Press <kbd>Esc</kbd> to dismiss</span>
+    </div>
+  </div>
+
+  <div class="overlay-body">
+
+    <div class="d1-header">
+      <div class="d1-title">PERF.PROFILER<span class="v">v1.0</span></div>
+      <div class="d1-status">
+        <span><span class="label">FPS</span> <span class="value fps">47</span></span>
+        <span><span class="label">TICK</span> <span class="value tick">23.4ms</span></span>
+        <span><span class="label">GC</span> <span class="value gc">2.1ms/s</span></span>
+        <span><span class="label">UPTIME</span> <span class="value">02:17:43</span></span>
+        <span><span class="label">SAMPLES</span> <span class="value">490,820</span></span>
+      </div>
+      <div class="mode-wrap">
+        <div class="mode-pill" id="mode-pill">
+          <span class="label">MODE:</span>
+          <span id="mode-current">STANDARD</span>
+          <span>▾</span>
+          <span class="overhead" id="mode-overhead">2.3% overhead</span>
+        </div>
+        <div class="mode-menu" id="mode-menu">
+          <div class="opt" data-mode="lite"><span class="nm">Lite</span><span class="ov">&lt;1%</span><span class="desc">Frame-time + per-mod totals only</span></div>
+          <div class="opt active" data-mode="standard"><span class="nm">Standard</span><span class="ov">2-4%</span><span class="desc">+ subsystem rollup + event attribution</span></div>
+          <div class="opt" data-mode="deep"><span class="nm">Deep</span><span class="ov">5-10%</span><span class="desc">+ per-hook + allocation tracking + cross-mod chains</span></div>
+          <div class="opt" data-mode="off"><span class="nm">Off</span><span class="ov">0%</span><span class="desc">No instrumentation. Overlay shows last session.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI STRIP -->
+    <div class="d1-kpis">
+      <div class="d1-kpi">
+        <div class="label">Avg FPS</div>
+        <div class="big">51<span class="unit">/ 60</span></div>
+        <div class="delta up">▲ +3 vs previous session</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none">
+          <polyline class="spark-area" stroke="none" fill="#95d4a3" points="0,30 0,18 20,15 40,16 60,12 80,18 100,14 120,11 140,16 160,12 180,9 200,11 200,30"/>
+          <polyline class="spark-line" stroke="#95d4a3" points="0,18 20,15 40,16 60,12 80,18 100,14 120,11 140,16 160,12 180,9 200,11"/>
+        </svg>
+      </div>
+      <div class="d1-kpi">
+        <div class="label">Worst Frame</div>
+        <div class="big">87<span class="unit">ms</span></div>
+        <div class="delta down">▼ +12 ms vs previous</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none">
+          <polyline class="spark-line" stroke="#f47174" points="0,22 20,20 40,15 60,8 80,18 100,12 120,22 140,4 160,16 180,11 200,15"/>
+        </svg>
+      </div>
+      <div class="d1-kpi">
+        <div class="label">Lag Spikes (&gt;50ms)</div>
+        <div class="big">23</div>
+        <div class="delta down">▼ +5 vs previous</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none">
+          <polyline class="spark-line" stroke="#f5b342" points="0,28 25,20 50,22 75,18 100,15 125,10 150,16 175,8 200,12"/>
+        </svg>
+      </div>
+      <div class="d1-kpi">
+        <div class="label">Dormant Cost</div>
+        <div class="big">13.7<span class="unit">%</span></div>
+        <div class="delta flat">3 mods · 0 engagement this session</div>
+        <svg class="spark" viewBox="0 0 200 30" preserveAspectRatio="none">
+          <polyline class="spark-line" stroke="#b389e3" points="0,18 25,16 50,17 75,15 100,14 125,15 150,13 175,12 200,11"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="d1-tabs">
+      <button class="active" data-d1="overview">Overview</button>
+      <button data-d1="tree">Full tree</button>
+      <button data-d1="hot">Hot moments</button>
+      <button data-d1="events">Events</button>
+      <button data-d1="biomes">Biomes</button>
+      <button data-d1="bosses">Boss fights</button>
+      <button data-d1="dormant">Dormant cost</button>
+      <button data-d1="cross">Cross-mod chains<span class="gate">⛬ gated</span></button>
+      <button data-d1="session">Session retrospective</button>
+    </div>
+
+    <!-- ===== OVERVIEW ===== -->
+    <div class="d1-tab-content active" data-d1c="overview">
+      <div class="d1-grid">
+        <div class="d1-panel">
+          <h2>
+            <span>▾ Top mods · 94 loaded</span>
+            <div class="d1-pills">
+              <button class="active" data-sort="drag">Consistent drag</button>
+              <button data-sort="spike">Spike severity</button>
+              <button data-sort="alloc">Allocations</button>
+              <button data-sort="wallclock">Wall-clock impact</button>
+              <button data-sort="cpi">Cost-per-interaction</button>
+            </div>
+          </h2>
+          <div class="d1-tree" id="d1-tree-overview"></div>
+        </div>
+        <div class="d1-side">
+          <div class="d1-panel">
+            <h3>▼ Top Spike Sources</h3>
+            <div id="d1-spikes"></div>
+          </div>
+          <div class="d1-panel" style="margin-top:14px">
+            <h3>▼ Dormant Cost (top 3)</h3>
+            <div id="d1-dormant-mini"></div>
+            <div style="font-size:10px;color:#6e7480;margin-top:8px;border-top:1px dashed #1f2329;padding-top:6px;line-height:1.5;">
+              Cost paid with no observed engagement this session. Open the <strong style="color:#b389e3;">Dormant cost</strong> tab for full breakdown + reasoning.
+            </div>
+          </div>
+          <div class="d1-panel" style="margin-top:14px">
+            <h3>▼ Observations</h3>
+            <div id="d1-insights"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HEATMAP -->
+      <div class="d1-panel" style="margin-top:18px;">
+        <h2>
+          <span>▾ Session frame-time heatmap</span>
+          <span class="sub">80 cols × 8 rows · click any cell to drill into that moment</span>
+        </h2>
+        <div class="d1-heatmap-wrap">
+          <div class="d1-heatmap-ylabels">
+            <span>00:00</span><span>00:17</span><span>00:34</span><span>00:51</span><span>01:08</span><span>01:25</span><span>01:42</span><span>01:59</span>
+          </div>
+          <div class="d1-heatmap" id="d1-heatmap"></div>
+        </div>
+        <div class="d1-heatmap-xlabels">
+          <span>frame col 1</span><span>30s windows →</span><span>end of session</span>
+        </div>
+        <div class="d1-heat-legend">
+          <span><span class="swatch" style="background:#1c3d6b;"></span>&lt;17ms (60+ FPS)</span>
+          <span><span class="swatch" style="background:#95d4a3;"></span>17-20ms</span>
+          <span><span class="swatch" style="background:#ddc36e;"></span>20-30ms</span>
+          <span><span class="swatch" style="background:#f5b342;"></span>30-50ms</span>
+          <span><span class="swatch" style="background:#f47174;"></span>&gt;50ms (spike)</span>
+        </div>
+        <div class="d1-event-markers">
+          <span><span class="glyph" style="border:1px solid #fff;padding:0 4px;border-radius:2px;">B</span> boss spawn (8)</span>
+          <span><span class="glyph" style="color:#f47174;">✕</span> death (3)</span>
+          <span><span class="glyph" style="color:#95d4a3;">▲</span> biome enter (14)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== FULL TREE ===== -->
+    <div class="d1-tab-content" data-d1c="tree">
+      <div class="d1-panel">
+        <h2>
+          <span>▾ Full drill-down · all 94 mods</span>
+          <span class="sub">depth 3: mod → subsystem → hook · double-click a row to open detail</span>
+        </h2>
+        <div class="d1-tree" id="d1-tree-full"></div>
+      </div>
+    </div>
+
+    <!-- ===== HOT MOMENTS ===== -->
+    <div class="d1-tab-content" data-d1c="hot">
+      <div class="d1-panel">
+        <h2>
+          <span>▾ Hot moments — worst frames this session</span>
+          <span class="sub">spike clustering: 3 of top 5 in Cryogen P2 → fight-driven, not random</span>
+        </h2>
+        <div class="d1-tree" id="d1-hot-moments"></div>
+      </div>
+    </div>
+
+    <!-- ===== EVENTS ===== -->
+    <div class="d1-tab-content" data-d1c="events">
+      <div class="d1-panel">
+        <h2><span>▾ Event-triggered cost attribution</span><span class="sub">which mods fire on each event class</span></h2>
+        <div class="d1-event-tabs" id="d1-event-tabs">
+          <button class="active" data-d1e="hit">Enemy Hit<span class="ct">3,847</span></button>
+          <button data-d1e="boss">Boss Spawn<span class="ct">8</span></button>
+          <button data-d1e="biome">Biome Enter<span class="ct">14</span></button>
+          <button data-d1e="pickup">Item Pickup<span class="ct">2,103</span></button>
+          <button data-d1e="proj">Projectile Spawn<span class="ct">84,222</span></button>
+          <button data-d1e="weapon">Weapon Use<span class="ct">12,041</span></button>
+        </div>
+        <div class="d1-tree" id="d1-event-content"></div>
+      </div>
+    </div>
+
+    <!-- ===== BIOMES ===== -->
+    <div class="d1-tab-content" data-d1c="biomes">
+      <div class="d1-grid-2col">
+        <div class="d1-panel"><h2><span>▾ Biome FPS ranking</span><span class="sub">worst → best</span></h2><div id="d1-biome-fps"></div></div>
+        <div class="d1-panel"><h2><span>▾ Time spent per biome</span><span class="sub">session 02:17:43</span></h2><div id="d1-biome-time"></div></div>
+      </div>
+      <div class="d1-panel" style="margin-top:18px;">
+        <h2><span>▾ Cost attribution on biome transition</span><span class="sub">14 biome-enter events this session</span></h2>
+        <div class="d1-tree" id="d1-biome-attr"></div>
+      </div>
+    </div>
+
+    <!-- ===== BOSS FIGHTS (NEW) ===== -->
+    <div class="d1-tab-content" data-d1c="bosses">
+      <div class="d1-panel">
+        <h2>
+          <span>▾ Boss fights this session</span>
+          <span class="sub">8 named fights · sorted by worst FPS</span>
+        </h2>
+        <div class="boss-header">
+          <div>Fight</div><div>Started</div><div>Duration</div><div>Avg FPS</div><div>Worst</div><div>Top cause</div><div>Result</div>
+        </div>
+        <div id="boss-ledger"></div>
+      </div>
+    </div>
+
+    <!-- ===== DORMANT COST (NEW) ===== -->
+    <div class="d1-tab-content" data-d1c="dormant">
+      <div class="d1-panel">
+        <h2>
+          <span>▾ Dormant cost · mods paying frames without observed use</span>
+          <span class="sub">cost × (1 − engagement) · this session only</span>
+        </h2>
+        <div style="font-size:11px;color:#9ba1ad;line-height:1.6;margin-bottom:16px;padding:12px 14px;background:#0d1117;border-left:3px solid #b389e3;border-radius:0 3px 3px 0;">
+          <strong style="color:#fff;">What this is.</strong> Every mod costs frame time whether you interact with it or not — hook chains fire on every tick regardless. This panel ranks mods by <em>frames-paid-vs-engagement-observed</em>. A mod at the top is costing CPU without (in this session) anything to show for it. <strong style="color:#b389e3;">No mod is removed automatically.</strong> The profiler reports; the player decides what's worth their slot.
+          <br><br>
+          <span style="color:#f5b342;">Single-session signal only.</span> A 0-engagement mod across one 2-hour session may be a different mod across 20 sessions — persistent storage (gated on Workshop policy) extends this from "today" to "ever".
+        </div>
+        <div id="dormant-full"></div>
+      </div>
+    </div>
+
+    <!-- ===== CROSS-MOD CHAINS (NEW, RESEARCH-GATED) ===== -->
+    <div class="d1-tab-content" data-d1c="cross">
+      <div class="d1-panel">
+        <h2><span>▾ Cross-mod entity attribution</span><span class="sub">mock data · feature gated on hook-introspection research</span></h2>
+        <div class="research-gate">
+          <strong>⛬ Research gate.</strong> Visualisation only — implementation depends on whether tModLoader's hook dispatch surfaces enough introspection to attribute <em>"Mod A's projectile triggered Mod B's status applied by Mod C's accessory"</em> as a chain rather than three independent owners. We can observe hook firing order trivially; full chain attribution depends on hook-registration metadata depth. Pinned for investigation before Milestone 1 commits to this feature.
+        </div>
+        <div id="cross-chains"></div>
+      </div>
+    </div>
+
+    <!-- ===== SESSION RETROSPECTIVE (POLISHED) ===== -->
+    <div class="d1-tab-content" data-d1c="session">
+      <div class="retro-card">
+        <div class="retro-kicker">Session #47 · 2026-05-19 · Wednesday</div>
+        <div class="retro-title">2 hours, 17 minutes of modded Terraria</div>
+        <div class="retro-meta">94 mods loaded · Master + Calamity Death + Fargo's Eternity · 490,820 frame samples</div>
+
+        <div class="retro-hero">
+          <div>
+            <div class="big-num">51<span class="unit">FPS avg</span></div>
+            <div class="big-label">across the full session</div>
+            <div class="delta">↑ +3 vs your previous session</div>
+          </div>
+          <div class="divider"></div>
+          <div class="narrative">
+            Best stretch: <strong>00:00–00:30</strong>, Forest exploration at <strong>56 FPS</strong>. Hardest stretch: Cryogen P2 at <strong>01:47:18</strong> (25 FPS sustained for 2:14).
+            <br><br>
+            5 bosses fought · 487 enemies killed · 14 weapons used · 6 biomes explored.
+          </div>
+        </div>
+
+        <div class="retro-podium">
+          <div class="retro-podium-card top">
+            <div class="rank">#1 cost contributor</div>
+            <div class="modname">Calamity Mod</div>
+            <div class="author">Ozzatron · 7.8 ms / frame</div>
+            <div class="share">32.1<span class="small">%</span></div>
+          </div>
+          <div class="retro-podium-card">
+            <div class="rank">#2</div>
+            <div class="modname">Fargo's Souls Mod</div>
+            <div class="author">Fargowilta · 3.9 ms / frame</div>
+            <div class="share">16.2<span class="small">%</span></div>
+          </div>
+          <div class="retro-podium-card">
+            <div class="rank">#3</div>
+            <div class="modname">Spirit Reforged</div>
+            <div class="author">GabeHasWon · 2.1 ms / frame</div>
+            <div class="share">8.7<span class="small">%</span></div>
+          </div>
+        </div>
+
+        <div class="retro-callout">
+          <div class="label">Memorable fight</div>
+          <div class="title">Cryogen Phase 2 · 01:47:18</div>
+          <div class="detail">87 ms worst frame · 25 FPS sustained for 2:14 · Calamity → Cryogen → SnowstormCallback() responsible for 67% of frame cost · result: <strong style="color:#95d4a3;">won</strong></div>
+        </div>
+
+        <div class="retro-grid">
+          <div class="retro-block">
+            <h4>What you used</h4>
+            <div class="row"><span>Weapons fired</span><span class="val green">14</span></div>
+            <div class="row"><span>Items consumed</span><span class="val green">23</span></div>
+            <div class="row"><span>NPCs killed</span><span class="val green">487</span></div>
+            <div class="row"><span>Bosses defeated</span><span class="val green">5</span></div>
+            <div class="row"><span>Biomes entered</span><span class="val green">6</span></div>
+          </div>
+          <div class="retro-block">
+            <h4>What you didn't</h4>
+            <div class="row"><span>Runeterran accessories equipped</span><span class="val purple">0 of 300+</span></div>
+            <div class="row"><span>Risk of Slime Rain items picked up</span><span class="val purple">0 of 35</span></div>
+            <div class="row"><span>Bard / Healer / Throwing class weapons</span><span class="val purple">0 of 3 classes</span></div>
+            <div class="row"><span>Calamity Fables patched items</span><span class="val purple">0 encountered</span></div>
+            <div class="row"><span>Exile's Armory weapons</span><span class="val purple">0 of ~80</span></div>
+          </div>
+        </div>
+
+        <div class="retro-dormant">
+          <div class="label">▼ Dormant cost summary</div>
+          <strong>13.7%</strong> of frame time this session went to <strong>3 mods you didn't interact with</strong> (Runeterran 8.1%, Risk of Slime Rain 1.5%, Projectile Auto-Homing 1.7% — projectile-side homing fired on enemy projectiles you dodged, never on yours since you didn't toggle friendly homing). Open the <strong>Dormant cost</strong> tab to see the full breakdown and the evidence behind each line. <em>Persistent storage would extend this from one session to your entire playthrough.</em>
+        </div>
+      </div>
+    </div>
+
+    <div class="d1-hotkeys">
+      <span><kbd>F9</kbd> toggle</span>
+      <span><kbd>↑↓</kbd> nav</span>
+      <span><kbd>Enter</kbd> drill</span>
+      <span><kbd>Esc</kbd> close</span>
+    </div>
+
+  </div>
+</div>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<script>
+/* ============ DATA ============ */
+// engagement.summary: 'high' | 'med' | 'low' | 'none'
+// dependents: array of mod names that declare this as a dep (objective)
+// removable removed — replaced by dependents.length + engagement
+const DATA = {
+  session: { duration: "2h 17min", date: "2026-05-19", avgFps: 51, worstFps: 18, bestFps: 60, drops: 47 },
+  mods: [
+    { name: "Calamity Mod", author: "Ozzatron", share: 32.1, ms: 7.8, bossShare: 41.0, spike: "high", alloc: 18.4,
+      dependents: ["Calamity-Fargo Souls DLC","Calamity Mod Music","Calamity's Vanities","Bags","Pets Overhaul: Calamity Addon","Munchies All-Calamity Addon","Calamity Fables","Unofficial Calamity Bard & Healer","Thorium Helheim"],
+      engagement: { summary: "high", details: { weaponsFired: 8, itemsUsed: 14, npcsKilled: 487, bossesFought: 5, biomesEntered: 6 } },
+      evidence: ["Hook chain dispatch: 30 deep on hot paths","SnowstormCallback observed firing 60×/s during Cryogen P2","DustSpawn (afterimages) 4,200×/s through boss fights"],
+      subsystems: [
+        { name: "Acid Rain System", ms: 1.4, hooks: [{ name: "AcidRain.UpdateSpawning()", ms: 0.8, calls: "1,247×" }, { name: "AcidRain.TileScan()", ms: 0.6, calls: "84×/s" }] },
+        { name: "Boss AI · Cryogen", ms: 3.1, hooks: [{ name: "SnowstormCallback()", ms: 1.9, calls: "60×/s" }, { name: "PhaseTransition()", ms: 0.7, calls: "8×" }] },
+        { name: "Particle System", ms: 2.1, hooks: [{ name: "DustSpawn() (afterimages)", ms: 1.2, calls: "4,200×/s" }, { name: "DustUpdate()", ms: 0.9, calls: "4,200×/s" }] },
+        { name: "Afterimages", ms: 1.2, hooks: [{ name: "AfterimageRender()", ms: 1.2, calls: "60×/s" }] }
+      ] },
+    { name: "Fargo's Souls Mod", author: "Fargowilta", share: 16.2, ms: 3.9, bossShare: 22.0, spike: "high", alloc: 9.1,
+      dependents: ["Calamity-Fargo Souls DLC","Fargo's Soul Mod Extras"],
+      engagement: { summary: "high", details: { weaponsFired: 2, itemsUsed: 6, npcsKilled: 487, bossesFought: 5, enchantmentsActive: 8 } },
+      evidence: ["EternityAI.OverrideNpcAI() fires 120×/s on every NPC active","8 Enchantments equipped trigger on-hit"],
+      subsystems: [
+        { name: "Eternity AI Rework", ms: 2.4, hooks: [{ name: "EternityAI.OverrideNpcAI()", ms: 1.8, calls: "120×/s" }] },
+        { name: "Enchantments", ms: 0.9, hooks: [{ name: "EnchantmentCheck()", ms: 0.9, calls: "60×/s" }] },
+        { name: "Souls Accessories", ms: 0.6, hooks: [] }
+      ] },
+    { name: "Spirit Reforged", author: "GabeHasWon", share: 8.7, ms: 2.1, bossShare: 4.2, spike: "low", alloc: 6.2,
+      dependents: [],
+      engagement: { summary: "med", details: { itemsUsed: 2, weaponsFired: 0, npcsKilled: 23, bossesFought: 0, biomesEntered: 1 } },
+      evidence: ["BiomeAmbienceUpdate runs every frame in lit biomes","Briar biome entered once during exploration"],
+      subsystems: [
+        { name: "Biome Ambience System", ms: 1.4, hooks: [{ name: "BiomeAmbienceUpdate()", ms: 1.4, calls: "60×/s" }] },
+        { name: "Spirit/Briar biome gen", ms: 0.4, hooks: [] },
+        { name: "Quest System", ms: 0.3, hooks: [] }
+      ] },
+    { name: "Runeterran Accessories", author: "QuinnBinn", share: 8.1, ms: 2.0, bossShare: 7.8, spike: "low", alloc: 1.4,
+      dependents: [],
+      engagement: { summary: "none", details: { accessoriesEquipped: 0, accessoriesAvailable: 300, weaponsFired: 0, runesUsed: 0 } },
+      evidence: ["AP/AD hook fires on every player-hit event regardless of accessories equipped","Per-rune-path check runs even at 0 runes selected"],
+      subsystems: [
+        { name: "AP/AD damage hooks", ms: 1.4 },
+        { name: "Per-rune-path accessory checks", ms: 0.6 }
+      ] },
+    { name: "Hollow Knight Charms", author: "Happiz", share: 6.4, ms: 1.5, bossShare: 14.0, spike: "med", alloc: 2.1,
+      dependents: [],
+      engagement: { summary: "low", details: { charmsEquipped: 2, charmsAvailable: 15, synergiesActive: 1, synergiesPossible: 25 } },
+      evidence: ["Synergy scan: 20 accessory slots × on-hit event","2 charms equipped (Dashmaster, Glowing Womb)","1 synergy active vs 25 possible"],
+      subsystems: [
+        { name: "Synergy-scan hook", ms: 1.1 },
+        { name: "Charm tick effects", ms: 0.4 }
+      ] },
+    { name: "Spirit Classic", author: "GabeHasWon", share: 5.3, ms: 1.3, bossShare: 2.1, spike: "low", alloc: 3.6,
+      dependents: [],
+      engagement: { summary: "low", details: { itemsUsed: 3, weaponsFired: 1, npcsKilled: 8, bossesFought: 0, biomesEntered: 0 } },
+      evidence: ["Asteroid Field biome not entered this session","Ocean rework active but no time spent in Ocean"],
+      subsystems: [
+        { name: "Ocean Rework", ms: 0.7 },
+        { name: "Asteroid Field", ms: 0.4 },
+        { name: "Quest System (Legacy)", ms: 0.2 }
+      ] },
+    { name: "Thorium Helheim", author: "N0t_UNowen", share: 4.8, ms: 1.2, bossShare: 9.4, spike: "med", alloc: 2.8,
+      dependents: [],
+      engagement: { summary: "med", details: { reworkedBossesFought: 2, reworkedBossesAvailable: 10, weaponReworksUsed: 1 } },
+      evidence: ["2 of 10 Thorium boss reworks engaged","Weapon rework hook fires per attack on Helheim-tier weapons"],
+      subsystems: [
+        { name: "Boss AI Reworks (10 bosses)", ms: 0.9 },
+        { name: "Weapon Reworks", ms: 0.3 }
+      ] },
+    { name: "Thorium Mod", author: "DivermanSam", share: 4.1, ms: 1.0, bossShare: 3.2, spike: "low", alloc: 4.2,
+      dependents: ["Thorium Helheim","Ragnarok Mod","Unofficial Calamity Bard & Healer"],
+      engagement: { summary: "low", details: { itemsUsed: 4, classesUsed: 0, classesAvailable: 3, bardWeaponsFired: 0, healerWeaponsFired: 0 } },
+      evidence: ["No Bard / Healer / Throwing class used this session","4 vanilla-tier Thorium items consumed"],
+      subsystems: [
+        { name: "Bard / Healer classes", ms: 0.5 },
+        { name: "Content load", ms: 0.5 }
+      ] },
+    { name: "ARSENAL", author: "BlockCrusader", share: 3.8, ms: 0.9, bossShare: 4.2, spike: "low", alloc: 1.7,
+      dependents: [],
+      engagement: { summary: "high", details: { weaponsFired: 6, weaponsAvailable: 400, classesUsed: 2 } },
+      evidence: ["6 ARSENAL weapons used (4 melee, 2 ranged)","Per-weapon-class projectile init runs on every shot"],
+      subsystems: [] },
+    { name: "Pets Overhaul", author: "Pearlie", share: 3.4, ms: 0.8, bossShare: 5.1, spike: "med", alloc: 2.4,
+      dependents: ["Pets Overhaul: Calamity Addon"],
+      engagement: { summary: "low", details: { petsEquipped: 1, petsAvailable: 65, statRollsOpened: 1 } },
+      evidence: ["1 pet equipped (Lil' Devil)","Per-tick pet effect dispatch fires across all pet slots regardless of active count"],
+      subsystems: [
+        { name: "Per-tick pet effect dispatch", ms: 0.6 },
+        { name: "Stat-roll system (light pets)", ms: 0.2 }
+      ] },
+    { name: "Calamity-Fargo Souls DLC", author: "Jav", share: 3.2, ms: 0.7, bossShare: 7.5, spike: "med", alloc: 1.1,
+      dependents: [],
+      engagement: { summary: "high", details: { eternityBossesFought: 3, eternityBossesAvailable: 7 } },
+      evidence: ["3 Calamity bosses fought with Eternity rework active"], subsystems: [] },
+    { name: "Storm's Additions", author: "TheStorm", share: 2.9, ms: 0.7, bossShare: 3.1, spike: "low", alloc: 1.6,
+      dependents: [],
+      engagement: { summary: "med", details: { itemsUsed: 4, npcsKilled: 32, bossesFought: 1 } },
+      evidence: ["1 Storm boss fought","Death-mode scaling hook fired in 1 fight"], subsystems: [] },
+    { name: "The Binding of Rarria", author: "KainSett", share: 2.6, ms: 0.6, bossShare: 2.8, spike: "low", alloc: 0.9,
+      dependents: [],
+      engagement: { summary: "low", details: { accessoriesEquipped: 1, accessoriesAvailable: 100, statusEffectsTriggered: 0 } },
+      evidence: ["1 accessory equipped (LoL-themed)","0 status effects triggered"], subsystems: [] },
+    { name: "Ragnarok Mod", author: "CrafterDaemon", share: 2.1, ms: 0.5, bossShare: 3.6, spike: "med", alloc: 1.3,
+      dependents: [],
+      engagement: { summary: "low", details: { thoriumBossesFought: 2, classMergeUsed: false } },
+      evidence: ["Throwing ↔ Rogue class merge present but Throwing class not used"], subsystems: [] },
+    { name: "Split", author: "instrex", share: 1.9, ms: 0.5, bossShare: 2.4, spike: "low", alloc: 0.7,
+      dependents: [],
+      engagement: { summary: "low", details: { itemsUsed: 2, bossesFought: 0, subclassesUsed: 0 } },
+      evidence: ["Racquet/heavy-sword subclasses not used"], subsystems: [] },
+    { name: "Projectile Auto-Homing", author: "万恶的捣蛋猫", share: 1.7, ms: 0.4, bossShare: 4.1, spike: "high", alloc: 0.5,
+      dependents: [],
+      engagement: { summary: "none", details: { friendlyHomingToggled: false, hostileHomingActive: true, projectilesScanned: 84222 } },
+      evidence: ["Friendly homing disabled in config","Hostile-side hook still fires for 84,222 enemy projectiles dodged"],
+      subsystems: [] },
+    { name: "Risk of Slime Rain", author: "stupid man thing", share: 1.5, ms: 0.4, bossShare: 6.2, spike: "med", alloc: 1.0,
+      dependents: [],
+      engagement: { summary: "none", details: { itemsCollected: 0, itemsAvailable: 35, magmaWormFought: false } },
+      evidence: ["0 RoR items picked up across 2h 17min","Magma Worm not summoned"],
+      subsystems: [] },
+    { name: "ARPG Enemy System", author: "Shinx", share: 1.4, ms: 0.3, bossShare: 4.4, spike: "med", alloc: 0.8,
+      dependents: [],
+      engagement: { summary: "med", details: { eliteEncounters: 14, elementalDamageRolls: 487 } },
+      evidence: ["14 elite enemy encounters","Elemental damage roll fires per kill"], subsystems: [] },
+    { name: "LevelUp Ultimate", author: "Toxic Yui", share: 1.3, ms: 0.3, bossShare: 1.8, spike: "low", alloc: 0.6,
+      dependents: [],
+      engagement: { summary: "high", details: { xpEvents: 487, statPointsAllocated: 9 } },
+      evidence: ["487 XP events tracked","9 stat points spent"], subsystems: [] },
+    { name: "Item Passive Tree", author: "kill me", share: 1.2, ms: 0.3, bossShare: 1.5, spike: "low", alloc: 0.5,
+      dependents: [],
+      engagement: { summary: "high", details: { passiveItemsActive: 6, passivePointsSpent: 12 } },
+      evidence: ["6 weapons/items receiving passive XP","12 passive points spent"], subsystems: [] },
+    { name: "78 other mods (combined)", author: "—", share: 8.2, ms: 1.9, bossShare: 6.0, spike: "low", alloc: 4.3,
+      dependents: [], engagement: { summary: "low", details: {} }, evidence: ["Long-tail roll-up — drill via Full tree tab"], subsystems: [], aggregate: true }
+  ],
+  spikes: [
+    { time: "01:47:18", ms: 87, biome: "Sulphurous Sea", encounter: "Cryogen P2", topCause: "Calamity → Cryogen → SnowstormCallback()", topModShare: 67 },
+    { time: "01:23:42", ms: 71, biome: "Sulphurous Sea", encounter: "Cryogen P1", topCause: "Calamity → Particle System", topModShare: 58 },
+    { time: "00:54:21", ms: 64, biome: "Glowing Mushroom", encounter: "Exploration", topCause: "Spirit Reforged → Biome Ambience", topModShare: 41 },
+    { time: "01:12:09", ms: 58, biome: "Underworld", encounter: "Mech Bosses", topCause: "Pets Overhaul → tick dispatch", topModShare: 28 },
+    { time: "01:39:55", ms: 56, biome: "Crimson", encounter: "Brain of Cthulhu", topCause: "Calamity + HK Charms (synergy scan)", topModShare: 44 },
+    { time: "02:01:33", ms: 54, biome: "Snow", encounter: "Cryogen approach", topCause: "Risk of Slime Rain (hooks fire despite 0 items collected)", topModShare: 33 },
+    { time: "00:33:18", ms: 52, biome: "Cavern", encounter: "Item pickup chain", topCause: "Magic Storage → network sync", topModShare: 51 },
+    { time: "01:58:02", ms: 51, biome: "Sulphurous Sea", encounter: "Boss summon", topCause: "Calamity → SpawnPattern()", topModShare: 62 }
+  ],
+  insights: [
+    { mod: "Runeterran Accessories", severity: "dormant", evidence: ["0 accessories equipped this session","0 of 300+ items used","0 of 5 rune paths touched","Cost still 8.1% — hooks fire on every player-hit event regardless"], suggestion: "Costs 8.1% of frame time with no observed interaction this session. Consider whether your build will use the AP/AD axis in this playthrough.", badge: "session" },
+    { mod: "Hollow Knight Charms", severity: "warn", evidence: ["2 of 15 charms equipped (Dashmaster, Glowing Womb)","1 active synergy of 25 possible","Synergy scan ran 3,847× across all accessory slots"], suggestion: "Synergy scan fires whether synergies are present or not. Cost scales with slot count, not active synergies — consider this when expanding accessory loadout.", badge: "session" },
+    { mod: "Calamity Visual Effects", severity: "warn", evidence: ["Afterimages active during 5 boss fights","DustSpawn fired 4,200×/s peak","Config path: Calamity ▸ Visual Effects ▸ Afterimages"], suggestion: "Config flag available: Afterimages = false. Visual-only — no content change.", badge: "session" },
+    { mod: "Spirit Reforged Biome Ambience", severity: "warn", evidence: ["Biome ambience system runs every frame in lit biomes","Glowing Mushroom: avg 39 FPS over 8 min","Config path: Spirit Reforged ▸ Ambience"], suggestion: "Ambience system measured at 5.7% in Glowing Mushroom specifically. Player call: ambience is the feature, not a bug.", badge: "session" },
+    { mod: "Risk of Slime Rain", severity: "dormant", evidence: ["0 items collected across 2h 17min","Magma Worm not summoned","Hooks still register on enemy-death events"], suggestion: "Mod has not produced observable engagement this session. If this pattern persists, the slot may be open.", badge: "session" },
+    { mod: "Projectile Auto-Homing", severity: "alert", evidence: ["Friendly homing disabled (player choice)","Hostile-side scanning 84,222 enemy projectiles","Config path: Projectile Auto-Homing ▸ Hostile homing"], suggestion: "Hostile-side scan is the dominant cost and you've disabled the friendly side anyway. Config flag exists to disable hostile too.", badge: "session" },
+    { mod: "Thorium Bard / Healer / Throwing classes", severity: "dormant", evidence: ["0 weapons fired from any of the 3 added classes","Class detection hooks fire on every weapon swap","Cross-session pattern unknown without persistent storage"], suggestion: "If you don't intend to use any of the 3 added classes in this playthrough, the class system contributes 0 engagement. Cross-session data would extend this from \"this session\" to \"ever\".", badge: "gated" }
+  ],
+  events: {
+    hit: [
+      { mod: "Hollow Knight Charms", pct: 28, why: "Synergy scan across 20 slots + inventory" },
+      { mod: "Calamity Mod", pct: 21, why: "On-hit status checks (Lacerate, Holy Flames, etc.)" },
+      { mod: "Runeterran Accessories", pct: 17, why: "AP/AD damage class hooks fire even at 0 equipped" },
+      { mod: "Risk of Slime Rain", pct: 14, why: "Stacked item proc checks (0 stacks → still scans)" },
+      { mod: "Fargo's Souls Mod", pct: 11, why: "Enchantment on-hit effects (8 active)" },
+      { mod: "ARPG Enemy System", pct: 6, why: "Elemental damage roll" },
+      { mod: "(other 88 mods)", pct: 3, why: "—" }
+    ],
+    boss: [
+      { mod: "Calamity Mod", pct: 41, why: "Boss-spawn callback + music swap + biome reactions" },
+      { mod: "Calamity-Fargo Souls DLC", pct: 18, why: "Eternity AI patch + boss-rush integration" },
+      { mod: "Thorium Helheim", pct: 14, why: "Per-boss rework hooks (Thorium bosses only)" },
+      { mod: "Storm's Additions", pct: 11, why: "Death-Mode scaling hooks" },
+      { mod: "Fargo's Souls Mod", pct: 9, why: "Eternity initialisation" },
+      { mod: "Pets Overhaul", pct: 4, why: "Boss-fight pet behaviour swap" },
+      { mod: "(other 88 mods)", pct: 3, why: "—" }
+    ],
+    biome: [
+      { mod: "Spirit Reforged", pct: 32, why: "Ambience swap + light system" },
+      { mod: "Calamity Mod", pct: 24, why: "Biome content lookups + music" },
+      { mod: "Spirit Classic", pct: 17, why: "Asteroid Field + Briar biome systems" },
+      { mod: "Storm's Additions", pct: 9, why: "Boss music swap if active fight" },
+      { mod: "Calamity's Vanities", pct: 6, why: "Vanity item tooltip cache" },
+      { mod: "(other 89 mods)", pct: 12, why: "—" }
+    ],
+    pickup: [
+      { mod: "Magic Storage", pct: 38, why: "Network sync on inventory delta" },
+      { mod: "LevelUp Ultimate", pct: 15, why: "XP / progression checks" },
+      { mod: "Item Passive Tree", pct: 13, why: "Per-item passive recalc" },
+      { mod: "Munchies / Munchies Calamity Addon", pct: 11, why: "Permanent-unlock tracker" },
+      { mod: "Rare Drop Notification", pct: 8, why: "Threshold check" },
+      { mod: "Block's Leveling", pct: 6, why: "Weapon level grants" },
+      { mod: "(other 88 mods)", pct: 9, why: "—" }
+    ],
+    proj: [
+      { mod: "Calamity Mod", pct: 47, why: "Projectile-side AI hooks" },
+      { mod: "Fargo's Souls Mod", pct: 17, why: "Eternity projectile pattern overrides" },
+      { mod: "Projectile Auto-Homing", pct: 12, why: "Hostile-side homing recompute every spawn" },
+      { mod: "ARSENAL", pct: 7, why: "Per-weapon-class projectile init" },
+      { mod: "Thorium Helheim", pct: 6, why: "Per-tier weapon reworks" },
+      { mod: "(other 89 mods)", pct: 11, why: "—" }
+    ],
+    weapon: [
+      { mod: "Calamity Mod", pct: 28, why: "Custom weapon-fire mechanics" },
+      { mod: "OmniSwing", pct: 14, why: "Auto-swing override per weapon use" },
+      { mod: "Block's Leveling", pct: 13, why: "Per-use weapon-XP grant" },
+      { mod: "Item Passive Tree", pct: 11, why: "Per-use passive activation" },
+      { mod: "ARSENAL", pct: 9, why: "Weapon-class effects" },
+      { mod: "Fargo's Mutant Mod", pct: 8, why: "Infinite-ammo logic" },
+      { mod: "(other 88 mods)", pct: 17, why: "—" }
+    ]
+  },
+  biomes: [
+    { name: "Forest", time: "32 min", avgFps: 56, drop: 0 },
+    { name: "Snow", time: "12 min", avgFps: 53, drop: -3 },
+    { name: "Crimson", time: "18 min", avgFps: 50, drop: -6 },
+    { name: "Cavern", time: "15 min", avgFps: 52, drop: -4 },
+    { name: "Sulphurous Sea", time: "23 min", avgFps: 41, drop: -10 },
+    { name: "Glowing Mushroom", time: "8 min", avgFps: 39, drop: -12 }
+  ],
+  bosses: [
+    { name: "Cryogen", phase: "Phase 2", biome: "Sulphurous Sea", time: "01:47:18", duration: "02:14", avgFps: 25, worst: 87, topCause: "Calamity → Cryogen → SnowstormCallback() (67%)", result: "won" },
+    { name: "Brain of Cthulhu", phase: "Eternity", biome: "Crimson", time: "01:39:55", duration: "01:48", avgFps: 41, worst: 56, topCause: "Calamity + HK Charms synergy scan (44%)", result: "won" },
+    { name: "Cryogen", phase: "Phase 1", biome: "Sulphurous Sea", time: "01:23:42", duration: "01:32", avgFps: 38, worst: 71, topCause: "Calamity → Particle System (58%)", result: "won" },
+    { name: "Eye of Cthulhu", phase: "Eternity", biome: "Forest", time: "00:33:01", duration: "01:48", avgFps: 53, worst: 42, topCause: "Fargo's Souls Eternity AI (38%)", result: "won" },
+    { name: "Mech Bosses (chain)", phase: "Eternity", biome: "Underworld", time: "01:12:09", duration: "06:21", avgFps: 35, worst: 58, topCause: "Pets Overhaul tick dispatch (28%)", result: "fled" },
+    { name: "King Slime", phase: "Eternity", biome: "Forest", time: "00:14:22", duration: "00:48", avgFps: 56, worst: 28, topCause: "Calamity SpawnPattern (62%)", result: "won" },
+    { name: "Slime God", phase: "Death", biome: "Forest", time: "01:58:02", duration: "03:21", avgFps: 38, worst: 51, topCause: "Calamity → SpawnPattern (62%)", result: "died" },
+    { name: "Slime God (retry)", phase: "Death", biome: "Forest", time: "02:08:14", duration: "04:02", avgFps: 36, worst: 49, topCause: "Calamity adds + projectile density", result: "died" }
+  ],
+  chains: [
+    { steps: ["Calamity boss tick","ARSENAL projectile init","HK Charms on-hit scan"], cost: "4.1ms", pct: "24%", trigger: "Cryogen P2 melee weapon swing" },
+    { steps: ["Fargo Eternity AI","Calamity boss override","Souls DLC patch","Storm's death-mode hook"], cost: "3.2ms", pct: "19%", trigger: "Calamity boss spawn" },
+    { steps: ["Magic Storage network sync","LevelUp XP grant","Item Passive Tree recalc","Munchies tracker"], cost: "2.8ms", pct: "17%", trigger: "Item pickup chain" },
+    { steps: ["Projectile Auto-Homing hostile scan","Calamity projectile AI","Fargo Eternity overrides"],  cost: "2.1ms", pct: "13%", trigger: "Enemy projectile burst" }
+  ]
+};
+
+/* ============ HELPERS ============ */
+const cBucket = pct => pct >= 20 ? 'red' : pct >= 10 ? 'orange' : pct >= 5 ? 'yellow' : pct >= 2 ? 'blue' : 'green';
+const fpsColor = fps => fps >= 55 ? '#95d4a3' : fps >= 45 ? '#ddc36e' : fps >= 35 ? '#f5b342' : '#f47174';
+
+const engagementWeight = e => ({ high: 1.0, med: 0.6, low: 0.3, none: 0.0 }[e?.summary || 'none']);
+const dormancyScore = m => m.share * (1 - engagementWeight(m.engagement));
+
+/* ============ MOD TREE ============ */
+function renderTree(target, mods) {
+  const html = mods.map(m => {
+    const wPct = Math.min(100, m.share / 32 * 100).toFixed(0);
+    const color = m.engagement?.summary === 'none' ? 'purple' : cBucket(m.share);
+    const hasChildren = m.subsystems && m.subsystems.length;
+    const chev = hasChildren ? '▶' : '·';
+    const engMark = m.engagement?.summary === 'none' ? ' <span style="color:#b389e3;font-size:10px;">⊘ dormant</span>'
+      : m.engagement?.summary === 'low' ? ' <span style="color:#f5b342;font-size:10px;">◐ low</span>' : '';
+    const subRows = (m.subsystems || []).map(s => {
+      const sw = Math.min(100, s.ms / 4 * 100).toFixed(0);
+      const sc = cBucket(s.ms / m.ms * 32);
+      const hookRows = (s.hooks || []).map(h => {
+        const hw = Math.min(100, h.ms / 2 * 100).toFixed(0);
+        return `<div class="d1-row depth-3"><span class="chev">·</span><span class="name">${h.name} <span style="color:#4d525d">${h.calls}</span></span><span class="bar" style="--w:${hw}%;--c:#6ba0e3"></span><span class="ms">${h.ms.toFixed(1)}ms</span></div>`;
+      }).join('');
+      return `<div class="d1-row depth-2 collapsed" data-toggle>
+        <span class="chev">${s.hooks && s.hooks.length ? '▶' : '·'}</span>
+        <span class="name">${s.name}</span>
+        <span class="bar d1-cost-${sc}" style="--w:${sw}%"></span>
+        <span class="ms">${s.ms.toFixed(1)}ms</span>
+      </div><div class="child-rows">${hookRows}</div>`;
+    }).join('');
+    return `<div class="d1-row depth-1 collapsed" data-toggle data-mod="${m.name}">
+      <span class="chev">${chev}</span>
+      <span class="name">${m.name} <span style="color:#4d525d;font-size:11px;">${m.author}</span>${engMark}</span>
+      <span class="bar d1-cost-${color}" style="--w:${wPct}%"></span>
+      <span class="pct">${m.share.toFixed(1)}%</span>
+    </div><div class="child-rows">${subRows}</div>`;
+  }).join('');
+  target.innerHTML = html;
+  target.querySelectorAll('[data-toggle]').forEach(row => {
+    row.addEventListener('click', e => {
+      e.stopPropagation();
+      const isCollapsed = row.classList.toggle('collapsed');
+      const chev = row.querySelector('.chev');
+      if (chev && chev.textContent !== '·') chev.textContent = isCollapsed ? '▶' : '▼';
+    });
+  });
+  target.querySelectorAll('.d1-row.depth-1[data-mod]').forEach(row => {
+    row.addEventListener('dblclick', e => { e.stopPropagation(); openModal(row.dataset.mod); });
+  });
+}
+
+function sortMods(mode) {
+  const sv = { high: 3, med: 2, low: 1 };
+  return [...DATA.mods].sort((a, b) => {
+    if (mode === 'spike') return (sv[b.spike] || 0) * b.share - (sv[a.spike] || 0) * a.share;
+    if (mode === 'alloc') return b.alloc - a.alloc;
+    if (mode === 'wallclock') return b.ms * 60 * 137 - a.ms * 60 * 137; // ms × frames × seconds — same shape as share but renames
+    if (mode === 'cpi') {
+      const cpi = m => m.share / Math.max(0.05, engagementWeight(m.engagement));
+      return cpi(b) - cpi(a);
+    }
+    return b.share - a.share;
+  });
+}
+function refreshOverviewTree(mode) {
+  renderTree(document.getElementById('d1-tree-overview'), sortMods(mode).slice(0, 12));
+}
+refreshOverviewTree('drag');
+renderTree(document.getElementById('d1-tree-full'), DATA.mods);
+
+document.querySelectorAll('.d1-pills button[data-sort]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.d1-pills button[data-sort]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    refreshOverviewTree(btn.dataset.sort);
+  });
+});
+
+/* ============ SPIKES + DORMANT MINI + INSIGHTS ============ */
+document.getElementById('d1-spikes').innerHTML = DATA.spikes.slice(0, 6).map(s => `
+  <div class="d1-spike-row" data-spike>
+    <span class="time">${s.time}</span>
+    <span class="text">${s.encounter} · ${s.biome}</span>
+    <span class="ms">${s.ms}ms</span>
+  </div>`).join('');
+
+const dormantSorted = [...DATA.mods].filter(m => !m.aggregate).sort((a, b) => dormancyScore(b) - dormancyScore(a));
+const dormantTop3 = dormantSorted.slice(0, 3);
+document.getElementById('d1-dormant-mini').innerHTML = dormantTop3.map(m => {
+  const d = m.engagement?.details || {};
+  const ev = m.engagement?.summary === 'none' ? 'no observed use this session'
+    : m.engagement?.summary === 'low' ? `${Object.values(d).filter(v => typeof v === 'number' && v > 0).length} active signals`
+    : 'med engagement';
+  return `<div class="dormant-row" data-mod="${m.name}">
+    <div><div class="name">${m.name}</div><div class="ev">${ev}</div></div>
+    <div class="cost">${m.share.toFixed(1)}%</div>
+  </div>`;
+}).join('');
+document.querySelectorAll('.dormant-row[data-mod]').forEach(r => {
+  r.addEventListener('click', () => openModal(r.dataset.mod));
+});
+
+document.getElementById('d1-insights').innerHTML = DATA.insights.map(i => `
+  <div class="d1-insight ${i.severity}" data-mod="${i.mod}">
+    <strong>${i.mod}</strong>
+    <div class="ev">${i.evidence.map(e => `<div>${e}</div>`).join('')}</div>
+    <div class="suggest">${i.suggestion}</div>
+    <div class="badges"><span class="badge ${i.badge}">${i.badge === 'session' ? 'this session' : i.badge === 'lifetime' ? 'lifetime data' : 'needs persistence'}</span></div>
+  </div>`).join('');
+document.querySelectorAll('.d1-insight[data-mod]').forEach(el => {
+  el.addEventListener('click', () => {
+    const target = DATA.mods.find(m => el.dataset.mod.includes(m.name) || m.name.includes(el.dataset.mod));
+    if (target) openModal(target.name);
+  });
+});
+
+/* ============ TABS ============ */
+document.querySelectorAll('.d1-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.d1-tabs button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.d1-tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector(`.d1-tab-content[data-d1c="${btn.dataset.d1}"]`).classList.add('active');
+  });
+});
+
+/* ============ HOT MOMENTS ============ */
+document.getElementById('d1-hot-moments').innerHTML = DATA.spikes.map((s, i) => `
+  <div class="d1-row depth-1" style="grid-template-columns: 40px 80px 1fr 80px 70px;">
+    <span style="color:#4d525d;">#${i + 1}</span>
+    <span style="color:#79c0ff;">${s.time}</span>
+    <span class="name">${s.encounter} · ${s.biome}</span>
+    <span class="bar d1-cost-${cBucket(s.ms / 4)}" style="--w:${Math.min(100, s.ms / 1.2)}%"></span>
+    <span style="color:#f47174;text-align:right;font-weight:600;">${s.ms}ms</span>
+  </div>
+  <div style="padding-left:50px;font-size:11px;color:#6e7480;margin-bottom:10px;">└─ ${s.topCause} <span style="color:#f5b342;">${s.topModShare}% of frame</span></div>
+`).join('');
+
+/* ============ EVENTS ============ */
+function renderEvent(evKey) {
+  const ev = DATA.events[evKey];
+  document.getElementById('d1-event-content').innerHTML = ev.map((e, i) => `
+    <div class="d1-row depth-1" style="grid-template-columns: 30px 1fr 80px 60px;">
+      <span style="color:#4d525d;">#${i + 1}</span>
+      <span class="name">${e.mod} <span style="color:#4d525d;font-size:11px;">— ${e.why}</span></span>
+      <span class="bar d1-cost-${cBucket(e.pct)}" style="--w:${Math.min(100, e.pct * 2)}%"></span>
+      <span class="pct">${e.pct}%</span>
+    </div>`).join('');
+}
+renderEvent('hit');
+document.querySelectorAll('#d1-event-tabs button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#d1-event-tabs button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderEvent(btn.dataset.d1e);
+  });
+});
+
+/* ============ BIOMES ============ */
+const biomesSorted = [...DATA.biomes].sort((a, b) => a.avgFps - b.avgFps);
+document.getElementById('d1-biome-fps').innerHTML = biomesSorted.map(b => `
+  <div class="d1-biome-row">
+    <span class="name">${b.name}</span>
+    <span class="time">${b.time}</span>
+    <span class="barwrap" style="--w:${b.avgFps / 60 * 100}%;--c:${fpsColor(b.avgFps)};"></span>
+    <span class="val" style="color:${fpsColor(b.avgFps)};">${b.avgFps} FPS</span>
+  </div>`).join('');
+const totalMin = DATA.biomes.reduce((a, b) => a + parseInt(b.time), 0);
+document.getElementById('d1-biome-time').innerHTML = [...DATA.biomes].sort((a, b) => parseInt(b.time) - parseInt(a.time)).map(b => {
+  const min = parseInt(b.time); const pct = (min / totalMin * 100).toFixed(0);
+  return `<div class="d1-biome-row">
+    <span class="name">${b.name}</span>
+    <span class="time">${b.time}</span>
+    <span class="barwrap" style="--w:${pct}%;--c:#6ba0e3;"></span>
+    <span class="val" style="color:#79c0ff;">${pct}%</span>
+  </div>`;
+}).join('');
+document.getElementById('d1-biome-attr').innerHTML = DATA.events.biome.map((e, i) => `
+  <div class="d1-row depth-1" style="grid-template-columns: 30px 1fr 80px 60px;">
+    <span style="color:#4d525d;">#${i + 1}</span>
+    <span class="name">${e.mod} <span style="color:#4d525d;font-size:11px;">— ${e.why}</span></span>
+    <span class="bar d1-cost-${cBucket(e.pct)}" style="--w:${Math.min(100, e.pct * 2)}%"></span>
+    <span class="pct">${e.pct}%</span>
+  </div>`).join('');
+
+/* ============ BOSS LEDGER ============ */
+const bossesSorted = [...DATA.bosses].sort((a, b) => a.avgFps - b.avgFps);
+document.getElementById('boss-ledger').innerHTML = bossesSorted.map(b => `
+  <div class="boss-row">
+    <div class="name">${b.name} · ${b.phase}<span class="biome">${b.biome}</span></div>
+    <div class="time">${b.time}</div>
+    <div class="duration">${b.duration}</div>
+    <div class="fps" style="color:${fpsColor(b.avgFps)};">${b.avgFps}</div>
+    <div class="worst">${b.worst}ms</div>
+    <div class="top-cause">${b.topCause}</div>
+    <div class="outcome outcome-${b.result}">${b.result}</div>
+  </div>`).join('');
+
+/* ============ DORMANT FULL TAB ============ */
+function renderDormantFull() {
+  const html = dormantSorted.map((m, i) => {
+    const d = m.engagement?.details || {};
+    const detailLines = Object.entries(d).map(([k, v]) => {
+      const lbl = k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+      return `${lbl}: <strong style="color:${v === 0 || v === false ? '#b389e3' : '#c5c8ce'};">${v === false ? 'no' : v === true ? 'yes' : v}</strong>`;
+    }).join(' · ');
+    const score = dormancyScore(m).toFixed(2);
+    const tier = m.engagement?.summary === 'none' ? 'top signal' :
+                 m.engagement?.summary === 'low' ? 'strong signal' : 'medium signal';
+    const tierColor = m.engagement?.summary === 'none' ? '#b389e3' :
+                      m.engagement?.summary === 'low' ? '#f5b342' : '#6e7480';
+    return `<div class="d1-row depth-1" data-mod="${m.name}" style="grid-template-columns: 30px 1.5fr 1.5fr 80px 80px;cursor:pointer;padding:9px 0;border-bottom:1px solid #161b22;">
+      <span style="color:#4d525d;">#${i + 1}</span>
+      <div>
+        <div class="name" style="font-size:13px;">${m.name}</div>
+        <div style="font-size:10px;color:#6e7480;margin-top:2px;">${m.author} · ${m.engagement?.summary || 'unknown'} engagement</div>
+      </div>
+      <div style="font-size:10px;color:#9ba1ad;line-height:1.5;">${detailLines || '<em>no engagement signals tracked for this mod yet</em>'}</div>
+      <div style="text-align:right;color:${tierColor};font-size:10px;text-transform:uppercase;letter-spacing:0.06em;font-weight:600;">${tier}</div>
+      <div style="text-align:right;color:#b389e3;font-weight:700;">${m.share.toFixed(1)}%</div>
+    </div>`;
+  }).join('');
+  document.getElementById('dormant-full').innerHTML = html;
+  document.querySelectorAll('#dormant-full [data-mod]').forEach(r => r.addEventListener('click', () => openModal(r.dataset.mod)));
+}
+renderDormantFull();
+
+/* ============ CROSS-MOD CHAINS ============ */
+document.getElementById('cross-chains').innerHTML = DATA.chains.map(c => `
+  <div class="chain-card">
+    <div class="chain-flow">${c.steps.map(s => `<span class="step">${s}</span>`).join('<span class="arrow">→</span>')}</div>
+    <div class="chain-summary">Trigger: ${c.trigger} · combined cost <span class="cost">${c.cost}</span> · <span class="pct">${c.pct} of frame at peak</span></div>
+  </div>`).join('');
+
+/* ============ MODE PILL ============ */
+const modeData = { lite: ["LITE","0.6% overhead"], standard: ["STANDARD","2.3% overhead"], deep: ["DEEP","7.8% overhead"], off: ["OFF","0% overhead"] };
+document.getElementById('mode-pill').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('mode-menu').classList.toggle('open');
+});
+document.querySelectorAll('#mode-menu .opt').forEach(o => {
+  o.addEventListener('click', e => {
+    e.stopPropagation();
+    document.querySelectorAll('#mode-menu .opt').forEach(x => x.classList.remove('active'));
+    o.classList.add('active');
+    const [lbl, ov] = modeData[o.dataset.mode];
+    document.getElementById('mode-current').textContent = lbl;
+    document.getElementById('mode-overhead').textContent = ov;
+    document.getElementById('mode-menu').classList.remove('open');
+  });
+});
+document.addEventListener('click', () => document.getElementById('mode-menu').classList.remove('open'));
+
+/* ============ HEATMAP ============ */
+const heatHTML = [];
+const spikeMinutes = [54, 67, 79, 103, 107, 117];
+const eventMinutes = [14, 33, 54, 67, 79, 103, 107, 117]; // ~boss spawn / death markers
+const cellMap = []; // for click drill
+for (let row = 0; row < 8; row++) {
+  for (let col = 0; col < 80; col++) {
+    const minute = row * 17 + (col / 80) * 17;
+    let ms;
+    const nearSpike = spikeMinutes.some(s => Math.abs(s - minute) < 0.5);
+    const inHotZone = spikeMinutes.some(s => Math.abs(s - minute) < 3);
+    if (nearSpike && Math.random() < 0.7) ms = 50 + Math.random() * 45;
+    else if (inHotZone && Math.random() < 0.5) ms = 25 + Math.random() * 20;
+    else if (Math.random() < 0.04) ms = 30 + Math.random() * 40;
+    else ms = 14 + Math.random() * 6;
+    let c;
+    if (ms > 50) c = '#f47174';
+    else if (ms > 30) c = '#f5b342';
+    else if (ms > 20) c = '#ddc36e';
+    else if (ms > 17) c = '#95d4a3';
+    else c = '#1c3d6b';
+    const tMin = String(Math.floor(minute)).padStart(2, '0');
+    const tSec = String(Math.floor((minute % 1) * 60)).padStart(2, '0');
+    const isMarker = eventMinutes.some(em => Math.abs(em - minute) < 0.15);
+    cellMap.push({ time: `${tMin}:${tSec}`, ms: ms.toFixed(1), isMarker });
+    heatHTML.push(`<div class="d1-heat-cell ${isMarker ? 'marker' : ''}" style="background:${c};" data-idx="${cellMap.length - 1}" title="${tMin}:${tSec} · ${ms.toFixed(1)}ms"></div>`);
+  }
+}
+document.getElementById('d1-heatmap').innerHTML = heatHTML.join('');
+document.querySelectorAll('.d1-heat-cell').forEach(cell => {
+  cell.addEventListener('click', () => {
+    const c = cellMap[parseInt(cell.dataset.idx)];
+    const matchSpike = DATA.spikes.find(s => Math.abs(parseInt(s.time.split(':')[0]) * 60 + parseInt(s.time.split(':')[1]) - parseInt(c.time.split(':')[0]) * 60 - parseInt(c.time.split(':')[1])) < 1);
+    if (matchSpike) {
+      openModalForSpike(matchSpike);
+    } else {
+      openModalForFrame(c);
+    }
+  });
+});
+
+function openModalForSpike(s) {
+  document.getElementById('modal-content').innerHTML = `
+    <button class="modal-close" onclick="document.getElementById('modal-bg').classList.remove('open')">✕ close</button>
+    <h2>Frame at ${s.time}</h2>
+    <div class="author">${s.encounter} · ${s.biome} · ${s.ms}ms (worst-frame-class)</div>
+    <h3>Top cause</h3>
+    <p>${s.topCause} — <strong style="color:#f5b342;">${s.topModShare}% of frame</strong></p>
+    <h3>Evidence</h3>
+    <div class="evidence-card">
+      <div class="row">Frame time: ${s.ms}ms (${(1000 / s.ms).toFixed(1)} FPS instantaneous)</div>
+      <div class="row">Biome context: ${s.biome}</div>
+      <div class="row">Encounter: ${s.encounter}</div>
+      <div class="row">Hook attribution: ${s.topModShare}% to top cause; remainder distributed across long-tail</div>
+    </div>`;
+  document.getElementById('modal-bg').classList.add('open');
+}
+function openModalForFrame(c) {
+  document.getElementById('modal-content').innerHTML = `
+    <button class="modal-close" onclick="document.getElementById('modal-bg').classList.remove('open')">✕ close</button>
+    <h2>Frame at ${c.time}</h2>
+    <div class="author">${c.ms}ms · ${(1000 / parseFloat(c.ms)).toFixed(1)} FPS instantaneous</div>
+    <h3>Context</h3>
+    <p>This frame was within normal session range — no spike-class event detected. Hover other cells to find the heavy ones (orange + red).</p>`;
+  document.getElementById('modal-bg').classList.add('open');
+}
+
+/* ============ MODAL ============ */
+function openModal(modName) {
+  const m = DATA.mods.find(x => x.name === modName);
+  if (!m) return;
+  const engD = m.engagement?.details || {};
+  const engRows = Object.entries(engD).map(([k, v]) => {
+    const lbl = k.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()).trim();
+    const isZero = v === 0 || v === false;
+    const isHigh = typeof v === 'number' && v > 10;
+    const cls = isZero ? 'zero' : isHigh ? 'high' : '';
+    return `<div class="engage-row"><span class="label">${lbl}</span><span class="val ${cls}">${v === false ? 'no' : v === true ? 'yes' : v}</span></div>`;
+  }).join('');
+  const engSummary = m.engagement?.summary || 'unknown';
+
+  // Counterfactual: simulated removal
+  const totalShare = DATA.mods.reduce((a, b) => a + b.share, 0);
+  const remainingShare = totalShare - m.share;
+  const simulatedFps = Math.round(51 + (m.share / totalShare * 12));
+  const topOthers = DATA.mods.filter(x => x.name !== m.name && !x.aggregate).sort((a, b) => b.share - a.share).slice(0, 5);
+
+  const subRows = (m.subsystems || []).map(s => `
+    <div style="display:grid;grid-template-columns:1fr 100px 60px;gap:10px;padding:6px 0;border-bottom:1px solid #1f2329;font-size:12px;">
+      <span style="color:#c5c8ce;">${s.name}</span>
+      <div style="position:relative;height:6px;background:#161b22;border-radius:1px;align-self:center;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${Math.min(100, s.ms / m.ms * 100).toFixed(0)}%;background:#f5b342;border-radius:1px;"></div>
+      </div>
+      <span style="color:#f5b342;text-align:right;font-weight:600;">${s.ms.toFixed(1)}ms</span>
+    </div>`).join('') || '<p style="color:#6e7480;font-size:12px;">No subsystem-level data captured in current mode. Switch to Deep mode for per-hook breakdown.</p>';
+
+  document.getElementById('modal-content').innerHTML = `
+    <button class="modal-close" onclick="document.getElementById('modal-bg').classList.remove('open')">✕ close</button>
+    <h2>${m.name}</h2>
+    <div class="author">${m.author} · ${m.ms.toFixed(1)} ms/frame · ${m.share.toFixed(1)}% lifetime CPU</div>
+
+    <div class="modal-stat-row">
+      <div class="modal-stat"><div class="lbl">Session share</div><div class="v">${m.share.toFixed(1)}%</div></div>
+      <div class="modal-stat"><div class="lbl">Boss-fight share</div><div class="v" style="color:#f5b342;">${m.bossShare.toFixed(1)}%</div></div>
+      <div class="modal-stat"><div class="lbl">Dependents</div><div class="v" style="color:${m.dependents.length > 0 ? '#79c0ff' : '#95d4a3'};">${m.dependents.length}</div></div>
+    </div>
+
+    <h3>Engagement (this session)</h3>
+    <div class="engage-card">
+      ${engRows || '<p style="color:#6e7480;font-size:12px;">No engagement signals tracked for this mod yet.</p>'}
+      <div class="engage-summary">Summary: <strong style="color:${engSummary === 'none' ? '#b389e3' : engSummary === 'high' ? '#95d4a3' : '#f5b342'};">${engSummary}</strong> engagement</div>
+    </div>
+
+    <h3>Evidence</h3>
+    <div class="evidence-card">${(m.evidence || []).map(e => `<div class="row">${e}</div>`).join('')}</div>
+
+    ${m.dependents.length > 0 ? `
+      <h3>Dependents in your modlist</h3>
+      <div class="evidence-card">${m.dependents.map(d => `<div class="row">${d}</div>`).join('')}</div>
+      <p style="font-size:11px;color:#6e7480;margin-top:6px;">Removing this mod would require also removing or reconfiguring the above. Not a verdict — just the dependency graph.</p>
+    ` : `
+      <h3>Dependents in your modlist</h3>
+      <p style="font-size:12px;color:#9ba1ad;">None. No other loaded mod declares this as a dependency.</p>
+    `}
+
+    <h3>Counterfactual · if removed</h3>
+    <div class="cf-card">
+      <div class="cf-row" style="margin-bottom:6px;font-size:10px;color:#6e7480;text-transform:uppercase;letter-spacing:0.08em;">
+        <span class="name">Top contributors</span><span class="cur">Current</span><span class="arrow"></span><span class="new">Projected</span>
+      </div>
+      ${topOthers.map(o => {
+        const newShare = (o.share / remainingShare * 100);
+        return `<div class="cf-row">
+          <span class="name">${o.name}</span>
+          <span class="cur">${o.share.toFixed(1)}%</span>
+          <span class="arrow">→</span>
+          <span class="new">${newShare.toFixed(1)}%</span>
+        </div>`;
+      }).join('')}
+      <div class="cf-summary">
+        <span class="name">Estimated avg FPS</span>
+        <span class="cur">51</span>
+        <span class="arrow">→</span>
+        <span class="new">~${simulatedFps}</span>
+      </div>
+    </div>
+    <p style="font-size:11px;color:#6e7480;margin-top:6px;">Simulation assumes proportional redistribution of frame budget. Real removal also frees the hook-dispatch slot and reduces GC churn — gain may be slightly higher in practice.</p>
+  `;
+  document.getElementById('modal-bg').classList.add('open');
+}
+document.getElementById('modal-bg').addEventListener('click', e => {
+  if (e.target === document.getElementById('modal-bg')) document.getElementById('modal-bg').classList.remove('open');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('modal-bg').classList.remove('open');
+});
+
+/* spike row click → modal */
+document.querySelectorAll('.d1-spike-row[data-spike]').forEach((row, i) => {
+  row.addEventListener('click', () => openModalForSpike(DATA.spikes[i]));
+});
+</script>
+</body>
+</html>

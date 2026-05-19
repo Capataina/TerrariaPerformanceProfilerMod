@@ -1,0 +1,7 @@
+Performance Profiler is an always-on, player-facing telemetry mod for tModLoader.
+
+It attributes every per-tick CPU cost to the mod (and the subsystem within that mod) that produced it, surfaces a btop-style hierarchical drill-down, and generates an end-of-session retrospective showing where the last few hours of play actually went.
+
+Read-only instrumentation: no save changes, no runtime behaviour changes, no network, no telemetry. Worst case is the mod declining to load.
+
+Status: early development (Milestone 0 — hello-world scaffold).

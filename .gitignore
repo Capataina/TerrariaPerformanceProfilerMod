@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+*.tmod
+
+# tModLoader / IDE local state
+.vs/
+*.user
+*.csproj.user
+
+# macOS
+.DS_Store
