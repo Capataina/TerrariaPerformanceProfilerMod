@@ -10,3 +10,6 @@ obj/
 
 # macOS
 .DS_Store
+
+# Agent worktrees (transient subagent isolation copies)
+.claude/worktrees/
