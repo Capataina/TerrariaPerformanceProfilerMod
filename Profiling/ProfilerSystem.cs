@@ -26,6 +26,8 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public MetricCollector? Collector { get; private set; }
 
+    private SessionLogWriter? _sessionLog;
+
     /// <summary>
     /// Installs the per-mod timing detours once, after every mod's content is
     /// set up (so all hook-override methods exist). The detours persist for the
@@ -44,12 +46,20 @@ public sealed class ProfilerSystem : ModSystem
     public override void OnWorldLoad()
     {
         Collector = new MetricCollector(HistoryCapacity);
+        _sessionLog = SessionLogWriter.Create();
         Mod.Logger.Info($"Profiler armed: {HistoryCapacity}-tick rolling history allocated.");
     }
 
     /// <summary>Releases the engine at world exit.</summary>
     public override void OnWorldUnload()
     {
+        if (Collector != null)
+        {
+            _sessionLog?.End(Collector);
+        }
+
+        _sessionLog?.Dispose();
+        _sessionLog = null;
         Collector = null;
         Mod.Logger.Info("Profiler disarmed: world unloaded.");
     }
@@ -81,6 +91,8 @@ public sealed class ProfilerSystem : ModSystem
             npcCount: CountActive(Main.npc),
             projectileCount: CountActive(Main.projectile),
             dustCount: CountActive(Main.dust));
+
+        _sessionLog?.Tick(collector);
     }
 
     private static int CountActive(NPC[] entities)
