@@ -21,12 +21,12 @@ namespace PerformanceProfiler.Profiling;
 /// </summary>
 public sealed class SessionLogWriter : IDisposable
 {
-    private const int SchemaVersion = 2;
+    // Schema 3: spike rows now come from MetricCollector.Spikes (median-based
+    // coalesced windows) instead of an in-writer hardcoded-threshold list.
+    private const int SchemaVersion = 3;
     private const int TimelineIntervalTicks = 60 * 60;
     private const int TimelineTopMods = 10;
     private const int SpikeTopMods = 10;
-    private const int MaxSpikeRows = 50;
-    private const double SpikeThresholdMs = 50d;
 
     private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions { WriteIndented = true };
 
@@ -35,7 +35,6 @@ public sealed class SessionLogWriter : IDisposable
     private readonly string _finalPath;
     private readonly DateTimeOffset _startedUtc;
     private readonly List<object> _timeline = new List<object>();
-    private readonly List<SpikeRow> _spikes = new List<SpikeRow>();
 
     private long _lastTimelineTick = -TimelineIntervalTicks;
     private bool _disposed;
@@ -81,10 +80,9 @@ public sealed class SessionLogWriter : IDisposable
             WriteReport(final: false, collector);
         }
 
-        if (latest.FrameTimeMs >= SpikeThresholdMs)
-        {
-            KeepSpike(collector, latest);
-        }
+        // Spikes are owned by MetricCollector now (median-based detector with
+        // coalesced windows). The schema-3 SpikeObjects() reads from
+        // collector.Spikes at report-write time; nothing to do per tick here.
     }
 
     public void End(MetricCollector collector)
@@ -100,27 +98,6 @@ public sealed class SessionLogWriter : IDisposable
     public void Dispose()
     {
         _disposed = true;
-    }
-
-    private void KeepSpike(MetricCollector collector, TickFrame frame)
-    {
-        SpikeRow row = new SpikeRow(frame.FrameTimeMs, SpikeSummary(collector, frame));
-        int insertAt = 0;
-        while (insertAt < _spikes.Count && _spikes[insertAt].FrameMs >= row.FrameMs)
-        {
-            insertAt++;
-        }
-
-        if (insertAt >= MaxSpikeRows)
-        {
-            return;
-        }
-
-        _spikes.Insert(insertAt, row);
-        if (_spikes.Count > MaxSpikeRows)
-        {
-            _spikes.RemoveAt(_spikes.Count - 1);
-        }
     }
 
     private void WriteReport(bool final, MetricCollector? collector)
@@ -140,7 +117,7 @@ public sealed class SessionLogWriter : IDisposable
             mods = Mods(),
             coverage = Coverage(),
             timeline = _timeline,
-            spikes = SpikeObjects(),
+            spikes = SpikeObjects(collector),
             final = final && collector != null ? FinalSummary(collector) : null,
         };
 
@@ -167,19 +144,100 @@ public sealed class SessionLogWriter : IDisposable
         };
     }
 
-    private static object SpikeSummary(MetricCollector collector, TickFrame frame)
+    /// <summary>
+    /// Renders the live spike windows from <see cref="MetricCollector.Spikes"/>
+    /// into JSON-friendly objects. The per-mod breakdown comes from the
+    /// SpikeWindow's frozen snapshot of the worst tick, not from the current
+    /// (smoothed) collector state -- the whole point of the spike record is
+    /// "what did Mod X look like AT that tick", which the live values can't
+    /// answer once the moment has passed.
+    /// </summary>
+    private static object[] SpikeWindowsJson(MetricCollector collector)
     {
-        return new
+        IReadOnlyList<SpikeWindow> windows = collector.Spikes;
+        object[] rows = new object[windows.Count];
+        for (int i = 0; i < windows.Count; i++)
         {
-            tick = frame.TickIndex,
-            timestampUnixMs = frame.TimestampUnixMs,
-            frameMs = frame.FrameTimeMs,
-            gcMs = frame.GcTimeMs,
-            npcCount = frame.NpcCount,
-            projectileCount = frame.ProjectileCount,
-            dustCount = frame.DustCount,
-            topMods = TopMods(collector, SpikeTopMods, averages: false),
-        };
+            SpikeWindow w = windows[i];
+            rows[i] = new
+            {
+                startTick = w.StartTick,
+                endTick = w.EndTick,
+                worstTick = w.WorstTick,
+                worstFrameMs = w.WorstFrameMs,
+                baselineMs = w.BaselineMs,
+                madMs = w.MadMs,
+                warming = w.Warming,
+                context = w.ContextSummary,
+                topMods = TopModsForSnapshot(w, count: SpikeTopMods),
+            };
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// Builds a "top mods at the worst tick of this spike" array from the
+    /// SpikeWindow's frozen per-mod-per-category snapshot. Mirrors the shape
+    /// of <see cref="TopMods"/> so consumers see a consistent structure.
+    /// </summary>
+    private static object[] TopModsForSnapshot(SpikeWindow window, int count)
+    {
+        string[] names = HookInterceptor.ProfiledModNames;
+        int catCount = PerModAttribution.CategoryCount;
+        int modCount = names.Length;
+
+        // (modId, totalMs) ranking. count is small (10) so an insertion sort
+        // across the worst entry holds is fine.
+        int n = window.PerModCatMs.Length / catCount;
+        if (n > modCount) n = modCount;
+
+        // Build the totals array on the stack-equivalent path (small N).
+        double[] totals = new double[n];
+        for (int mod = 0; mod < n; mod++)
+        {
+            double sum = 0d;
+            int baseIdx = mod * catCount;
+            for (int c = 0; c < catCount; c++)
+            {
+                sum += window.PerModCatMs[baseIdx + c];
+            }
+            totals[mod] = sum;
+        }
+
+        // Pick the top `count` by totals.
+        int take = count < n ? count : n;
+        int[] order = new int[take];
+        for (int i = 0; i < take; i++) order[i] = -1;
+        for (int mod = 0; mod < n; mod++)
+        {
+            double v = totals[mod];
+            for (int slot = 0; slot < take; slot++)
+            {
+                int o = order[slot];
+                if (o < 0 || v > totals[o])
+                {
+                    for (int shift = take - 1; shift > slot; shift--) order[shift] = order[shift - 1];
+                    order[slot] = mod;
+                    break;
+                }
+            }
+        }
+
+        int written = 0;
+        for (int i = 0; i < take; i++) if (order[i] >= 0) written++;
+
+        object[] rows = new object[written];
+        for (int i = 0; i < written; i++)
+        {
+            int mod = order[i];
+            rows[i] = new
+            {
+                modId = mod,
+                name = names[mod],
+                ms = totals[mod],
+            };
+        }
+        return rows;
     }
 
     private static object FinalSummary(MetricCollector collector)
@@ -221,15 +279,10 @@ public sealed class SessionLogWriter : IDisposable
         return sorted;
     }
 
-    private object[] SpikeObjects()
+    private static object[] SpikeObjects(MetricCollector? collector)
     {
-        object[] rows = new object[_spikes.Count];
-        for (int i = 0; i < _spikes.Count; i++)
-        {
-            rows[i] = _spikes[i].Summary;
-        }
-
-        return rows;
+        if (collector == null) return Array.Empty<object>();
+        return SpikeWindowsJson(collector);
     }
 
     private static object[] Mods()
@@ -585,17 +638,5 @@ public sealed class SessionLogWriter : IDisposable
     {
         byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(text));
         return Convert.ToHexString(bytes, 0, 8).ToLowerInvariant();
-    }
-
-    private readonly struct SpikeRow
-    {
-        public readonly double FrameMs;
-        public readonly object Summary;
-
-        public SpikeRow(double frameMs, object summary)
-        {
-            FrameMs = frameMs;
-            Summary = summary;
-        }
     }
 }

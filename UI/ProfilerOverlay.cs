@@ -61,17 +61,18 @@ internal sealed class OverlayPanel : UIElement
     public const float PanelWidth = 640f;
 
     private const float HeaderHeight    = 28f;
+    private const float TabStripHeight  = 22f;   // sits between header and content
     private const float MetricToggleX   = 426f;
     private const float PauseToggleX    = 506f;
     private const float ToggleY         = 6f;
     private const float MetricToggleW   = 70f;
     private const float PauseToggleW    = 90f;
     private const float ToggleHeight    = 16f;
-    private const float StatStartY      = 12f;   // px below header bottom
+    private const float StatStartY      = 12f;   // px below tab strip bottom
     private const float StatGap         = 22f;
-    private const float HealthTopOffset = 100f;
-    private const float DividerOffset   = 148f;
-    private const float RowsTopOffset   = 172f;
+    private const float HealthTopOffset = 122f;  // was 100; shifted by tab strip height
+    private const float DividerOffset   = 170f;  // was 148
+    private const float RowsTopOffset   = 194f;  // was 172
     private const float RowHeight       = 18f;
     private const float SubRowHeight    = 16f;
     private const float HookRowHeight   = 14f;
@@ -82,11 +83,27 @@ internal sealed class OverlayPanel : UIElement
     private const float ScrollTrackW    = 4f;
     private const float ScrollTrackGap  = 8f;
 
+    // Tab strip layout: tabs stack horizontally starting at the panel's left edge.
+    private const float TabFirstX       = 14f;
+    private const float TabWidth        = 92f;
+    private const float TabGap          = 4f;
+
+    // SPIKES tab layout.
+    private const float SpikeRowHeight  = 32f;   // tick range + ms line + contributor line
+    private const int   SpikesVisibleRows = 8;
+
     private bool    _dragging;
     private Vector2 _dragOffset;
     private bool    _showAverage;
     private bool    _paused;
     private int     _scrollOffset;
+    private int     _spikeScrollOffset;
+
+    // Active tab. New tabs slot in at the end of the enum; the overlay's view
+    // switches on this and content rendering branches accordingly. Persisted
+    // statically so toggling F9 off and back on returns to the same tab.
+    internal enum OverlayTab { Tree = 0, Spikes = 1 }
+    private static OverlayTab _persistedTab = OverlayTab.Tree;
 
     // Per-mod cost rows, reused and sorted each frame without allocating.
     private ModRow[] _rows = Array.Empty<ModRow>();
@@ -102,7 +119,11 @@ internal sealed class OverlayPanel : UIElement
 
     private float _appliedHeight;
 
-    /// <summary>The panel height with every mod row collapsed.</summary>
+    /// <summary>
+    /// The panel height with the TREE tab active and every mod row collapsed.
+    /// Used for initial sizing only; <see cref="ApplyHeight"/> takes over once
+    /// the panel is in the UI tree and recomputes per-frame for the active tab.
+    /// </summary>
     public static float CollapsedHeight(int modCount)
     {
         int shown  = modCount < MaxModRows ? modCount : MaxModRows;
@@ -128,6 +149,17 @@ internal sealed class OverlayPanel : UIElement
             return;
         }
 
+        // Tab strip click. Header is 0..HeaderHeight; tab strip is the next 22px.
+        if (localY <= HeaderHeight + TabStripHeight)
+        {
+            ClickTabStrip(localX);
+            return;
+        }
+
+        // Content clicks: route per active tab. Only the TREE tab currently has
+        // clickable rows; SPIKES is read-only for now (drill-down lands later).
+        if (_persistedTab != OverlayTab.Tree) return;
+
         HitTestRows(localY, out int modId, out int catId);
         if (modId < 0) return;
 
@@ -142,6 +174,20 @@ internal sealed class OverlayPanel : UIElement
         }
     }
 
+    private void ClickTabStrip(float localX)
+    {
+        // Hit-test the tab slots; out-of-band x falls through to no-op.
+        for (int slot = 0; slot < 2; slot++)
+        {
+            float x = TabFirstX + slot * (TabWidth + TabGap);
+            if (localX >= x && localX <= x + TabWidth)
+            {
+                _persistedTab = (OverlayTab)slot;
+                return;
+            }
+        }
+    }
+
     public override void LeftMouseUp(UIMouseEvent evt)
     {
         base.LeftMouseUp(evt);
@@ -152,10 +198,21 @@ internal sealed class OverlayPanel : UIElement
     {
         base.ScrollWheel(evt);
         if (!IsMouseHovering) return;
-        int maxOffset = Math.Max(0, _rowCount - MaxModRows);
-        _scrollOffset = evt.ScrollWheelValue > 0
-            ? Math.Max(_scrollOffset - 1, 0)
-            : Math.Min(_scrollOffset + 1, maxOffset);
+        int delta = evt.ScrollWheelValue > 0 ? -1 : 1;
+
+        switch (_persistedTab)
+        {
+            case OverlayTab.Tree:
+                int maxOffset = Math.Max(0, _rowCount - MaxModRows);
+                _scrollOffset = Math.Clamp(_scrollOffset + delta, 0, maxOffset);
+                break;
+            case OverlayTab.Spikes:
+                MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+                int spikeCount = collector?.Spikes.Count ?? 0;
+                int spikeMax = Math.Max(0, spikeCount - SpikesVisibleRows);
+                _spikeScrollOffset = Math.Clamp(_spikeScrollOffset + delta, 0, spikeMax);
+                break;
+        }
     }
 
     // ---- Update --------------------------------------------------------------
@@ -304,6 +361,28 @@ internal sealed class OverlayPanel : UIElement
 
     private void ApplyHeight(IReadOnlyList<double> categoryMs, IReadOnlyList<double> hookMs)
     {
+        float h = RowsTopOffset + 10f;
+
+        switch (_persistedTab)
+        {
+            case OverlayTab.Tree:
+                h = HeightForTreeTab(categoryMs, hookMs);
+                break;
+            case OverlayTab.Spikes:
+                h = HeightForSpikesTab();
+                break;
+        }
+
+        if (Math.Abs(h - _appliedHeight) > 0.5f)
+        {
+            _appliedHeight = h;
+            Height.Set(h, 0f);
+            Recalculate();
+        }
+    }
+
+    private float HeightForTreeTab(IReadOnlyList<double> categoryMs, IReadOnlyList<double> hookMs)
+    {
         int catCount = PerModAttribution.CategoryCount;
         int visible  = Math.Min(_rowCount - _scrollOffset, MaxModRows);
         float h      = RowsTopOffset + 10f;
@@ -327,13 +406,34 @@ internal sealed class OverlayPanel : UIElement
         }
 
         if (_rowCount > _scrollOffset + visible) h += 14f;
+        return h;
+    }
 
-        if (Math.Abs(h - _appliedHeight) > 0.5f)
+    /// <summary>
+    /// Panel height for the SPIKES tab: a fixed slot for the section header
+    /// plus up to <see cref="SpikesVisibleRows"/> spike rows. Empty-state
+    /// (no spikes captured) still reserves a reasonable height so the layout
+    /// doesn't shrink to nothing.
+    /// </summary>
+    private float HeightForSpikesTab()
+    {
+        MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        int captured = collector?.Spikes.Count ?? 0;
+        int rowsToShow = Math.Min(captured - _spikeScrollOffset, SpikesVisibleRows);
+        if (rowsToShow < 0) rowsToShow = 0;
+
+        float h = RowsTopOffset + 10f;
+        if (rowsToShow == 0)
         {
-            _appliedHeight = h;
-            Height.Set(h, 0f);
-            Recalculate();
+            // Empty-state hint line.
+            h += 24f;
         }
+        else
+        {
+            h += rowsToShow * SpikeRowHeight;
+            if (captured > _spikeScrollOffset + rowsToShow) h += 14f;
+        }
+        return h;
     }
 
     // ---- Drag ----------------------------------------------------------------
@@ -370,8 +470,10 @@ internal sealed class OverlayPanel : UIElement
         DrawHeaderToggle(spriteBatch, area.X + PauseToggleX, area.Y + ToggleY, PauseToggleW,
             _paused ? "PAUSED" : "LIVE", _paused);
 
+        DrawTabStrip(spriteBatch, area);
+
         float x = area.X + 14f;
-        float y = area.Y + HeaderHeight + StatStartY;
+        float y = area.Y + HeaderHeight + TabStripHeight + StatStartY;
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null || collector.History.Count == 0)
@@ -380,7 +482,7 @@ internal sealed class OverlayPanel : UIElement
             return;
         }
 
-        // ---- Per-tick stats --------------------------------------------------
+        // ---- Per-tick stats (visible across all tabs) ------------------------
         RingBuffer<TickFrame> history = collector.History;
         TickFrame latest = history.Newest;
 
@@ -399,7 +501,51 @@ internal sealed class OverlayPanel : UIElement
             ProfilerTheme.Border);
 
         DrawProfilerHealth(spriteBatch, area, x, area.Y + HealthTopOffset, collector);
-        DrawModTree(spriteBatch, area, collector);
+
+        // ---- Tab-specific content --------------------------------------------
+        switch (_persistedTab)
+        {
+            case OverlayTab.Tree:
+                DrawModTree(spriteBatch, area, collector);
+                break;
+            case OverlayTab.Spikes:
+                DrawSpikesTab(spriteBatch, area, collector);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Renders the tab strip sitting between the header and the content area.
+    /// Each tab is a 92-px-wide pill; the active one is filled with the accent
+    /// color, inactives are panel-fill with muted text.
+    /// </summary>
+    private void DrawTabStrip(SpriteBatch spriteBatch, Rectangle area)
+    {
+        float stripY = area.Y + HeaderHeight;
+        Rectangle stripRect = new Rectangle(area.X, (int)stripY, area.Width, (int)TabStripHeight);
+        ProfilerTheme.FillRect(spriteBatch, stripRect, ProfilerTheme.Panel);
+        ProfilerTheme.FillRect(spriteBatch,
+            new Rectangle(area.X, (int)(stripY + TabStripHeight - 1), area.Width, 1), ProfilerTheme.Border);
+
+        DrawTab(spriteBatch, area, slot: 0, OverlayTab.Tree,   "TREE");
+        DrawTab(spriteBatch, area, slot: 1, OverlayTab.Spikes, "SPIKES");
+    }
+
+    private void DrawTab(SpriteBatch spriteBatch, Rectangle area, int slot, OverlayTab tab, string label)
+    {
+        bool active = _persistedTab == tab;
+        float x = area.X + TabFirstX + slot * (TabWidth + TabGap);
+        float y = area.Y + HeaderHeight + 3f;
+        Rectangle r = new Rectangle((int)x, (int)y, (int)TabWidth, (int)(TabStripHeight - 6));
+
+        ProfilerTheme.FillRect(spriteBatch, r,
+            active ? new Color(25, 40, 60) : ProfilerTheme.Panel);
+        ProfilerTheme.DrawBorder(spriteBatch, r,
+            active ? ProfilerTheme.Accent : ProfilerTheme.Border);
+        DrawText(spriteBatch, label,
+            new Vector2(r.X + 10, r.Y + 2),
+            active ? ProfilerTheme.Accent : ProfilerTheme.TextMuted,
+            0.66f);
     }
 
     private static void DrawProfilerHealth(SpriteBatch spriteBatch, Rectangle area, float x, float y, MetricCollector collector)
@@ -446,6 +592,106 @@ internal sealed class OverlayPanel : UIElement
             DrawText(spriteBatch, $"Δ {pct:+0.0;-0.0;0.0}%",
                 new Vector2(x + 380f, y + 32f), pctColor, 0.62f);
         }
+    }
+
+    /// <summary>
+    /// Renders the SPIKES tab content: the spike windows the
+    /// <see cref="SpikeDetector"/> has captured this session, newest first.
+    /// Each row shows the tick range, the worst frame time vs the median
+    /// baseline, and the top-contributing mod from the per-mod snapshot
+    /// captured at the worst tick.
+    /// </summary>
+    private void DrawSpikesTab(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
+    {
+        int divY = area.Y + (int)DividerOffset;
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
+
+        IReadOnlyList<SpikeWindow> spikes = collector.Spikes;
+        string header = spikes.Count == 0
+            ? "RECENT SPIKES   ·   none yet — play a session"
+            : $"RECENT SPIKES   ·   {spikes.Count} captured (newest first)";
+        DrawText(spriteBatch, header, new Vector2(area.X + 18, divY + 6f), ProfilerTheme.Accent, 0.72f);
+
+        if (spikes.Count == 0)
+        {
+            DrawText(spriteBatch, "spikes appear when a tick exceeds 2× the rolling median (and ≥ 5 ms)",
+                new Vector2(area.X + 18, area.Y + RowsTopOffset + 4),
+                ProfilerTheme.TextDim, 0.6f);
+            return;
+        }
+
+        // Render newest-first. Spikes is oldest-first per RingBuffer convention,
+        // so iterate from the back.
+        float rowY = area.Y + RowsTopOffset;
+        int visible = Math.Min(spikes.Count - _spikeScrollOffset, SpikesVisibleRows);
+        for (int i = 0; i < visible; i++)
+        {
+            int idx = spikes.Count - 1 - (_spikeScrollOffset + i);
+            DrawSpikeRow(spriteBatch, area, spikes[idx], rowY);
+            rowY += SpikeRowHeight;
+        }
+
+        if (_spikeScrollOffset + visible < spikes.Count)
+        {
+            DrawText(spriteBatch, $"+ {spikes.Count - _spikeScrollOffset - visible} older",
+                new Vector2(area.X + 18, rowY + 2f), ProfilerTheme.TextDim, 0.6f);
+        }
+    }
+
+    private static void DrawSpikeRow(SpriteBatch spriteBatch, Rectangle area, SpikeWindow w, float y)
+    {
+        int duration = (int)(w.EndTick - w.StartTick + 1);
+        double multiplier = w.BaselineMs > 0d ? w.WorstFrameMs / w.BaselineMs : 0d;
+        Color severityColor = w.WorstFrameMs >= 32d ? ProfilerTheme.Danger
+                            : w.WorstFrameMs >= 16d ? ProfilerTheme.Amber
+                            : ProfilerTheme.Text;
+
+        // Line 1: timestamp + worst ms + baseline + multiplier.
+        string line1 = duration > 1
+            ? $"tick {w.StartTick}..{w.EndTick}  ({duration} ticks)"
+            : $"tick {w.WorstTick}";
+        DrawText(spriteBatch, line1, new Vector2(area.X + 18, y),
+            w.Warming ? ProfilerTheme.TextMuted : ProfilerTheme.Text, 0.7f);
+
+        string line1right = $"{w.WorstFrameMs:F1} ms   ({multiplier:F1}× median {w.BaselineMs:F1})";
+        DrawText(spriteBatch, line1right, new Vector2(area.X + 280f, y), severityColor, 0.7f);
+
+        if (w.Warming)
+        {
+            DrawText(spriteBatch, "warming", new Vector2(area.X + 540f, y),
+                ProfilerTheme.TextDim, 0.58f);
+        }
+
+        // Line 2: top contributor mod at the worst tick from the snapshot.
+        string contributor = TopContributorLabel(w);
+        DrawText(spriteBatch, contributor,
+            new Vector2(area.X + 30f, y + 15f), ProfilerTheme.TextMuted, 0.62f);
+    }
+
+    /// <summary>
+    /// Picks the single most expensive mod from the worst-tick snapshot of a
+    /// spike and renders it as "ModName  X.XX ms". Returns a placeholder if
+    /// the snapshot is empty (which would be a bug — but defensive UI).
+    /// </summary>
+    private static string TopContributorLabel(SpikeWindow w)
+    {
+        string[] names = HookInterceptor.ProfiledModNames;
+        int catCount = PerModAttribution.CategoryCount;
+        int modCount = w.PerModCatMs.Length / catCount;
+        if (modCount > names.Length) modCount = names.Length;
+
+        int bestMod = -1;
+        double bestMs = 0d;
+        for (int mod = 0; mod < modCount; mod++)
+        {
+            double sum = 0d;
+            int baseIdx = mod * catCount;
+            for (int c = 0; c < catCount; c++) sum += w.PerModCatMs[baseIdx + c];
+            if (sum > bestMs) { bestMs = sum; bestMod = mod; }
+        }
+        if (bestMod < 0) return "(no per-mod attribution captured)";
+        return $"top: {names[bestMod]}   {bestMs:F2} ms";
     }
 
     private void DrawModTree(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)

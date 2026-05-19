@@ -63,6 +63,17 @@ public sealed class MetricCollector
     private int _divergenceLogCountdown;
     private const int DivergenceLogIntervalTicks = 60 * 10; // every ~10s while in a world
 
+    // ---- Raw per-tick history + spike detection -----------------------------
+    // The smoothed averages above are what the live tree displays. The ring
+    // below keeps the unsmoothed per-mod-per-category values for the last 30s
+    // so a spike drill-down can read "what did Mod X look like at THAT tick"
+    // straight from the moment of the spike, before smoothing carried it away.
+    // The detector consumes this ring at every tick and emits SpikeWindow
+    // records when the frame time crosses the (median × 2) threshold.
+    private readonly PerTickAttributionRing _perTickRing;
+    private readonly SpikeDetector _spikeDetector;
+    private const int CategorySnapshotTicks = 120; // 2 s @ 60 tps
+
     /// <summary>Creates a collector whose history holds <paramref name="historyCapacity"/> ticks.</summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyCapacity"/> is not positive.</exception>
     public MetricCollector(int historyCapacity)
@@ -86,6 +97,18 @@ public sealed class MetricCollector
         {
             _perModRawMsBackend1 = new double[cells];
         }
+
+        // Raw history ring + detector. Allocation tracking is wired in a later
+        // step of the spikes-and-allocations rollout; for now we always pass
+        // false so the ring sizes only the CPU arrays.
+        _perTickRing = new PerTickAttributionRing(
+            modCount: PerModAttribution.ModCount,
+            historyTicks: historyCapacity,
+            categorySnapshotTicks: CategorySnapshotTicks,
+            trackAllocations: false);
+        _spikeDetector = new SpikeDetector(
+            modCount: PerModAttribution.ModCount,
+            tracksAllocations: false);
     }
 
     /// <summary>
@@ -143,6 +166,16 @@ public sealed class MetricCollector
 
     /// <summary>Rolling 30-second per-hook average in milliseconds, indexed by hookId.</summary>
     public IReadOnlyList<double> PerHookAverageMs => _perHookAverageMs;
+
+    /// <summary>
+    /// Raw per-tick per-mod attribution for the last 30 seconds, plus a
+    /// per-category snapshot window of ~2 seconds. The spike detector and the
+    /// drill-down UI both read this; nothing should write to it from outside.
+    /// </summary>
+    public PerTickAttributionRing PerTickRing => _perTickRing;
+
+    /// <summary>The coalesced spike windows detected this session, oldest first.</summary>
+    public IReadOnlyList<SpikeWindow> Spikes => _spikeDetector.Windows;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
@@ -228,6 +261,15 @@ public sealed class MetricCollector
             double total1 = SumAll(_perModRawMsBackend1);
             _backendTotalSmoothedMs1 += PerModSmoothing * (total1 - _backendTotalSmoothedMs1);
         }
+
+        // Push this tick's raw per-mod-per-category row into the history ring,
+        // then run the spike detector. Order matters: the detector reads from
+        // the ring when capturing a worst-tick snapshot, so the ring must be
+        // up-to-date first. Both operations are allocation-free in steady
+        // state -- the detector only allocates the SpikeWindow's per-mod arrays
+        // on an actual new spike, which is a rare event.
+        _perTickRing.Push(_perModRawMs, perModCatBytes: null);
+        _spikeDetector.OnTick(frame, _history, _perTickRing);
 
         _sampleSlot++;
         if (_sampleSlot == _historyCapacity)
