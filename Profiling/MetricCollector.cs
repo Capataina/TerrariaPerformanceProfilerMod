@@ -7,7 +7,7 @@ using System.Diagnostics;
 namespace PerformanceProfiler.Profiling;
 
 /// <summary>
-/// Times each game tick and stores a rolling history of <see cref="TickFrame"/>s,
+/// Times each game tick, stores a rolling history of <see cref="TickFrame"/>s,
 /// and harvests the per-mod CPU attribution accumulated by the timing detours.
 ///
 /// Pure logic with no tModLoader dependency: every game-sourced value (the tick
@@ -23,11 +23,19 @@ namespace PerformanceProfiler.Profiling;
 /// </summary>
 public sealed class MetricCollector
 {
+    // How fast the smoothed per-mod costs track the raw per-tick numbers. At
+    // 60 ticks/s, 0.06 settles in roughly a second -- enough to kill per-tick
+    // jitter without feeling laggy.
+    private const double PerModSmoothing = 0.06d;
+
     private readonly RingBuffer<TickFrame> _history;
 
-    // Per-mod CPU for the most recently completed tick, in milliseconds,
-    // indexed by ModId. Sized once at construction; harvested every EndTick.
-    private readonly double[] _perModCpuMs;
+    // Raw per-mod CPU harvested for the most recent tick, in milliseconds.
+    private readonly double[] _perModRawMs;
+
+    // Exponentially smoothed per-mod CPU -- what the UI displays, so the tree
+    // shows steady numbers instead of 60 Hz flicker.
+    private readonly double[] _perModSmoothedMs;
 
     // Stopwatch timestamp captured at BeginTick; -1 means "no tick currently open".
     private long _tickStartTimestamp = -1L;
@@ -41,17 +49,19 @@ public sealed class MetricCollector
     public MetricCollector(int historyCapacity)
     {
         _history = new RingBuffer<TickFrame>(historyCapacity);
-        _perModCpuMs = new double[PerModAttribution.ModCount];
+        _perModRawMs = new double[PerModAttribution.ModCount];
+        _perModSmoothedMs = new double[PerModAttribution.ModCount];
     }
 
     /// <summary>The rolling per-tick history, oldest record first. The UI reads this to draw.</summary>
     public RingBuffer<TickFrame> History => _history;
 
     /// <summary>
-    /// Per-mod CPU for the most recently completed tick, in milliseconds,
-    /// indexed by ModId (see <see cref="HookInterceptor.ProfiledModNames"/>).
+    /// Smoothed per-mod CPU, in milliseconds, indexed by ModId (see
+    /// <see cref="HookInterceptor.ProfiledModNames"/>). This is the stable
+    /// value the per-mod tree displays.
     /// </summary>
-    public IReadOnlyList<double> PerModCpuMs => _perModCpuMs;
+    public IReadOnlyList<double> PerModCpuMs => _perModSmoothedMs;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
@@ -107,7 +117,14 @@ public sealed class MetricCollector
         };
 
         _history.Push(in frame);
-        PerModAttribution.HarvestInto(_perModCpuMs);
+
+        // Harvest this tick's per-mod cost, then fold it into the smoothed view.
+        PerModAttribution.HarvestInto(_perModRawMs);
+        for (int i = 0; i < _perModSmoothedMs.Length; i++)
+        {
+            _perModSmoothedMs[i] += PerModSmoothing * (_perModRawMs[i] - _perModSmoothedMs[i]);
+        }
+
         _tickStartTimestamp = -1L;
     }
 
