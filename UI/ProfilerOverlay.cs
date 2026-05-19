@@ -1,3 +1,5 @@
+#nullable enable
+
 using Microsoft.Xna.Framework;
 using Terraria.GameContent.UI.Elements;
 using Terraria.ModLoader;
