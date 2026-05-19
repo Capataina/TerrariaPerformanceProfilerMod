@@ -228,6 +228,11 @@ internal sealed class OverlayPanel : UIElement
         int visible = Math.Min(_rowCount - _scrollOffset, MaxModRows);
         float y = RowsTopOffset;
 
+        // Pre-allocated buffers for the per-mod category sort. Small (catCount = 7)
+        // so stackalloc is free.
+        Span<int> sortedCatIds = stackalloc int[catCount];
+        Span<double> sortedCatMs = stackalloc double[catCount];
+
         for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
         {
             if (localY >= y && localY < y + RowHeight) { modId = _rows[i].ModId; return; }
@@ -236,15 +241,13 @@ internal sealed class OverlayPanel : UIElement
             if (!_expanded.Contains(_rows[i].ModId)) continue;
 
             IReadOnlyList<double>? categoryMs = collector != null ? SelectedCategoryMs(collector) : null;
-            for (int c = 0; c < catCount; c++)
-            {
-                if (categoryMs != null)
-                {
-                    int cell  = _rows[i].ModId * catCount + c;
-                    double ms = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                    if (ms <= 0.0005d) continue;
-                }
+            int catVisible = categoryMs != null
+                ? SortVisibleCategories(_rows[i].ModId, categoryMs, sortedCatIds, sortedCatMs)
+                : 0;
 
+            for (int k = 0; k < catVisible; k++)
+            {
+                int c = sortedCatIds[k];
                 if (localY >= y && localY < y + SubRowHeight) { modId = _rows[i].ModId; catId = c; return; }
                 y += SubRowHeight;
 
@@ -252,6 +255,49 @@ internal sealed class OverlayPanel : UIElement
                     y += CountVisibleHooks(_rows[i].ModId, c, SelectedHookMs(collector)) * HookRowHeight;
             }
         }
+    }
+
+    /// <summary>
+    /// Computes the descending-by-ms order of non-zero categories for one mod.
+    /// Writes the sorted category ids and ms values into the caller's spans
+    /// and returns how many categories are visible (i.e. above the cost
+    /// threshold). Categories below the threshold are filtered out -- the same
+    /// behaviour as before, but now the survivors appear in heaviest-first order
+    /// so the tree reads top-down by impact.
+    /// </summary>
+    private static int SortVisibleCategories(int modId, IReadOnlyList<double> categoryMs,
+        Span<int> outCatIds, Span<double> outCatMs)
+    {
+        int catCount = PerModAttribution.CategoryCount;
+        int n = 0;
+        for (int c = 0; c < catCount; c++)
+        {
+            int cell = modId * catCount + c;
+            double ms = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+            if (ms <= 0.0005d) continue;
+            outCatIds[n] = c;
+            outCatMs[n] = ms;
+            n++;
+        }
+
+        // Insertion sort, descending by ms. n <= 7 so this is faster than any
+        // generic sort dispatch.
+        for (int i = 1; i < n; i++)
+        {
+            int idTmp = outCatIds[i];
+            double msTmp = outCatMs[i];
+            int j = i - 1;
+            while (j >= 0 && outCatMs[j] < msTmp)
+            {
+                outCatIds[j + 1] = outCatIds[j];
+                outCatMs[j + 1] = outCatMs[j];
+                j--;
+            }
+            outCatIds[j + 1] = idTmp;
+            outCatMs[j + 1] = msTmp;
+        }
+
+        return n;
     }
 
     // ---- Height management ---------------------------------------------------
@@ -262,17 +308,18 @@ internal sealed class OverlayPanel : UIElement
         int visible  = Math.Min(_rowCount - _scrollOffset, MaxModRows);
         float h      = RowsTopOffset + 10f;
 
+        Span<int> sortedCatIds = stackalloc int[catCount];
+        Span<double> sortedCatMs = stackalloc double[catCount];
+
         for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
         {
             h += RowHeight;
             if (!_expanded.Contains(_rows[i].ModId)) continue;
 
-            for (int c = 0; c < catCount; c++)
+            int catVisible = SortVisibleCategories(_rows[i].ModId, categoryMs, sortedCatIds, sortedCatMs);
+            for (int k = 0; k < catVisible; k++)
             {
-                int cell    = _rows[i].ModId * catCount + c;
-                double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                if (catMs <= 0.0005d) continue;
-
+                int c = sortedCatIds[k];
                 h += SubRowHeight;
                 if (_expandedCats.Contains((_rows[i].ModId, c)))
                     h += CountVisibleHooks(_rows[i].ModId, c, hookMs) * HookRowHeight;
@@ -444,6 +491,10 @@ internal sealed class OverlayPanel : UIElement
 
         int contentW = area.Width - 2 - (hasScroll ? (int)(ScrollTrackGap + ScrollTrackW + 2) : 0);
 
+        // Reused per-mod sort buffers. catCount is 7, so stackalloc is free.
+        Span<int> sortedCatIds = stackalloc int[catCount];
+        Span<double> sortedCatMs = stackalloc double[catCount];
+
         for (int i = _scrollOffset; i < _scrollOffset + visible; i++)
         {
             ModRow row      = _rows[i];
@@ -460,11 +511,13 @@ internal sealed class OverlayPanel : UIElement
 
             if (!expanded) continue;
 
-            for (int c = 0; c < catCount; c++)
+            // Sort the mod's categories descending by ms so the tree reads
+            // heaviest-first within each mod, matching the top-level mod sort.
+            int catVisible = SortVisibleCategories(row.ModId, categoryMs, sortedCatIds, sortedCatMs);
+            for (int k = 0; k < catVisible; k++)
             {
-                int    cell  = row.ModId * catCount + c;
-                double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
-                if (catMs <= 0.0005d) continue;
+                int c        = sortedCatIds[k];
+                double catMs = sortedCatMs[k];
 
                 bool catExpanded = _expandedCats.Contains((row.ModId, c));
                 bool catHovered  = IsMouseHovering && mouseY >= rowY && mouseY < rowY + SubRowHeight;

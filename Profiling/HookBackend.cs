@@ -39,10 +39,16 @@ public enum HookBackendMode
 /// </summary>
 public static class HookBackend
 {
-    // Default: Parallel so the new ILHook backend lights up immediately and we
-    // can compare it 1:1 against the delegate baseline. Drop to Delegate to
-    // disable ILHook, or to ILHook to disable the delegate path.
-    private static HookBackendMode _mode = HookBackendMode.Parallel;
+    // Default: ILHook. Validated against the delegate baseline in Parallel mode
+    // and confirmed to give a cleaner measurement -- the delegate path's
+    // On-hook wrapper adds ~30-100ns of trampoline overhead per call that the
+    // delegate path attributes to "hook cost", inflating quiet-tick numbers by
+    // ~30%. The IL-injection path captures only the body's actual time.
+    //
+    // The delegate code stays in the assembly as an archived fallback: flip to
+    // Delegate or Parallel here and rebuild to bring it back without code
+    // changes (useful if a tModLoader update breaks something IL-specific).
+    private static HookBackendMode _mode = HookBackendMode.ILHook;
 
     /// <summary>The active backend mode. Changes take effect on the next mod reload.</summary>
     public static HookBackendMode Mode
