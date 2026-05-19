@@ -11,24 +11,28 @@ namespace PerformanceProfiler;
 /// </summary>
 public class PerformanceProfiler : Mod
 {
-    // No mod-level overrides required for the Milestone 0 smoke test.
+    public override void Load()
+    {
+        // Written to client.log. The machine-readable proof that the mod
+        // loaded — verifiable from the log without anyone watching chat.
+        Logger.Info("Performance Profiler loaded — Milestone 0 scaffold.");
+    }
 }
 
 /// <summary>
-/// Milestone 0 smoke test. Its only job is to prove the scaffold compiles, packs
-/// into a .tmod, loads, and can reach the in-game chat layer. It is replaced by
-/// the real metric-collection systems once the hook-interceptor work begins
-/// (see README.md — System architecture).
+/// Milestone 0 smoke test. Proves the scaffold reaches the runtime and can
+/// reach the player-visible chat layer. Replaced by the real metric-collection
+/// systems once the hook-interceptor work begins (see README.md).
 /// </summary>
-public class HelloWorldSystem : ModSystem
+public class ProfilerPlayer : ModPlayer
 {
-    public override void OnWorldLoad()
+    public override void OnEnterWorld()
     {
-        // Single-player: Main.NewText writes straight to the chat readout.
-        // Multiplayer servers use ChatHelper.BroadcastChatMessage instead.
-        // OnWorldLoad, not Mod.Load: chat only exists once a world is live;
-        // Mod.Load runs before any world, so Main.NewText would have nothing
-        // to render into.
+        // OnEnterWorld, NOT ModSystem.OnWorldLoad: OnWorldLoad fires mid-load,
+        // and tModLoader clears the chat during the load -> in-game transition,
+        // so a message printed there is wiped before the player sees it.
+        // OnEnterWorld fires once the player is fully in the world, chat live.
         Main.NewText("Performance Profiler: hello world", 255, 220, 100);
+        Mod.Logger.Info("OnEnterWorld fired — hello world sent to chat.");
     }
 }

@@ -31,6 +31,25 @@ These are inviolable. A change that breaks one is wrong regardless of how clean 
 
 ---
 
+## Dual-Surface Observability
+
+Every feature and every test must be observable on **two surfaces**, because the project has two examiners:
+
+| Surface | Who reads it | What it carries |
+|---|---|---|
+| **Player surface** | Caner, in-game | Chat output, the F9 overlay, UI panels, the session retrospective card |
+| **Agent surface** | Claude, off disk | `client.log` (written via `Mod.Logger`), plus the JSON-lines session files |
+
+The rule: when you add a runtime feature, instrument it on **both**. A feature that only surfaces in-game is invisible to the agent; one that only logs is invisible to the player. Neither examiner should have to take the other's word for what happened.
+
+- **Runtime events go through `Mod.Logger`.** `Logger.Info(...)` for lifecycle and milestone events (load, world-enter, encounter open/close, mode change), `Logger.Warn`/`Logger.Error(...)` for problems, `Logger.Debug(...)` for verbose tracing. The agent follows execution by reading `client.log` (path in the tModLoader specifics below).
+- **This is also the conflict-diagnosis channel.** Hook collisions (Daybreak-style `No orig delegate` warnings), load-order issues, and missing-dependency errors all surface in `client.log`. The agent reads it to diagnose rather than guessing.
+- **Logging respects Invariant 2.** `Mod.Logger` calls are not free. Never log per-tick from the hot path — that is overhead the profiler is meant to measure, not add. Log at load/teardown and encounter boundaries; gate high-frequency tracing behind `Logger.Debug` and a config switch.
+
+The profiler's own architecture already embodies this: the in-game overlay is the player surface, the JSON-lines files are an agent-readable surface. The discipline is making sure every *new* piece of work lands on both.
+
+---
+
 ## Source Hierarchy
 
 | Source | Role | Rule |
