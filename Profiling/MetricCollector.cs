@@ -35,6 +35,16 @@ public sealed class MetricCollector
     // this tick's harvest; _smoothed is what the UI displays.
     private readonly double[] _perModRawMs;
     private readonly double[] _perModSmoothedMs;
+    private readonly double[] _perModAverageMs;
+    private readonly double[] _perModHistoryMs;
+    private readonly double[] _perModRollingMs;
+    private readonly double[] _perHookRawMs;
+    private readonly double[] _perHookSmoothedMs;
+    private readonly double[] _perHookAverageMs;
+    private readonly double[] _perHookHistoryMs;
+    private readonly double[] _perHookRollingMs;
+    private readonly int _historyCapacity;
+    private int _sampleSlot;
 
     // Stopwatch timestamp captured at BeginTick; -1 means "no tick currently open".
     private long _tickStartTimestamp = -1L;
@@ -48,9 +58,18 @@ public sealed class MetricCollector
     public MetricCollector(int historyCapacity)
     {
         _history = new RingBuffer<TickFrame>(historyCapacity);
+        _historyCapacity = historyCapacity;
         int cells = PerModAttribution.ModCount * PerModAttribution.CategoryCount;
         _perModRawMs = new double[cells];
         _perModSmoothedMs = new double[cells];
+        _perModAverageMs = new double[cells];
+        _perModHistoryMs = new double[cells * historyCapacity];
+        _perModRollingMs = new double[cells];
+        _perHookRawMs = new double[PerModAttribution.HookCount];
+        _perHookSmoothedMs = new double[PerModAttribution.HookCount];
+        _perHookAverageMs = new double[PerModAttribution.HookCount];
+        _perHookHistoryMs = new double[PerModAttribution.HookCount * historyCapacity];
+        _perHookRollingMs = new double[PerModAttribution.HookCount];
     }
 
     /// <summary>The rolling per-tick history, oldest record first. The UI reads this to draw.</summary>
@@ -63,6 +82,21 @@ public sealed class MetricCollector
     /// sum of its category cells.
     /// </summary>
     public IReadOnlyList<double> PerModCategoryMs => _perModSmoothedMs;
+
+    /// <summary>
+    /// Rolling 30-second per-mod/category average in milliseconds. This is the
+    /// stable view for inspecting lag-spike contribution without row churn.
+    /// </summary>
+    public IReadOnlyList<double> PerModCategoryAverageMs => _perModAverageMs;
+
+    /// <summary>
+    /// Smoothed per-hook CPU in milliseconds, indexed by hookId. Hook metadata is
+    /// available through <see cref="PerModAttribution.Hooks"/>.
+    /// </summary>
+    public IReadOnlyList<double> PerHookMs => _perHookSmoothedMs;
+
+    /// <summary>Rolling 30-second per-hook average in milliseconds, indexed by hookId.</summary>
+    public IReadOnlyList<double> PerHookAverageMs => _perHookAverageMs;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
@@ -121,12 +155,39 @@ public sealed class MetricCollector
 
         // Harvest this tick's per-mod cost, then fold it into the smoothed view.
         PerModAttribution.HarvestInto(_perModRawMs);
+        UpdateRollingAverage(_perModRawMs, _perModHistoryMs, _perModRollingMs, _perModAverageMs, _sampleSlot);
         for (int i = 0; i < _perModSmoothedMs.Length; i++)
         {
             _perModSmoothedMs[i] += PerModSmoothing * (_perModRawMs[i] - _perModSmoothedMs[i]);
         }
 
+        PerModAttribution.HarvestHooksInto(_perHookRawMs);
+        UpdateRollingAverage(_perHookRawMs, _perHookHistoryMs, _perHookRollingMs, _perHookAverageMs, _sampleSlot);
+        for (int i = 0; i < _perHookSmoothedMs.Length; i++)
+        {
+            _perHookSmoothedMs[i] += PerModSmoothing * (_perHookRawMs[i] - _perHookSmoothedMs[i]);
+        }
+
+        _sampleSlot++;
+        if (_sampleSlot == _historyCapacity)
+        {
+            _sampleSlot = 0;
+        }
+
         _tickStartTimestamp = -1L;
+    }
+
+    private void UpdateRollingAverage(double[] source, double[] history, double[] rolling, double[] average, int slot)
+    {
+        int offset = slot * source.Length;
+        int samples = _history.Count < _historyCapacity ? _history.Count + 1 : _historyCapacity;
+        for (int i = 0; i < source.Length; i++)
+        {
+            int index = offset + i;
+            rolling[i] += source[i] - history[index];
+            history[index] = source[i];
+            average[i] = rolling[i] / samples;
+        }
     }
 
     /// <summary>Converts a delta of <see cref="Stopwatch"/> timestamps to milliseconds.</summary>

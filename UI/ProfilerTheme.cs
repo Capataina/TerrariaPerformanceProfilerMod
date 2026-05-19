@@ -56,6 +56,9 @@ public static class ProfilerTheme
     /// <summary>Dormant-cost / engagement purple (mockup #b389e3).</summary>
     public static readonly Color Dormant = new Color(179, 137, 227);
 
+    /// <summary>High-risk / incomplete-coverage signal (mockup #f47174).</summary>
+    public static readonly Color Danger = new Color(244, 113, 116);
+
     // ---- Cost gradient endpoints -----------------------------------------
     private static readonly Color CostLow = new Color(149, 212, 163);   // green  #95d4a3
     private static readonly Color CostMid = new Color(245, 179, 66);    // amber  #f5b342
