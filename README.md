@@ -18,7 +18,7 @@ You subscribe to it on the Steam Workshop, install it once, and forget it. It ne
 **It is equal parts profiler and tracker.** The *profiler* half attributes CPU cost — per mod, per subsystem, down to the individual hook. The *tracker* half records, in real time, where your session actually went: how long you spent in each biome, every boss fight and how it played out, what you fired, used, killed and explored — and what you never touched. The profiler half tells you what is *expensive*; the tracker half tells you what is *yours*. Every number comes from the live runtime — nothing is estimated, nothing is hard-coded. The end-of-session retrospective is where the two halves meet.
 
 > [!IMPORTANT]
-> **Status: early development — Milestone 0 (hello-world scaffold).** The mod currently compiles, packs into a `.tmod`, loads, prints to chat, and logs to `client.log`. **Nothing below the [Project status](#project-status--milestones) heading is implemented yet.** This README is the *directional document* — the contract for what Performance Profiler is being built into, not a description of what it does today.
+> **Status: early development — Milestone 1 (Lite-mode MVP), in progress.** The mod currently compiles, packs into a `.tmod`, loads, prints to chat, and logs to `client.log`. **Nothing below the [Project status](#project-status--milestones) heading is implemented yet.** This README is the *directional document* — the contract for what Performance Profiler is being built into, not a description of what it does today.
 
 ---
 
@@ -246,7 +246,7 @@ A profiler that costs 15 % of the frame budget defeats its own purpose. **The in
 | **Deep** | **5 – 10 %** | Opt-in. Adds allocation tracking + call-graph capture + cross-mod chains. For diagnostic sessions. |
 | **Off** | **0 %** | Mod loaded, hook patching dormant. Overlay shows the last completed session. |
 
-Lite mode stays under budget through **foreach-level aggregation**: time each `HookList.Enumerate` foreach body *once* and sum per-mod-assembly afterwards (≈ 30 ns × ≈ 30 hooks × 60 fps ≈ 0.3 %), plus sampling, pre-allocated per-mod aggregator structs, a lock-free ring buffer, and batched off-thread persistence. Per-call timing for sub-microsecond hooks is *not* viable — `Stopwatch` noise dominates — so aggregate-per-frame is the technique. **The headline overhead figure is established de novo by the Milestone 1 spike on a real 94-mod stack — it is not borrowed from prior art.**
+Lite mode stays under budget through **foreach-level aggregation**: time each `HookList.Enumerate` foreach body *once* and sum per-mod-assembly afterwards (≈ 30 ns × ≈ 30 hooks × 60 fps ≈ 0.3 %), plus sampling, pre-allocated per-mod aggregator structs, a lock-free ring buffer, and batched off-thread persistence. Per-call timing for sub-microsecond hooks is *not* viable — `Stopwatch` noise dominates — so aggregate-per-frame is the technique. **The headline overhead figure is established by measurement on a real session — it is not borrowed from prior art.**
 
 ---
 
@@ -358,19 +358,17 @@ Performance Profiler is a tModLoader mod. Full stop. No companion app, no out-of
 
 ## Project status & milestones
 
-**Current: Milestone 0 — hello-world scaffold.** The mod compiles, packs, loads, prints to chat on world-entry, and logs lifecycle events to `client.log`. The instrumentation work has not started.
+**Current: Milestone 1 — Lite-mode MVP, in progress.** The hello-world scaffold compiles, packs, loads, prints to chat on world-entry, and logs lifecycle events to `client.log`. The metric-collection engine and the F9 overlay are now being built.
 
 | Milestone | Scope | Gate |
-|---|---|---|
-| **0 — Feasibility spikes** | Three throwaway-mod spikes resolving the open unknowns: **(0.A)** detour install cost at 94-mod scale, **(0.B)** JSON-lines write performance + crash safety, **(0.C)** engagement-hook coverage. | < 1 week total |
-| **1 — Lite-mode MVP** | ILHook per-loader-method timing, per-mod CPU aggregate, a single overlay panel (top-10 by cost + 30 s rolling), F9 toggle. | **< 1 % overhead measured on a real modlist** |
+|---|---|---|| **1 — Lite-mode MVP** | ILHook per-loader-method timing, per-mod CPU aggregate, a single overlay panel (top-10 by cost + 30 s rolling), F9 toggle. | **< 1 % overhead measured on a real modlist** |
 | **2 — Tree + Standard mode** | Hierarchical foldable tree UI, Hot Path capture, per-mod icons, colour-gradient bars, per-`(GlobalType, hookMethod)` detours. | — |
 | **3 — Persistence + retrospective** | JSON-lines storage, encounter detection, per-encounter + end-of-session retrospective cards, cross-session engagement insights. | — |
 | **4 — Insights engine** | Heuristic attribution rules, a curated config-knowledge dataset, natural-language insight generation. | — |
 | **5 — Public Workshop release** | Description, GIF demo, screenshots, first-launch tutorial, MIT GitHub repo. | — |
 | **6+** | Cross-session analytics, Deep mode, allocation tracking, multiplayer, theming. | — |
 
-**Milestone 1 is the promotion gate:** a working Lite-mode MVP at < 2 % overhead on a 94-mod stack, with real per-mod cost attribution visible in-game.
+**Milestone 1 is the promotion gate:** a working Lite-mode MVP with real per-mod cost attribution visible in-game, overhead kept within budget on the player's own modlist.
 
 ---
 
@@ -422,7 +420,7 @@ The full design rationale — every feature, every milestone, and the feasibilit
 
 ```
 PerformanceProfiler/
-├── PerformanceProfiler.cs       Mod entry point + Milestone 0 smoke test
+├── PerformanceProfiler.cs       Mod entry point + F9 keybind glue
 ├── PerformanceProfiler.csproj   SDK-style project; imports ..\tModLoader.targets
 ├── build.txt                    tModLoader build metadata (name, author, version)
 ├── description.txt              Workshop / mod-browser description
@@ -439,7 +437,7 @@ PerformanceProfiler/
 
 ## Contributing
 
-The mod is in early development — the most useful contributions right now are **feasibility input** on the open Milestone 0 spikes (detour cost at scale, JSON-lines crash safety, engagement-hook coverage) and **modlist test data**. Once Milestone 1 lands, the localisation system is open for community translation PRs. Issues and discussion are welcome.
+The mod is in early development — the most useful contributions right now are **modlist test data** and bug reports from real play sessions. Once Milestone 1 lands, the localisation system is open for community translation PRs. Issues and discussion are welcome.
 
 ---
 
