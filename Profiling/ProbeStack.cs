@@ -41,6 +41,15 @@ public static class ProbeStack
     {
         public int HookId;
         public long StartTicks;
+        /// <summary>
+        /// Allocated-bytes counter at entry. 0 when allocation tracking is off
+        /// (the Lite path never reads or writes this slot). Kept on the same
+        /// stack as StartTicks rather than in a parallel structure so the LIFO
+        /// discipline that makes CPU attribution correct under nesting also
+        /// makes allocation attribution correct -- two stacks could desync;
+        /// one stack is one source of truth.
+        /// </summary>
+        public long StartAllocBytes;
     }
 
     // tModLoader hooks fire predominantly on the game's update thread, but draw-thread
@@ -107,6 +116,69 @@ public static class ProbeStack
         {
             HookDescriptor desc = PerModAttribution.Hooks[f.HookId];
             PerModAttribution.Add(HookBackend.ILHookBackendId, desc.ModId, desc.CategoryId, f.HookId, elapsed);
+        }
+    }
+
+    /// <summary>
+    /// IL-prologue entry point for the allocation-tracking path.
+    /// <paramref name="allocBytesAtEnter"/> is captured by the IL caller via
+    /// <c>GC.GetAllocatedBytesForCurrentThread</c> and pushed on the stack
+    /// before this call -- saves one method-call frame compared to reading
+    /// the API inside this method, and keeps Enter symmetric with Leave's
+    /// reading-it-internally model.
+    /// </summary>
+    public static void EnterCpuAlloc(int hookId, long allocBytesAtEnter)
+    {
+        Frame[]? s = _stack;
+        if (s == null)
+        {
+            s = new Frame[InitialCapacity];
+            _stack = s;
+        }
+        else if (_depth == s.Length)
+        {
+            Frame[] grown = new Frame[s.Length * 2];
+            Array.Copy(s, grown, s.Length);
+            s = grown;
+            _stack = grown;
+        }
+
+        s[_depth].HookId = hookId;
+        s[_depth].StartTicks = Stopwatch.GetTimestamp();
+        s[_depth].StartAllocBytes = allocBytesAtEnter;
+        _depth++;
+    }
+
+    /// <summary>
+    /// IL-finally exit point for the allocation-tracking path. Reads BOTH
+    /// the Stopwatch and the allocation counter internally so the IL handler
+    /// keeps the parameterless <c>call</c> shape used by the Lite path --
+    /// preserves the ExceptionHandler IL surface from the original
+    /// migration plan.
+    /// </summary>
+    public static void LeaveCpuAlloc()
+    {
+        int d = _depth - 1;
+        Frame[]? s = _stack;
+        if (s == null || (uint)d >= (uint)s.Length) return;
+
+        long endAllocBytes = System.GC.GetAllocatedBytesForCurrentThread();
+        long endTicks = Stopwatch.GetTimestamp();
+
+        _depth = d;
+        Frame f = s[d];
+        long elapsedTicks = endTicks - f.StartTicks;
+        long elapsedBytes = endAllocBytes - f.StartAllocBytes;
+        // elapsedBytes is non-negative by construction -- the per-thread
+        // counter is monotonic. The Stopwatch elapsed can be negative under
+        // exotic clock-shift scenarios (not on managed runtimes in practice),
+        // so leave that to the consumer.
+
+        if ((uint)f.HookId < (uint)PerModAttribution.Hooks.Count)
+        {
+            HookDescriptor desc = PerModAttribution.Hooks[f.HookId];
+            PerModAttribution.Add(HookBackend.ILHookBackendId, desc.ModId, desc.CategoryId,
+                f.HookId, elapsedTicks, elapsedBytes);
         }
     }
 

@@ -59,12 +59,25 @@ public static class ILHookInterceptor
     private const int CategoryWorld = 5;
     private const int CategoryBuffs = 6;
 
-    // Cached MethodInfo for our IL-emitted call targets.
+    // Cached MethodInfo for our IL-emitted call targets. Two pairs: the cheap
+    // CPU-only Enter/Leave, and the CPU + allocation EnterCpuAlloc/LeaveCpuAlloc.
+    // The manipulator picks one pair at emit time based on
+    // HookBackend.AllocationTracking; both stay cached so we never pay
+    // reflection cost in the install loop.
     private static readonly MethodInfo _enterMethod =
         typeof(ProbeStack).GetMethod(nameof(ProbeStack.Enter),
             BindingFlags.Public | BindingFlags.Static)!;
     private static readonly MethodInfo _leaveMethod =
         typeof(ProbeStack).GetMethod(nameof(ProbeStack.Leave),
+            BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo _enterCpuAllocMethod =
+        typeof(ProbeStack).GetMethod(nameof(ProbeStack.EnterCpuAlloc),
+            BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo _leaveCpuAllocMethod =
+        typeof(ProbeStack).GetMethod(nameof(ProbeStack.LeaveCpuAlloc),
+            BindingFlags.Public | BindingFlags.Static)!;
+    private static readonly MethodInfo _gcGetAllocatedMethod =
+        typeof(System.GC).GetMethod(nameof(System.GC.GetAllocatedBytesForCurrentThread),
             BindingFlags.Public | BindingFlags.Static)!;
 
     // Installed ILHook references: held for the process lifetime so we can
@@ -476,13 +489,24 @@ public static class ILHookInterceptor
             body.InitLocals = true;
         }
 
+        // Branch the emit shape on whether allocation tracking is on. The two
+        // shapes differ only in (a) the prologue, which gains a GC.GetAllocatedBytes
+        // call when alloc tracking is on, and (b) which Leave method the finally
+        // calls -- LeaveCpuAlloc reads the post-counter internally so the IL
+        // handler keeps the parameterless call shape used by the Lite path.
+        // Everything else (ret rewriting, exception-handler registration) is
+        // identical across the two modes.
+        bool trackAlloc = HookBackend.AllocationTracking;
+        MethodInfo leaveTarget = trackAlloc ? _leaveCpuAllocMethod : _leaveMethod;
+        MethodInfo enterTarget = trackAlloc ? _enterCpuAllocMethod : _enterMethod;
+
         // Tail anchors (the new instructions appended after the body):
-        //   handlerStart = call ProbeStack.Leave()    <-- finally region opens here
-        //   endFinally   = endfinally                 <-- finally region closes here
-        //   afterHandler = ldloc retLocal             <-- (non-void) loads return value
-        //                | ret                         <-- (void) the final return
-        //   finalRet     = ret                         <-- (non-void only) final return
-        Instruction handlerStart = Instruction.Create(OpCodes.Call, il.Import(_leaveMethod));
+        //   handlerStart = call ProbeStack.Leave[CpuAlloc]()  <-- finally region opens here
+        //   endFinally   = endfinally                         <-- finally region closes here
+        //   afterHandler = ldloc retLocal                     <-- (non-void) loads return value
+        //                | ret                                 <-- (void) the final return
+        //   finalRet     = ret                                 <-- (non-void only) final return
+        Instruction handlerStart = Instruction.Create(OpCodes.Call, il.Import(leaveTarget));
         Instruction endFinally = Instruction.Create(OpCodes.Endfinally);
         Instruction afterHandler = returnsValue
             ? Instruction.Create(OpCodes.Ldloc, retLocal!)
@@ -517,12 +541,25 @@ public static class ILHookInterceptor
             }
         }
 
-        // Prologue: emit `ldc.i4 hookId ; call ProbeStack.Enter` BEFORE firstOriginal.
-        // Using ILCursor here so module import is handled correctly.
+        // Prologue: emit the entry call sequence BEFORE firstOriginal.
+        // ILCursor handles module import.
+        //
+        // Lite path:
+        //     ldc.i4 hookId
+        //     call ProbeStack.Enter
+        //
+        // Alloc path:
+        //     ldc.i4 hookId
+        //     call GC.GetAllocatedBytesForCurrentThread   <-- pushes long
+        //     call ProbeStack.EnterCpuAlloc(int32, int64)
         ILCursor c = new ILCursor(il);
         c.Goto(firstOriginal, MoveType.Before);
         c.Emit(OpCodes.Ldc_I4, hookId);
-        c.Emit(OpCodes.Call, _enterMethod);
+        if (trackAlloc)
+        {
+            c.Emit(OpCodes.Call, _gcGetAllocatedMethod);
+        }
+        c.Emit(OpCodes.Call, enterTarget);
 
         // Append the finally handler at the very end of the body.
         body.Instructions.Add(handlerStart);

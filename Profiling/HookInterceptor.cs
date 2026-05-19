@@ -336,9 +336,10 @@ public static class HookInterceptor
             }
 
             // Size attribution for the chosen number of backends (1 in single-mode,
-            // 2 in Parallel). Must run before any RegisterHook call so backend slots
+            // 2 in Parallel) and optionally allocate the byte arrays for allocation
+            // tracking. Must run before any RegisterHook call so backend slots
             // exist when detours start writing.
-            PerModAttribution.Configure(profiled.Count, HookBackend.BackendCount);
+            PerModAttribution.Configure(profiled.Count, HookBackend.BackendCount, HookBackend.AllocationTracking);
 
             int detours = 0;
             if (HookBackend.DelegateActive)

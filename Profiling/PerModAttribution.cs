@@ -57,6 +57,12 @@ public static class PerModAttribution
     // _hookTicksByBackend[backendId][hookId].
     private static long[][] _hookTicksByBackend = Array.Empty<long[]>();
 
+    // Accumulated allocated bytes for the current game tick, per backend. Parallel
+    // structure to _ticksByBackend / _hookTicksByBackend. Sized only when allocation
+    // tracking is on, so Lite-style modes pay zero memory cost here.
+    private static long[][] _bytesByBackend = Array.Empty<long[]>();
+    private static long[][] _hookBytesByBackend = Array.Empty<long[]>();
+
     // Registered during install only; read by the collector/UI after setup.
     // Hooks are shared across backends -- a delegate detour and an ILHook detour
     // for the same method share the same hookId. Backends differ only by where
@@ -76,17 +82,24 @@ public static class PerModAttribution
     /// <summary>Metadata for each timed hook, indexed by hookId.</summary>
     public static IReadOnlyList<HookDescriptor> Hooks => _hooks;
 
-    /// <summary>Sizes the accumulator for <paramref name="modCount"/> mods with one backend.</summary>
+    /// <summary>Sizes the accumulator for <paramref name="modCount"/> mods with one backend, CPU only.</summary>
     public static void Configure(int modCount)
     {
-        Configure(modCount, backendCount: 1);
+        Configure(modCount, backendCount: 1, trackAllocations: false);
+    }
+
+    /// <summary>Sizes the accumulator for <paramref name="modCount"/> mods across backends, CPU only.</summary>
+    public static void Configure(int modCount, int backendCount)
+    {
+        Configure(modCount, backendCount, trackAllocations: false);
     }
 
     /// <summary>
     /// Sizes the accumulator for <paramref name="modCount"/> mods across
-    /// <paramref name="backendCount"/> backends. Called once at setup.
+    /// <paramref name="backendCount"/> backends, optionally allocating parallel
+    /// byte arrays for allocation tracking. Called once at setup.
     /// </summary>
-    public static void Configure(int modCount, int backendCount)
+    public static void Configure(int modCount, int backendCount, bool trackAllocations)
     {
         if (modCount < 0) modCount = 0;
         if (backendCount < 1) backendCount = 1;
@@ -99,8 +112,28 @@ public static class PerModAttribution
             _ticksByBackend[b] = new long[cells];
             _hookTicksByBackend[b] = Array.Empty<long>();
         }
+
+        if (trackAllocations)
+        {
+            _bytesByBackend = new long[backendCount][];
+            _hookBytesByBackend = new long[backendCount][];
+            for (int b = 0; b < backendCount; b++)
+            {
+                _bytesByBackend[b] = new long[cells];
+                _hookBytesByBackend[b] = Array.Empty<long>();
+            }
+        }
+        else
+        {
+            _bytesByBackend = Array.Empty<long[]>();
+            _hookBytesByBackend = Array.Empty<long[]>();
+        }
+
         _hooks.Clear();
     }
+
+    /// <summary>True if Configure was called with allocation tracking on.</summary>
+    public static bool TracksAllocations => _bytesByBackend.Length > 0;
 
     /// <summary>
     /// Registers one hook timing row. Returns its hookId. Called during setup,
@@ -115,6 +148,10 @@ public static class PerModAttribution
         for (int b = 0; b < _hookTicksByBackend.Length; b++)
         {
             Array.Resize(ref _hookTicksByBackend[b], _hooks.Count);
+        }
+        for (int b = 0; b < _hookBytesByBackend.Length; b++)
+        {
+            Array.Resize(ref _hookBytesByBackend[b], _hooks.Count);
         }
         return hookId;
     }
@@ -147,6 +184,11 @@ public static class PerModAttribution
         {
             Array.Clear(_ticksByBackend[b], 0, _ticksByBackend[b].Length);
             Array.Clear(_hookTicksByBackend[b], 0, _hookTicksByBackend[b].Length);
+        }
+        for (int b = 0; b < _bytesByBackend.Length; b++)
+        {
+            Array.Clear(_bytesByBackend[b], 0, _bytesByBackend[b].Length);
+            Array.Clear(_hookBytesByBackend[b], 0, _hookBytesByBackend[b].Length);
         }
     }
 
@@ -196,6 +238,48 @@ public static class PerModAttribution
         if ((uint)hookId < (uint)hookTicks.Length)
         {
             hookTicks[hookId] += elapsedStopwatchTicks;
+        }
+    }
+
+    /// <summary>
+    /// Adds elapsed Stopwatch ticks AND allocated bytes to one mod/category
+    /// total in <paramref name="backendId"/>'s slot. Used by the allocation-
+    /// tracking ILHook path (<see cref="ProbeStack.LeaveCpuAlloc"/>) so the
+    /// hot path makes one call instead of two. The byte credit is a no-op
+    /// if Configure was called without trackAllocations.
+    /// </summary>
+    public static void Add(int backendId, int modId, int categoryId, int hookId,
+        long elapsedStopwatchTicks, long allocatedBytes)
+    {
+        if ((uint)backendId >= (uint)_ticksByBackend.Length) return;
+        if ((uint)categoryId >= (uint)CategoryCount) return;
+
+        long[] ticks = _ticksByBackend[backendId];
+        int index = modId * CategoryCount + categoryId;
+        if ((uint)index < (uint)ticks.Length)
+        {
+            ticks[index] += elapsedStopwatchTicks;
+        }
+
+        long[] hookTicks = _hookTicksByBackend[backendId];
+        if ((uint)hookId < (uint)hookTicks.Length)
+        {
+            hookTicks[hookId] += elapsedStopwatchTicks;
+        }
+
+        // Allocation credit (only if Configure(trackAllocations: true) was called).
+        if ((uint)backendId < (uint)_bytesByBackend.Length)
+        {
+            long[] bytes = _bytesByBackend[backendId];
+            if ((uint)index < (uint)bytes.Length)
+            {
+                bytes[index] += allocatedBytes;
+            }
+            long[] hookBytes = _hookBytesByBackend[backendId];
+            if ((uint)hookId < (uint)hookBytes.Length)
+            {
+                hookBytes[hookId] += allocatedBytes;
+            }
         }
     }
 
@@ -259,6 +343,49 @@ public static class PerModAttribution
         for (int i = 0; i < n; i++)
         {
             destination[i] = hookTicks[i] * ticksToMs;
+        }
+    }
+
+    /// <summary>
+    /// Writes one backend's per-mod/category allocation totals for the tick,
+    /// in raw bytes, into <paramref name="destination"/>. No unit conversion --
+    /// callers format bytes / KB / MB depending on magnitude. Destination is
+    /// zero-filled if allocation tracking is off.
+    /// </summary>
+    public static void HarvestAllocationsInto(double[] destination, int backendId)
+    {
+        if ((uint)backendId >= (uint)_bytesByBackend.Length)
+        {
+            Array.Clear(destination, 0, destination.Length);
+            return;
+        }
+
+        long[] bytes = _bytesByBackend[backendId];
+        int n = bytes.Length < destination.Length ? bytes.Length : destination.Length;
+        for (int i = 0; i < n; i++)
+        {
+            destination[i] = bytes[i];
+        }
+    }
+
+    /// <summary>
+    /// Writes one backend's per-hook allocation totals for the tick, in raw
+    /// bytes, into <paramref name="destination"/>. Destination is zero-filled
+    /// if allocation tracking is off.
+    /// </summary>
+    public static void HarvestHookAllocationsInto(double[] destination, int backendId)
+    {
+        if ((uint)backendId >= (uint)_hookBytesByBackend.Length)
+        {
+            Array.Clear(destination, 0, destination.Length);
+            return;
+        }
+
+        long[] hookBytes = _hookBytesByBackend[backendId];
+        int n = hookBytes.Length < destination.Length ? hookBytes.Length : destination.Length;
+        for (int i = 0; i < n; i++)
+        {
+            destination[i] = hookBytes[i];
         }
     }
 }

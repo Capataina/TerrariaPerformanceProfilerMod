@@ -43,6 +43,22 @@ public sealed class MetricCollector
     private readonly double[] _perHookAverageMs;
     private readonly double[] _perHookHistoryMs;
     private readonly double[] _perHookRollingMs;
+
+    // Parallel byte arrays for allocation tracking. Allocated only when
+    // HookBackend.AllocationTracking is true at construction; null otherwise
+    // so the collector's memory footprint is identical to today in the Lite
+    // configuration. Bytes are raw -- callers format B/KB/MB at the UI layer.
+    private readonly double[]? _perModRawBytes;
+    private readonly double[]? _perModSmoothedBytes;
+    private readonly double[]? _perModAverageBytes;
+    private readonly double[]? _perModHistoryBytes;
+    private readonly double[]? _perModRollingBytes;
+    private readonly double[]? _perHookRawBytes;
+    private readonly double[]? _perHookSmoothedBytes;
+    private readonly double[]? _perHookAverageBytes;
+    private readonly double[]? _perHookHistoryBytes;
+    private readonly double[]? _perHookRollingBytes;
+    private readonly bool _tracksAllocations;
     private readonly int _historyCapacity;
     private int _sampleSlot;
 
@@ -98,17 +114,35 @@ public sealed class MetricCollector
             _perModRawMsBackend1 = new double[cells];
         }
 
-        // Raw history ring + detector. Allocation tracking is wired in a later
-        // step of the spikes-and-allocations rollout; for now we always pass
-        // false so the ring sizes only the CPU arrays.
+        // Allocation tracking arrays mirror the CPU shapes. Sized only when
+        // HookBackend.AllocationTracking is on, so the Lite configuration pays
+        // zero extra memory.
+        _tracksAllocations = PerModAttribution.TracksAllocations;
+        if (_tracksAllocations)
+        {
+            _perModRawBytes = new double[cells];
+            _perModSmoothedBytes = new double[cells];
+            _perModAverageBytes = new double[cells];
+            _perModHistoryBytes = new double[cells * historyCapacity];
+            _perModRollingBytes = new double[cells];
+            _perHookRawBytes = new double[PerModAttribution.HookCount];
+            _perHookSmoothedBytes = new double[PerModAttribution.HookCount];
+            _perHookAverageBytes = new double[PerModAttribution.HookCount];
+            _perHookHistoryBytes = new double[PerModAttribution.HookCount * historyCapacity];
+            _perHookRollingBytes = new double[PerModAttribution.HookCount];
+        }
+
+        // Raw history ring + detector. Allocation columns now light up when
+        // tracking is on so the SPIKES drill-down inherits the bytes data
+        // alongside the ms data.
         _perTickRing = new PerTickAttributionRing(
             modCount: PerModAttribution.ModCount,
             historyTicks: historyCapacity,
             categorySnapshotTicks: CategorySnapshotTicks,
-            trackAllocations: false);
+            trackAllocations: _tracksAllocations);
         _spikeDetector = new SpikeDetector(
             modCount: PerModAttribution.ModCount,
-            tracksAllocations: false);
+            tracksAllocations: _tracksAllocations);
     }
 
     /// <summary>
@@ -166,6 +200,24 @@ public sealed class MetricCollector
 
     /// <summary>Rolling 30-second per-hook average in milliseconds, indexed by hookId.</summary>
     public IReadOnlyList<double> PerHookAverageMs => _perHookAverageMs;
+
+    /// <summary>
+    /// Smoothed per-mod, per-category allocation bytes per tick. Null if
+    /// allocation tracking is off. Same indexing as <see cref="PerModCategoryMs"/>.
+    /// </summary>
+    public IReadOnlyList<double>? PerModCategoryBytes => _perModSmoothedBytes;
+
+    /// <summary>Rolling 30-second per-mod/category allocation average, in bytes. Null if tracking is off.</summary>
+    public IReadOnlyList<double>? PerModCategoryAverageBytes => _perModAverageBytes;
+
+    /// <summary>Smoothed per-hook allocation bytes per tick. Null if tracking is off.</summary>
+    public IReadOnlyList<double>? PerHookBytes => _perHookSmoothedBytes;
+
+    /// <summary>Rolling 30-second per-hook allocation average, in bytes. Null if tracking is off.</summary>
+    public IReadOnlyList<double>? PerHookAverageBytes => _perHookAverageBytes;
+
+    /// <summary>True when this collector retains allocation columns alongside CPU.</summary>
+    public bool TracksAllocations => _tracksAllocations;
 
     /// <summary>
     /// Raw per-tick per-mod attribution for the last 30 seconds, plus a
@@ -250,6 +302,25 @@ public sealed class MetricCollector
             _perHookSmoothedMs[i] += PerModSmoothing * (_perHookRawMs[i] - _perHookSmoothedMs[i]);
         }
 
+        // Allocation tracking: parallel harvest + smoothing for bytes. Same shape
+        // as the CPU pass; only runs when the collector was built with tracking on.
+        if (_tracksAllocations)
+        {
+            PerModAttribution.HarvestAllocationsInto(_perModRawBytes!, backendId: 0);
+            UpdateRollingAverage(_perModRawBytes!, _perModHistoryBytes!, _perModRollingBytes!, _perModAverageBytes!, _sampleSlot);
+            for (int i = 0; i < _perModSmoothedBytes!.Length; i++)
+            {
+                _perModSmoothedBytes[i] += PerModSmoothing * (_perModRawBytes![i] - _perModSmoothedBytes[i]);
+            }
+
+            PerModAttribution.HarvestHookAllocationsInto(_perHookRawBytes!, backendId: 0);
+            UpdateRollingAverage(_perHookRawBytes!, _perHookHistoryBytes!, _perHookRollingBytes!, _perHookAverageBytes!, _sampleSlot);
+            for (int i = 0; i < _perHookSmoothedBytes!.Length; i++)
+            {
+                _perHookSmoothedBytes[i] += PerModSmoothing * (_perHookRawBytes![i] - _perHookSmoothedBytes[i]);
+            }
+        }
+
         // Track per-backend totals so the UI can show a backend divergence badge
         // and the log can periodically report the comparison.
         double total0 = SumAll(_perModRawMs);
@@ -268,7 +339,7 @@ public sealed class MetricCollector
         // up-to-date first. Both operations are allocation-free in steady
         // state -- the detector only allocates the SpikeWindow's per-mod arrays
         // on an actual new spike, which is a rare event.
-        _perTickRing.Push(frame.TickIndex, _perModRawMs, perModCatBytes: null);
+        _perTickRing.Push(frame.TickIndex, _perModRawMs, _tracksAllocations ? _perModRawBytes : null);
         _spikeDetector.OnTick(frame, _history, _perTickRing);
 
         _sampleSlot++;

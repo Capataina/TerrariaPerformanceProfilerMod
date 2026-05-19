@@ -32,21 +32,23 @@ public sealed class ProfilerOverlay : UIState
     }
 }
 
-/// <summary>One per-mod row of the cost tree: its ModId, name, and smoothed total cost.</summary>
+/// <summary>One per-mod row of the cost tree: its ModId, name, and smoothed totals.</summary>
 internal readonly struct ModRow : IComparable<ModRow>
 {
     public readonly int ModId;
     public readonly string Name;
     public readonly double TotalMs;
+    public readonly double TotalBytes;
 
-    public ModRow(int modId, string name, double totalMs)
+    public ModRow(int modId, string name, double totalMs, double totalBytes)
     {
         ModId = modId;
         Name = name;
         TotalMs = totalMs;
+        TotalBytes = totalBytes;
     }
 
-    /// <summary>Sorts most-expensive first.</summary>
+    /// <summary>Sorts most-expensive first by ms. Bytes are carried alongside but not used as the sort key.</summary>
     public int CompareTo(ModRow other) => other.TotalMs.CompareTo(TotalMs);
 }
 
@@ -105,11 +107,17 @@ internal sealed class OverlayPanel : UIElement
     internal enum OverlayTab { Tree = 0, Spikes = 1 }
     private static OverlayTab _persistedTab = OverlayTab.Tree;
 
+    /// <summary>Which metric the mod tree's value column shows.</summary>
+    internal enum MetricView { Cpu = 0, Mem = 1, Both = 2 }
+    private static MetricView _persistedMetric = MetricView.Cpu;
+
     // Per-mod cost rows, reused and sorted each frame without allocating.
     private ModRow[] _rows = Array.Empty<ModRow>();
     private int      _rowCount;
-    private double[] _frozenCategoryMs = Array.Empty<double>();
-    private double[] _frozenHookMs     = Array.Empty<double>();
+    private double[] _frozenCategoryMs    = Array.Empty<double>();
+    private double[] _frozenHookMs        = Array.Empty<double>();
+    private double[] _frozenCategoryBytes = Array.Empty<double>();
+    private double[] _frozenHookBytes     = Array.Empty<double>();
 
     // ModIds whose top-level rows are folded open.
     private readonly HashSet<int> _expanded = new HashSet<int>();
@@ -176,6 +184,16 @@ internal sealed class OverlayPanel : UIElement
 
     private void ClickTabStrip(float localX)
     {
+        // Metric pill is at the right edge; check first because its X range
+        // doesn't overlap with the tab pills on the left.
+        Rectangle metricPill = MetricPillRect(GetDimensions().ToRectangle());
+        float pillLocalX = metricPill.X - (int)GetDimensions().X;
+        if (localX >= pillLocalX && localX <= pillLocalX + metricPill.Width)
+        {
+            _persistedMetric = (MetricView)(((int)_persistedMetric + 1) % 3);
+            return;
+        }
+
         // Hit-test the tab slots; out-of-band x falls through to no-op.
         for (int slot = 0; slot < 2; slot++)
         {
@@ -233,7 +251,7 @@ internal sealed class OverlayPanel : UIElement
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
 
-        if (!_paused) BuildSortedRows(SelectedCategoryMs(collector));
+        if (!_paused) BuildSortedRows(SelectedCategoryMs(collector), SelectedCategoryBytes(collector));
 
         // Clamp scroll after row rebuild so a mod-count drop doesn't strand the offset.
         int maxOff = Math.Max(0, _rowCount - MaxModRows);
@@ -261,7 +279,7 @@ internal sealed class OverlayPanel : UIElement
             if (_paused && collector != null)
             {
                 CaptureSnapshot(collector);
-                BuildSortedRows(_frozenCategoryMs);
+                BuildSortedRows(_frozenCategoryMs, _frozenCategoryBytes);
             }
             return true;
         }
@@ -517,7 +535,8 @@ internal sealed class OverlayPanel : UIElement
     /// <summary>
     /// Renders the tab strip sitting between the header and the content area.
     /// Each tab is a 92-px-wide pill; the active one is filled with the accent
-    /// color, inactives are panel-fill with muted text.
+    /// color, inactives are panel-fill with muted text. The metric-view pill
+    /// sits on the right edge of the strip, cycling CPU / MEM / BOTH on click.
     /// </summary>
     private void DrawTabStrip(SpriteBatch spriteBatch, Rectangle area)
     {
@@ -529,6 +548,37 @@ internal sealed class OverlayPanel : UIElement
 
         DrawTab(spriteBatch, area, slot: 0, OverlayTab.Tree,   "TREE");
         DrawTab(spriteBatch, area, slot: 1, OverlayTab.Spikes, "SPIKES");
+
+        // Metric-view pill on the right side. Shows current MetricView state;
+        // click cycles to the next. Only meaningful when a collector is alive
+        // AND it was built with allocation tracking on -- otherwise the pill
+        // displays "CPU" greyed out and the click is a no-op.
+        DrawMetricPill(spriteBatch, area);
+    }
+
+    private void DrawMetricPill(SpriteBatch spriteBatch, Rectangle area)
+    {
+        string label = _persistedMetric switch
+        {
+            MetricView.Cpu  => "CPU",
+            MetricView.Mem  => "MEM",
+            MetricView.Both => "BOTH",
+            _               => "?",
+        };
+        Rectangle r = MetricPillRect(area);
+        ProfilerTheme.FillRect(spriteBatch, r, new Color(25, 40, 60));
+        ProfilerTheme.DrawBorder(spriteBatch, r, ProfilerTheme.Accent);
+        DrawText(spriteBatch, label,
+            new Vector2(r.X + 8, r.Y + 2),
+            ProfilerTheme.Accent, 0.66f);
+    }
+
+    private static Rectangle MetricPillRect(Rectangle area)
+    {
+        float w = 56f;
+        float x = area.X + area.Width - 14f - w;
+        float y = area.Y + HeaderHeight + 3f;
+        return new Rectangle((int)x, (int)y, (int)w, (int)(TabStripHeight - 6));
     }
 
     private void DrawTab(SpriteBatch spriteBatch, Rectangle area, int slot, OverlayTab tab, string label)
@@ -709,8 +759,9 @@ internal sealed class OverlayPanel : UIElement
             return;
         }
 
-        IReadOnlyList<double> categoryMs = SelectedCategoryMs(collector);
-        IReadOnlyList<double> hookMs     = SelectedHookMs(collector);
+        IReadOnlyList<double> categoryMs    = SelectedCategoryMs(collector);
+        IReadOnlyList<double> hookMs        = SelectedHookMs(collector);
+        IReadOnlyList<double>? categoryBytes = SelectedCategoryBytes(collector);
         int    catCount  = PerModAttribution.CategoryCount;
         double maxMs     = _rows[0].TotalMs;
         int    visible   = Math.Min(_rowCount - _scrollOffset, MaxModRows);
@@ -773,8 +824,14 @@ internal sealed class OverlayPanel : UIElement
                         new Rectangle(area.X + 1, (int)rowY, contentW, (int)SubRowHeight),
                         ProfilerTheme.RowHover);
 
+                double catBytes = 0d;
+                if (categoryBytes != null)
+                {
+                    int cell = row.ModId * catCount + c;
+                    if (cell < categoryBytes.Count) catBytes = categoryBytes[cell];
+                }
                 DrawCategoryRow(spriteBatch, PerModAttribution.CategoryNames[c],
-                    catMs, row.TotalMs, area.X, rowY, catExpanded);
+                    catMs, catBytes, row.TotalMs, area.X, rowY, catExpanded);
                 rowY += SubRowHeight;
 
                 if (catExpanded)
@@ -792,17 +849,62 @@ internal sealed class OverlayPanel : UIElement
         DrawText(spriteBatch, expanded ? "−" : "+", new Vector2(panelX + 12, y + 2), ProfilerTheme.Accent, 0.72f);
         DrawText(spriteBatch, Truncate(row.Name, 34), new Vector2(panelX + 26, y + 2), ProfilerTheme.Text, 0.78f);
         DrawBar(spriteBatch, panelX + 356, (int)y + 4, row.TotalMs, maxMs, BarH_Mod);
-        DrawText(spriteBatch, row.TotalMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.Amber, 0.72f);
+
+        // Value column: CPU / MEM / BOTH depending on the persisted metric pill.
+        // BOTH shows ms on top, bytes below in a smaller font so the row stays
+        // single-height; MEM swaps the headline value entirely.
+        switch (_persistedMetric)
+        {
+            case MetricView.Cpu:
+                DrawText(spriteBatch, row.TotalMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.Amber, 0.72f);
+                break;
+            case MetricView.Mem:
+                DrawText(spriteBatch, FormatBytes(row.TotalBytes), new Vector2(panelX + 540, y + 2), ProfilerTheme.Dormant, 0.72f);
+                break;
+            case MetricView.Both:
+                DrawText(spriteBatch, row.TotalMs.ToString("F2"), new Vector2(panelX + 530, y + 1), ProfilerTheme.Amber, 0.62f);
+                DrawText(spriteBatch, FormatBytes(row.TotalBytes), new Vector2(panelX + 530, y + 9), ProfilerTheme.Dormant, 0.56f);
+                break;
+        }
+
         DrawText(spriteBatch, CoverageBadge(row.ModId), new Vector2(panelX + 592, y + 2), CoverageColor(row.ModId), 0.58f);
     }
 
-    private static void DrawCategoryRow(SpriteBatch spriteBatch, string label, double catMs, double modTotalMs,
-        int panelX, float y, bool expanded)
+    private static void DrawCategoryRow(SpriteBatch spriteBatch, string label, double catMs, double catBytes,
+        double modTotalMs, int panelX, float y, bool expanded)
     {
         DrawText(spriteBatch, expanded ? "−" : "+", new Vector2(panelX + 30, y + 2), ProfilerTheme.TextDim, 0.62f);
         DrawText(spriteBatch, label, new Vector2(panelX + 44, y + 2), ProfilerTheme.TextMuted, 0.68f);
         DrawBar(spriteBatch, panelX + 356, (int)y + 4, catMs, modTotalMs, BarH_Cat);
-        DrawText(spriteBatch, catMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.TextMuted, 0.64f);
+
+        switch (_persistedMetric)
+        {
+            case MetricView.Cpu:
+                DrawText(spriteBatch, catMs.ToString("F3"), new Vector2(panelX + 540, y + 2), ProfilerTheme.TextMuted, 0.64f);
+                break;
+            case MetricView.Mem:
+                DrawText(spriteBatch, FormatBytes(catBytes), new Vector2(panelX + 540, y + 2), ProfilerTheme.TextMuted, 0.64f);
+                break;
+            case MetricView.Both:
+                DrawText(spriteBatch, catMs.ToString("F2"), new Vector2(panelX + 530, y + 1), ProfilerTheme.TextMuted, 0.56f);
+                DrawText(spriteBatch, FormatBytes(catBytes), new Vector2(panelX + 530, y + 9), ProfilerTheme.TextDim, 0.52f);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Formats a byte count as the most readable unit. Falls through B → KB →
+    /// MB → GB with one decimal place. "12 B" / "3.4 KB" / "1.2 MB" / "5.6 GB".
+    /// Values below 1 B (which shouldn't happen but the function is defensive)
+    /// render as "0 B".
+    /// </summary>
+    private static string FormatBytes(double bytes)
+    {
+        if (bytes < 1d) return "0 B";
+        if (bytes < 1024d) return $"{bytes:F0} B";
+        if (bytes < 1024d * 1024d) return $"{bytes / 1024d:F1} KB";
+        if (bytes < 1024d * 1024d * 1024d) return $"{bytes / (1024d * 1024d):F1} MB";
+        return $"{bytes / (1024d * 1024d * 1024d):F1} GB";
     }
 
     private static float DrawHotHookRows(SpriteBatch spriteBatch, int modId, int categoryId, double categoryMs,
@@ -887,7 +989,7 @@ internal sealed class OverlayPanel : UIElement
 
     // ---- Data helpers --------------------------------------------------------
 
-    private void BuildSortedRows(IReadOnlyList<double> categoryMs)
+    private void BuildSortedRows(IReadOnlyList<double> categoryMs, IReadOnlyList<double>? categoryBytes)
     {
         string[] names    = HookInterceptor.ProfiledModNames;
         int      catCount = PerModAttribution.CategoryCount;
@@ -897,13 +999,15 @@ internal sealed class OverlayPanel : UIElement
 
         for (int i = 0; i < n; i++)
         {
-            double total = 0d;
+            double totalMs = 0d;
+            double totalBytes = 0d;
             for (int c = 0; c < catCount; c++)
             {
                 int cell = i * catCount + c;
-                if (cell < categoryMs.Count) total += categoryMs[cell];
+                if (cell < categoryMs.Count) totalMs += categoryMs[cell];
+                if (categoryBytes != null && cell < categoryBytes.Count) totalBytes += categoryBytes[cell];
             }
-            _rows[i] = new ModRow(i, names[i], total);
+            _rows[i] = new ModRow(i, names[i], totalMs, totalBytes);
         }
 
         if (n > 1) Array.Sort(_rows, 0, n);
@@ -912,6 +1016,25 @@ internal sealed class OverlayPanel : UIElement
 
     private IReadOnlyList<double> SelectedCategoryMs(MetricCollector collector) =>
         _paused ? _frozenCategoryMs : _showAverage ? collector.PerModCategoryAverageMs : collector.PerModCategoryMs;
+
+    /// <summary>
+    /// Returns the currently-displayed per-mod-category bytes view (frozen when
+    /// paused, smoothed/averaged when live). Null if allocation tracking is off.
+    /// </summary>
+    private IReadOnlyList<double>? SelectedCategoryBytes(MetricCollector collector)
+    {
+        if (!collector.TracksAllocations) return null;
+        if (_paused) return _frozenCategoryBytes;
+        return _showAverage ? collector.PerModCategoryAverageBytes : collector.PerModCategoryBytes;
+    }
+
+    /// <summary>Per-hook bytes view, matching <see cref="SelectedCategoryBytes"/>'s semantics.</summary>
+    private IReadOnlyList<double>? SelectedHookBytes(MetricCollector collector)
+    {
+        if (!collector.TracksAllocations) return null;
+        if (_paused) return _frozenHookBytes;
+        return _showAverage ? collector.PerHookAverageBytes : collector.PerHookBytes;
+    }
 
     private IReadOnlyList<double> SelectedHookMs(MetricCollector collector) =>
         _paused ? _frozenHookMs : _showAverage ? collector.PerHookAverageMs : collector.PerHookMs;
@@ -926,6 +1049,19 @@ internal sealed class OverlayPanel : UIElement
 
         for (int i = 0; i < catSrc.Count;  i++) _frozenCategoryMs[i] = catSrc[i];
         for (int i = 0; i < hookSrc.Count; i++) _frozenHookMs[i]     = hookSrc[i];
+
+        if (collector.TracksAllocations)
+        {
+            IReadOnlyList<double>? catBytesSrc  = _showAverage ? collector.PerModCategoryAverageBytes : collector.PerModCategoryBytes;
+            IReadOnlyList<double>? hookBytesSrc = _showAverage ? collector.PerHookAverageBytes        : collector.PerHookBytes;
+            if (catBytesSrc != null && hookBytesSrc != null)
+            {
+                if (_frozenCategoryBytes.Length != catBytesSrc.Count) _frozenCategoryBytes = new double[catBytesSrc.Count];
+                if (_frozenHookBytes.Length != hookBytesSrc.Count)    _frozenHookBytes     = new double[hookBytesSrc.Count];
+                for (int i = 0; i < catBytesSrc.Count;  i++) _frozenCategoryBytes[i] = catBytesSrc[i];
+                for (int i = 0; i < hookBytesSrc.Count; i++) _frozenHookBytes[i]     = hookBytesSrc[i];
+            }
+        }
     }
 
     // ---- Draw helpers --------------------------------------------------------
