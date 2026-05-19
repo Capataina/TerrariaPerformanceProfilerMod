@@ -1,12 +1,14 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace PerformanceProfiler.Profiling;
 
 /// <summary>
-/// Times each game tick and stores a rolling history of <see cref="TickFrame"/>s.
+/// Times each game tick and stores a rolling history of <see cref="TickFrame"/>s,
+/// and harvests the per-mod CPU attribution accumulated by the timing detours.
 ///
 /// Pure logic with no tModLoader dependency: every game-sourced value (the tick
 /// index, the entity counts) is passed in by the caller, so the collector is
@@ -23,6 +25,10 @@ public sealed class MetricCollector
 {
     private readonly RingBuffer<TickFrame> _history;
 
+    // Per-mod CPU for the most recently completed tick, in milliseconds,
+    // indexed by ModId. Sized once at construction; harvested every EndTick.
+    private readonly double[] _perModCpuMs;
+
     // Stopwatch timestamp captured at BeginTick; -1 means "no tick currently open".
     private long _tickStartTimestamp = -1L;
 
@@ -35,29 +41,38 @@ public sealed class MetricCollector
     public MetricCollector(int historyCapacity)
     {
         _history = new RingBuffer<TickFrame>(historyCapacity);
+        _perModCpuMs = new double[PerModAttribution.ModCount];
     }
 
     /// <summary>The rolling per-tick history, oldest record first. The UI reads this to draw.</summary>
     public RingBuffer<TickFrame> History => _history;
+
+    /// <summary>
+    /// Per-mod CPU for the most recently completed tick, in milliseconds,
+    /// indexed by ModId (see <see cref="HookInterceptor.ProfiledModNames"/>).
+    /// </summary>
+    public IReadOnlyList<double> PerModCpuMs => _perModCpuMs;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
 
     /// <summary>
     /// Marks the start of a tick: captures the wall-clock and GC-pause baselines
-    /// the matching <see cref="EndTick"/> measures against.
+    /// the matching <see cref="EndTick"/> measures against, and clears the
+    /// per-mod accumulator so the detours start the tick from zero.
     /// </summary>
     public void BeginTick()
     {
         _tickStartTimestamp = Stopwatch.GetTimestamp();
         _gcPauseMsAtTickStart = GcPauseMilliseconds();
+        PerModAttribution.BeginTick();
     }
 
     /// <summary>
-    /// Marks the end of a tick, builds its <see cref="TickFrame"/>, and commits
-    /// it to the history. Does nothing if no tick is open: a partial-update
-    /// frame is "not sampled", never recorded as a 0 ms tick (see
-    /// context/tmodloader-lifecycle-and-loop.md).
+    /// Marks the end of a tick, builds its <see cref="TickFrame"/>, commits it
+    /// to the history, and harvests the per-mod attribution for the tick. Does
+    /// nothing if no tick is open: a partial-update frame is "not sampled",
+    /// never recorded as a 0 ms tick.
     /// </summary>
     /// <param name="tickIndex">Session-relative tick index (the game's update counter).</param>
     /// <param name="npcCount">Active NPC count at tick close.</param>
@@ -88,10 +103,11 @@ public sealed class MetricCollector
             NpcCount = npcCount,
             ProjectileCount = projectileCount,
             DustCount = dustCount,
-            ModSamples = null, // Per-mod attribution is wired in a later milestone.
+            ModSamples = null, // Per-frame per-mod arrays are a later memory-tuning step.
         };
 
         _history.Push(in frame);
+        PerModAttribution.HarvestInto(_perModCpuMs);
         _tickStartTimestamp = -1L;
     }
 

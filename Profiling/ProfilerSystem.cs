@@ -27,6 +27,16 @@ public sealed class ProfilerSystem : ModSystem
     public MetricCollector? Collector { get; private set; }
 
     /// <summary>
+    /// Installs the per-mod timing detours once, after every mod's content is
+    /// set up (so all hook-override methods exist). The detours persist for the
+    /// process and are removed by tModLoader when this mod unloads.
+    /// </summary>
+    public override void PostSetupContent()
+    {
+        HookInterceptor.Install(Mod);
+    }
+
+    /// <summary>
     /// Allocates the engine and its ring buffer once, at world entry. Paired
     /// one-to-one with <see cref="OnWorldUnload"/> so the buffer is allocated
     /// once and freed once (Invariant 2).
