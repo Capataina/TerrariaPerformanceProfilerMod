@@ -4,8 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Terraria;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Core;
+using Terraria.UI;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -14,6 +18,66 @@ public delegate void OrigVoidHook(object self);
 
 /// <summary>The On-hook delegate that wraps a parameterless instance hook.</summary>
 public delegate void VoidHookWrapper(OrigVoidHook orig, object self);
+
+/// <summary>The original-method delegate for a GlobalNPC hook carrying an NPC.</summary>
+public delegate void OrigNpcHook(object self, NPC npc);
+
+/// <summary>The On-hook delegate that wraps a GlobalNPC hook carrying an NPC.</summary>
+public delegate void NpcHookWrapper(OrigNpcHook orig, object self, NPC npc);
+
+/// <summary>The original-method delegate for a GlobalProjectile hook carrying a Projectile.</summary>
+public delegate void OrigProjectileHook(object self, Projectile projectile);
+
+/// <summary>The On-hook delegate that wraps a GlobalProjectile hook carrying a Projectile.</summary>
+public delegate void ProjectileHookWrapper(OrigProjectileHook orig, object self, Projectile projectile);
+
+/// <summary>The original-method delegate for a ModSystem hook carrying GameTime.</summary>
+public delegate void OrigGameTimeHook(object self, GameTime gameTime);
+
+/// <summary>The On-hook delegate that wraps a ModSystem hook carrying GameTime.</summary>
+public delegate void GameTimeHookWrapper(OrigGameTimeHook orig, object self, GameTime gameTime);
+
+/// <summary>The original-method delegate for ModifyInterfaceLayers.</summary>
+public delegate void OrigInterfaceLayersHook(object self, List<GameInterfaceLayer> layers);
+
+/// <summary>The On-hook delegate that wraps ModifyInterfaceLayers.</summary>
+public delegate void InterfaceLayersHookWrapper(OrigInterfaceLayersHook orig, object self, List<GameInterfaceLayer> layers);
+
+/// <summary>The original-method delegate for a ModSystem hook carrying SpriteBatch.</summary>
+public delegate void OrigSpriteBatchHook(object self, SpriteBatch spriteBatch);
+
+/// <summary>The On-hook delegate that wraps a ModSystem hook carrying SpriteBatch.</summary>
+public delegate void SpriteBatchHookWrapper(OrigSpriteBatchHook orig, object self, SpriteBatch spriteBatch);
+
+/// <summary>The original-method delegate for a parameterless bool hook.</summary>
+public delegate bool OrigBoolHook(object self);
+
+/// <summary>The On-hook delegate that wraps a parameterless bool hook.</summary>
+public delegate bool BoolHookWrapper(OrigBoolHook orig, object self);
+
+/// <summary>The original-method delegate for a bool hook carrying an NPC.</summary>
+public delegate bool OrigBoolNpcHook(object self, NPC npc);
+
+/// <summary>The On-hook delegate that wraps a bool hook carrying an NPC.</summary>
+public delegate bool BoolNpcHookWrapper(OrigBoolNpcHook orig, object self, NPC npc);
+
+/// <summary>The original-method delegate for a bool hook carrying a Projectile.</summary>
+public delegate bool OrigBoolProjectileHook(object self, Projectile projectile);
+
+/// <summary>The On-hook delegate that wraps a bool hook carrying a Projectile.</summary>
+public delegate bool BoolProjectileHookWrapper(OrigBoolProjectileHook orig, object self, Projectile projectile);
+
+/// <summary>The original-method delegate for a bool hook carrying a Player.</summary>
+public delegate bool OrigBoolPlayerHook(object self, Player player);
+
+/// <summary>The On-hook delegate that wraps a bool hook carrying a Player.</summary>
+public delegate bool BoolPlayerHookWrapper(OrigBoolPlayerHook orig, object self, Player player);
+
+/// <summary>The original-method delegate for a bool hook carrying an Item.</summary>
+public delegate bool OrigBoolItemHook(object self, Item item);
+
+/// <summary>The On-hook delegate that wraps a bool hook carrying an Item.</summary>
+public delegate bool BoolItemHookWrapper(OrigBoolItemHook orig, object self, Item item);
 
 /// <summary>
 /// Installs per-mod CPU timing detours and holds the discovered modlist.
@@ -30,9 +94,9 @@ public delegate void VoidHookWrapper(OrigVoidHook orig, object self);
 /// these hooks automatically when this mod unloads, because every hook delegate
 /// is declared in this assembly.
 ///
-/// First cut: parameterless (void) instance hooks only -- one delegate shape.
-/// The per-entity GlobalNPC / GlobalProjectile hooks, which carry a parameter,
-/// are a planned follow-up.
+/// Standard-mode coverage includes the per-entity GlobalNPC / GlobalProjectile
+/// hooks that carry the entity parameter. Each installed hook also registers
+/// a hot-path row so the UI can drill from mod -> category -> hook.
 /// </summary>
 public static class HookInterceptor
 {
@@ -41,12 +105,23 @@ public static class HookInterceptor
     private const int CategoryPlayers = 1;
     private const int CategoryNpcs = 2;
     private const int CategoryProjectiles = 3;
+    private const int CategoryItems = 4;
+    private const int CategoryWorld = 5;
+    private const int CategoryBuffs = 6;
+
+    private const int MaxUnsupportedSamplesPerMod = 12;
 
     private static readonly string[] SystemHooks =
     {
         "PreUpdateEntities", "PostUpdateNPCs", "PostUpdatePlayers",
         "PostUpdateProjectiles", "PostUpdateEverything",
     };
+
+    private static readonly string[] SystemGameTimeHooks = { "UpdateUI" };
+
+    private static readonly string[] SystemInterfaceLayerHooks = { "ModifyInterfaceLayers" };
+
+    private static readonly string[] SystemSpriteBatchHooks = { "PostDrawInterface" };
 
     private static readonly string[] PlayerHooks =
     {
@@ -55,10 +130,33 @@ public static class HookInterceptor
 
     private static readonly string[] EntityHooks = { "AI", "PostAI" };
 
+    private static readonly string[] GlobalNpcHooks = { "AI", "PostAI" };
+
+    private static readonly string[] GlobalProjectileHooks = { "AI", "PostAI" };
+
     private static bool _sampleFailureLogged;
+    private static int _unsupportedHookSignatures;
+    private static int[] _measuredHookCounts = Array.Empty<int>();
+    private static int[] _totalHookCounts = Array.Empty<int>();
+    private static List<string>[] _unsupportedHookSamples = Array.Empty<List<string>>();
 
     /// <summary>Internal names of the mods being profiled, in ModId order. Empty until <see cref="Install"/> runs.</summary>
     public static string[] ProfiledModNames { get; private set; } = Array.Empty<string>();
+
+    /// <summary>Mod versions, in ModId order. Empty until <see cref="Install"/> runs.</summary>
+    public static string[] ProfiledModVersions { get; private set; } = Array.Empty<string>();
+
+    /// <summary>Overrides discovered but skipped because their signature is not timed yet.</summary>
+    public static int UnsupportedHookSignatures => _unsupportedHookSignatures;
+
+    /// <summary>Measured hook count by ModId.</summary>
+    public static IReadOnlyList<int> MeasuredHookCounts => _measuredHookCounts;
+
+    /// <summary>Total discovered hook-override count by ModId.</summary>
+    public static IReadOnlyList<int> TotalHookCounts => _totalHookCounts;
+
+    /// <summary>Sample unsupported signatures by ModId, capped for report/UI readability.</summary>
+    public static IReadOnlyList<IReadOnlyList<string>> UnsupportedHookSamples => _unsupportedHookSamples;
 
     /// <summary>True once the timing detours are installed.</summary>
     public static bool Installed { get; private set; }
@@ -78,20 +176,32 @@ public static class HookInterceptor
 
         try
         {
+            _unsupportedHookSignatures = 0;
             List<Mod> profiled = new List<Mod>();
             foreach (Mod mod in ModLoader.Mods)
             {
-                // Skip the synthetic ModLoaderMod and the profiler itself.
-                if (mod.Name != "ModLoader" && mod != self)
+                // Skip only the synthetic ModLoaderMod. The profiler itself is
+                // included so its own hooks are measured like any other mod's.
+                if (mod.Name != "ModLoader")
                 {
                     profiled.Add(mod);
                 }
             }
 
             ProfiledModNames = new string[profiled.Count];
+            ProfiledModVersions = new string[profiled.Count];
             for (int i = 0; i < profiled.Count; i++)
             {
                 ProfiledModNames[i] = profiled[i].Name;
+                ProfiledModVersions[i] = profiled[i].Version?.ToString() ?? "unknown";
+            }
+
+            _measuredHookCounts = new int[profiled.Count];
+            _totalHookCounts = new int[profiled.Count];
+            _unsupportedHookSamples = new List<string>[profiled.Count];
+            for (int i = 0; i < _unsupportedHookSamples.Length; i++)
+            {
+                _unsupportedHookSamples[i] = new List<string>();
             }
 
             PerModAttribution.Configure(profiled.Count);
@@ -103,7 +213,9 @@ public static class HookInterceptor
             }
 
             Installed = true;
-            self.Logger.Info($"HookInterceptor: {detours} timing detours installed across {profiled.Count} mods.");
+            self.Logger.Info(
+                $"HookInterceptor: {detours} timing detours installed across {profiled.Count} mods; " +
+                $"{_unsupportedHookSignatures} overridden hooks skipped because their signature is not timed yet.");
         }
         catch (Exception ex)
         {
@@ -135,23 +247,216 @@ public static class HookInterceptor
 
             if (typeof(ModSystem).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, SystemHooks, modId, CategorySystems, self);
+                count += HookSupportedOverrides(type, modId, CategorySystems, self);
             }
             else if (typeof(ModPlayer).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, PlayerHooks, modId, CategoryPlayers, self);
+                count += HookSupportedOverrides(type, modId, CategoryPlayers, self);
             }
             else if (typeof(ModNPC).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, EntityHooks, modId, CategoryNpcs, self);
+                count += HookSupportedOverrides(type, modId, CategoryNpcs, self);
             }
             else if (typeof(ModProjectile).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, EntityHooks, modId, CategoryProjectiles, self);
+                count += HookSupportedOverrides(type, modId, CategoryProjectiles, self);
+            }
+            else if (typeof(GlobalNPC).IsAssignableFrom(type))
+            {
+                count += HookSupportedOverrides(type, modId, CategoryNpcs, self);
+            }
+            else if (typeof(GlobalProjectile).IsAssignableFrom(type))
+            {
+                count += HookSupportedOverrides(type, modId, CategoryProjectiles, self);
+            }
+            else if (typeof(ModItem).IsAssignableFrom(type) || typeof(GlobalItem).IsAssignableFrom(type))
+            {
+                count += HookSupportedOverrides(type, modId, CategoryItems, self);
+            }
+            else if (typeof(ModTile).IsAssignableFrom(type) || typeof(GlobalTile).IsAssignableFrom(type) ||
+                typeof(ModWall).IsAssignableFrom(type) || typeof(GlobalWall).IsAssignableFrom(type))
+            {
+                count += HookSupportedOverrides(type, modId, CategoryWorld, self);
+            }
+            else if (typeof(ModBuff).IsAssignableFrom(type))
+            {
+                count += HookSupportedOverrides(type, modId, CategoryBuffs, self);
             }
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Installs timing detours on every override whose signature this interceptor
+    /// can wrap. Unsupported signatures are counted as coverage debt, never as
+    /// zero-cost behaviour.
+    /// </summary>
+    private static int HookSupportedOverrides(Type type, int modId, int categoryId, Mod self)
+    {
+        int count = 0;
+        MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public |
+            BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+
+        foreach (MethodInfo method in methods)
+        {
+            if (method.IsSpecialName || method.IsAbstract)
+            {
+                continue;
+            }
+
+            if (!IsHookOverride(method))
+            {
+                continue;
+            }
+
+            if (TryHookSupportedOverride(method, type, modId, categoryId, self))
+            {
+                count++;
+                _totalHookCounts[modId]++;
+                _measuredHookCounts[modId]++;
+            }
+            else
+            {
+                RecordUnsupported(modId, type, method);
+            }
+        }
+
+        return count;
+    }
+
+    private static bool IsHookOverride(MethodInfo method)
+    {
+        MethodInfo baseDefinition = method.GetBaseDefinition();
+        return baseDefinition != method && baseDefinition.DeclaringType != typeof(object);
+    }
+
+    private static void RecordUnsupported(int modId, Type type, MethodInfo method)
+    {
+        _unsupportedHookSignatures++;
+        if ((uint)modId >= (uint)_totalHookCounts.Length)
+        {
+            return;
+        }
+
+        _totalHookCounts[modId]++;
+        List<string> samples = _unsupportedHookSamples[modId];
+        if (samples.Count < MaxUnsupportedSamplesPerMod)
+        {
+            samples.Add(DisplayName(type, method, method.GetParameters()));
+        }
+    }
+
+    private static bool TryHookSupportedOverride(MethodInfo method, Type type, int modId, int categoryId, Mod self)
+    {
+        ParameterInfo[] parameters = method.GetParameters();
+        Type returnType = method.ReturnType;
+        try
+        {
+            if (parameters.Length == 0 && returnType == typeof(void))
+            {
+                HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                MonoModHooks.Add(method, new VoidHookWrapper(probe.Time));
+                return true;
+            }
+
+            if (parameters.Length == 0 && returnType == typeof(bool))
+            {
+                HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                MonoModHooks.Add(method, new BoolHookWrapper(probe.TimeBool));
+                return true;
+            }
+
+            if (parameters.Length == 1)
+            {
+                Type p0 = parameters[0].ParameterType;
+                if (p0 == typeof(NPC) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new NpcHookWrapper(probe.TimeNpc));
+                    return true;
+                }
+
+                if (p0 == typeof(NPC) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolNpcHookWrapper(probe.TimeBoolNpc));
+                    return true;
+                }
+
+                if (p0 == typeof(Projectile) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new ProjectileHookWrapper(probe.TimeProjectile));
+                    return true;
+                }
+
+                if (p0 == typeof(Projectile) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolProjectileHookWrapper(probe.TimeBoolProjectile));
+                    return true;
+                }
+
+                if (p0 == typeof(Player) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolPlayerHookWrapper(probe.TimeBoolPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Item) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolItemHookWrapper(probe.TimeBoolItem));
+                    return true;
+                }
+
+                if (p0 == typeof(GameTime) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new GameTimeHookWrapper(probe.TimeGameTime));
+                    return true;
+                }
+
+                if (p0 == typeof(List<GameInterfaceLayer>) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new InterfaceLayersHookWrapper(probe.TimeInterfaceLayers));
+                    return true;
+                }
+
+                if (p0 == typeof(SpriteBatch) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new SpriteBatchHookWrapper(probe.TimeSpriteBatch));
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogSampleHookFailure(type, method.Name, ex, self);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static HookProbe CreateProbe(int modId, int categoryId, Type type, MethodInfo method, ParameterInfo[] parameters)
+    {
+        int hookId = PerModAttribution.RegisterHook(modId, categoryId, DisplayName(type, method, parameters));
+        return new HookProbe(modId, categoryId, hookId);
+    }
+
+    private static string DisplayName(Type type, MethodInfo method, ParameterInfo[] parameters)
+    {
+        if (parameters.Length == 0)
+        {
+            return $"{type.Name}.{method.Name}()";
+        }
+
+        return $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name})";
     }
 
     /// <summary>
@@ -176,25 +481,184 @@ public static class HookInterceptor
 
             try
             {
-                HookProbe probe = new HookProbe(modId, categoryId);
+                int hookId = PerModAttribution.RegisterHook(modId, categoryId, $"{type.Name}.{name}()");
+                HookProbe probe = new HookProbe(modId, categoryId, hookId);
                 MonoModHooks.Add(method, new VoidHookWrapper(probe.Time));
                 count++;
             }
             catch (Exception ex)
             {
-                // One uninstallable hook is skipped; the rest still install. The
-                // first failure is logged so a wrong assumption is diagnosable.
-                if (!_sampleFailureLogged)
-                {
-                    _sampleFailureLogged = true;
-                    self.Logger.Warn(
-                        $"HookInterceptor: a detour failed to install on {type.FullName}.{name} " +
-                        $"({ex.GetType().Name}: {ex.Message}); skipping it and continuing.");
-                }
+                LogSampleHookFailure(type, name, ex, self);
             }
         }
 
         return count;
+    }
+
+    /// <summary>Installs timing detours on GlobalNPC hooks with signature void Hook(NPC npc).</summary>
+    private static int HookNpcOverrides(Type type, string[] hookNames, int modId, Mod self)
+    {
+        int count = 0;
+        foreach (string name in hookNames)
+        {
+            MethodInfo? method = type.GetMethod(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: new[] { typeof(NPC) }, modifiers: null);
+
+            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
+            {
+                continue;
+            }
+
+            try
+            {
+                int hookId = PerModAttribution.RegisterHook(modId, CategoryNpcs, $"{type.Name}.{name}(NPC)");
+                HookProbe probe = new HookProbe(modId, CategoryNpcs, hookId);
+                MonoModHooks.Add(method, new NpcHookWrapper(probe.TimeNpc));
+                count++;
+            }
+            catch (Exception ex)
+            {
+                LogSampleHookFailure(type, name, ex, self);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Installs timing detours on ModSystem hooks with signature void Hook(GameTime gameTime).</summary>
+    private static int HookGameTimeOverrides(Type type, string[] hookNames, int modId, Mod self)
+    {
+        int count = 0;
+        foreach (string name in hookNames)
+        {
+            MethodInfo? method = type.GetMethod(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: new[] { typeof(GameTime) }, modifiers: null);
+
+            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
+            {
+                continue;
+            }
+
+            try
+            {
+                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(GameTime)");
+                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
+                MonoModHooks.Add(method, new GameTimeHookWrapper(probe.TimeGameTime));
+                count++;
+            }
+            catch (Exception ex)
+            {
+                LogSampleHookFailure(type, name, ex, self);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Installs timing detours on ModifyInterfaceLayers hooks.</summary>
+    private static int HookInterfaceLayerOverrides(Type type, string[] hookNames, int modId, Mod self)
+    {
+        int count = 0;
+        foreach (string name in hookNames)
+        {
+            MethodInfo? method = type.GetMethod(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: new[] { typeof(List<GameInterfaceLayer>) }, modifiers: null);
+
+            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
+            {
+                continue;
+            }
+
+            try
+            {
+                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(layers)");
+                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
+                MonoModHooks.Add(method, new InterfaceLayersHookWrapper(probe.TimeInterfaceLayers));
+                count++;
+            }
+            catch (Exception ex)
+            {
+                LogSampleHookFailure(type, name, ex, self);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Installs timing detours on ModSystem hooks with signature void Hook(SpriteBatch spriteBatch).</summary>
+    private static int HookSpriteBatchOverrides(Type type, string[] hookNames, int modId, Mod self)
+    {
+        int count = 0;
+        foreach (string name in hookNames)
+        {
+            MethodInfo? method = type.GetMethod(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: new[] { typeof(SpriteBatch) }, modifiers: null);
+
+            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
+            {
+                continue;
+            }
+
+            try
+            {
+                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(SpriteBatch)");
+                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
+                MonoModHooks.Add(method, new SpriteBatchHookWrapper(probe.TimeSpriteBatch));
+                count++;
+            }
+            catch (Exception ex)
+            {
+                LogSampleHookFailure(type, name, ex, self);
+            }
+        }
+
+        return count;
+    }
+
+    /// <summary>Installs timing detours on GlobalProjectile hooks with signature void Hook(Projectile projectile).</summary>
+    private static int HookProjectileOverrides(Type type, string[] hookNames, int modId, Mod self)
+    {
+        int count = 0;
+        foreach (string name in hookNames)
+        {
+            MethodInfo? method = type.GetMethod(name,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: new[] { typeof(Projectile) }, modifiers: null);
+
+            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
+            {
+                continue;
+            }
+
+            try
+            {
+                int hookId = PerModAttribution.RegisterHook(modId, CategoryProjectiles, $"{type.Name}.{name}(Projectile)");
+                HookProbe probe = new HookProbe(modId, CategoryProjectiles, hookId);
+                MonoModHooks.Add(method, new ProjectileHookWrapper(probe.TimeProjectile));
+                count++;
+            }
+            catch (Exception ex)
+            {
+                LogSampleHookFailure(type, name, ex, self);
+            }
+        }
+
+        return count;
+    }
+
+    private static void LogSampleHookFailure(Type type, string name, Exception ex, Mod self)
+    {
+        if (!_sampleFailureLogged)
+        {
+            _sampleFailureLogged = true;
+            self.Logger.Warn(
+                $"HookInterceptor: a detour failed to install on {type.FullName}.{name} " +
+                $"({ex.GetType().Name}: {ex.Message}); skipping it and continuing.");
+        }
     }
 }
 
@@ -208,11 +672,13 @@ internal sealed class HookProbe
 {
     private readonly int _modId;
     private readonly int _categoryId;
+    private readonly int _hookId;
 
-    public HookProbe(int modId, int categoryId)
+    public HookProbe(int modId, int categoryId, int hookId)
     {
         _modId = modId;
         _categoryId = categoryId;
+        _hookId = hookId;
     }
 
     /// <summary>Times the original hook and credits the elapsed time to the mod and category.</summary>
@@ -228,7 +694,147 @@ internal sealed class HookProbe
             // finally, not catch: a mod throwing is the mod's own behaviour and
             // is never swallowed (Invariant 1). The time up to the throw is
             // still credited.
-            PerModAttribution.Add(_modId, _categoryId, Stopwatch.GetTimestamp() - start);
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a GlobalNPC hook and credits it without changing behaviour.</summary>
+    public void TimeNpc(OrigNpcHook orig, object self, NPC npc)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, npc);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a GlobalProjectile hook and credits it without changing behaviour.</summary>
+    public void TimeProjectile(OrigProjectileHook orig, object self, Projectile projectile)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, projectile);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a ModSystem GameTime hook and credits it without changing behaviour.</summary>
+    public void TimeGameTime(OrigGameTimeHook orig, object self, GameTime gameTime)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, gameTime);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times ModifyInterfaceLayers and credits it without changing behaviour.</summary>
+    public void TimeInterfaceLayers(OrigInterfaceLayersHook orig, object self, List<GameInterfaceLayer> layers)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, layers);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a ModSystem SpriteBatch hook and credits it without changing behaviour.</summary>
+    public void TimeSpriteBatch(OrigSpriteBatchHook orig, object self, SpriteBatch spriteBatch)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, spriteBatch);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool hook and returns the original value unchanged.</summary>
+    public bool TimeBool(OrigBoolHook orig, object self)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool NPC hook and returns the original value unchanged.</summary>
+    public bool TimeBoolNpc(OrigBoolNpcHook orig, object self, NPC npc)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, npc);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool Projectile hook and returns the original value unchanged.</summary>
+    public bool TimeBoolProjectile(OrigBoolProjectileHook orig, object self, Projectile projectile)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, projectile);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool Player hook and returns the original value unchanged.</summary>
+    public bool TimeBoolPlayer(OrigBoolPlayerHook orig, object self, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool Item hook and returns the original value unchanged.</summary>
+    public bool TimeBoolItem(OrigBoolItemHook orig, object self, Item item)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, item);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
         }
     }
 }

@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace PerformanceProfiler.Profiling;
@@ -22,7 +23,10 @@ namespace PerformanceProfiler.Profiling;
 public static class PerModAttribution
 {
     /// <summary>Hook categories a mod's cost is split across. The index is the categoryId.</summary>
-    public static readonly string[] CategoryNames = { "Systems", "Players", "NPCs", "Projectiles" };
+    public static readonly string[] CategoryNames =
+    {
+        "Systems", "Players", "NPCs", "Projectiles", "Items", "World", "Buffs",
+    };
 
     /// <summary>Number of hook categories.</summary>
     public static int CategoryCount => CategoryNames.Length;
@@ -31,19 +35,45 @@ public static class PerModAttribution
     // Indexed [modId * CategoryCount + categoryId].
     private static long[] _ticks = Array.Empty<long>();
 
+    // Accumulated Stopwatch ticks per installed hook for the current game tick.
+    private static long[] _hookTicks = Array.Empty<long>();
+
+    // Registered during HookInterceptor.Install only; read by the collector/UI after setup.
+    private static readonly List<HookDescriptor> _hooks = new List<HookDescriptor>();
+
     /// <summary>Number of mods being attributed; 0 until <see cref="Configure"/> runs.</summary>
     public static int ModCount => _ticks.Length / CategoryCount;
+
+    /// <summary>Number of individually timed hooks registered at setup.</summary>
+    public static int HookCount => _hooks.Count;
+
+    /// <summary>Metadata for each timed hook, indexed by hookId.</summary>
+    public static IReadOnlyList<HookDescriptor> Hooks => _hooks;
 
     /// <summary>Sizes the accumulator for <paramref name="modCount"/> mods. Called once at setup.</summary>
     public static void Configure(int modCount)
     {
         _ticks = new long[(modCount < 0 ? 0 : modCount) * CategoryCount];
+        _hookTicks = Array.Empty<long>();
+        _hooks.Clear();
+    }
+
+    /// <summary>
+    /// Registers one hook timing row. Called during setup, never from the hot path.
+    /// </summary>
+    public static int RegisterHook(int modId, int categoryId, string displayName)
+    {
+        int hookId = _hooks.Count;
+        _hooks.Add(new HookDescriptor(modId, categoryId, displayName));
+        Array.Resize(ref _hookTicks, _hooks.Count);
+        return hookId;
     }
 
     /// <summary>Clears every running total. Called at the start of each tick.</summary>
     public static void BeginTick()
     {
         Array.Clear(_ticks, 0, _ticks.Length);
+        Array.Clear(_hookTicks, 0, _hookTicks.Length);
     }
 
     /// <summary>
@@ -54,6 +84,15 @@ public static class PerModAttribution
     /// </summary>
     public static void Add(int modId, int categoryId, long elapsedStopwatchTicks)
     {
+        Add(modId, categoryId, hookId: -1, elapsedStopwatchTicks);
+    }
+
+    /// <summary>
+    /// Adds elapsed Stopwatch ticks to one mod/category total and, when supplied,
+    /// the exact installed-hook total. Called from timing detours only.
+    /// </summary>
+    public static void Add(int modId, int categoryId, int hookId, long elapsedStopwatchTicks)
+    {
         if ((uint)categoryId >= (uint)CategoryCount)
         {
             return;
@@ -63,6 +102,11 @@ public static class PerModAttribution
         if ((uint)index < (uint)_ticks.Length)
         {
             _ticks[index] += elapsedStopwatchTicks;
+        }
+
+        if ((uint)hookId < (uint)_hookTicks.Length)
+        {
+            _hookTicks[hookId] += elapsedStopwatchTicks;
         }
     }
 
@@ -80,5 +124,34 @@ public static class PerModAttribution
         {
             destination[i] = _ticks[i] * ticksToMs;
         }
+    }
+
+    /// <summary>
+    /// Writes every registered-hook total for the tick, in milliseconds, into
+    /// <paramref name="destination"/>. The destination buffer is caller-owned.
+    /// </summary>
+    public static void HarvestHooksInto(double[] destination)
+    {
+        double ticksToMs = 1000d / Stopwatch.Frequency;
+        int n = _hookTicks.Length < destination.Length ? _hookTicks.Length : destination.Length;
+        for (int i = 0; i < n; i++)
+        {
+            destination[i] = _hookTicks[i] * ticksToMs;
+        }
+    }
+}
+
+/// <summary>Stable metadata for one installed timing hook.</summary>
+public readonly struct HookDescriptor
+{
+    public readonly int ModId;
+    public readonly int CategoryId;
+    public readonly string DisplayName;
+
+    public HookDescriptor(int modId, int categoryId, string displayName)
+    {
+        ModId = modId;
+        CategoryId = categoryId;
+        DisplayName = displayName;
     }
 }
