@@ -254,8 +254,15 @@ public sealed class SpikeDetector
 
     private static void CaptureSnapshot(ref SpikeWindow window, PerTickAttributionRing ring)
     {
-        ring.TryGetCategorySnapshot(
-            window.SnapshotTick,
+        // CopyLatestCategorySnapshot (not TryGetCategorySnapshot-by-tick): the
+        // detector is called immediately after MetricCollector.EndTick pushes
+        // the current tick's row into the ring, so the "latest" row IS the
+        // tick we're reasoning about. Going through the by-game-tick lookup
+        // would force us to keep the ring's internal counter and the game's
+        // tickIndex in lockstep, which is fragile -- the early bug where all
+        // SnapshotTick lookups returned zero came from comparing the ring's
+        // monotonic counter against Main.GameUpdateCount directly.
+        ring.CopyLatestCategorySnapshot(
             window.PerModCatMs.AsSpan(),
             window.PerModCatBytes != null ? window.PerModCatBytes.AsSpan() : Span<float>.Empty);
     }

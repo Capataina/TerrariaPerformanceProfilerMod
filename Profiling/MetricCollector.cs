@@ -268,7 +268,7 @@ public sealed class MetricCollector
         // up-to-date first. Both operations are allocation-free in steady
         // state -- the detector only allocates the SpikeWindow's per-mod arrays
         // on an actual new spike, which is a rare event.
-        _perTickRing.Push(_perModRawMs, perModCatBytes: null);
+        _perTickRing.Push(frame.TickIndex, _perModRawMs, perModCatBytes: null);
         _spikeDetector.OnTick(frame, _history, _perTickRing);
 
         _sampleSlot++;

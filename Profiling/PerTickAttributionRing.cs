@@ -52,9 +52,18 @@ public sealed class PerTickAttributionRing
     private readonly int _historyTicks;
     private readonly int _categorySnapshotTicks;
 
-    // Monotonic tick counter. Used directly (mod _historyTicks) when writing.
-    // Reads expose the most recently written tick via CurrentTickIndex.
-    private long _writeTick;
+    // Two cooperating counters. _writeCount is the ring's own monotonic counter
+    // (0, 1, 2, ...) used for slot arithmetic and the warmup test "have we even
+    // written N rows yet". _lastGameTick is the most recent game-tick index
+    // (Main.GameUpdateCount) we were handed at Push time, so lookups by game
+    // tick can validate whether the requested tick falls in our retention
+    // window. They are unrelated magnitudes -- _writeCount counts from zero,
+    // _lastGameTick can be in the millions on a long-running world. Keeping
+    // both is the only correct way to support both "give me the most recent
+    // row" (uses _writeCount) and "give me row at game tick T" (uses
+    // _lastGameTick + slot modulo).
+    private long _writeCount;
+    private long _lastGameTick = -1L;
 
     /// <summary>
     /// Builds a ring sized for the given mod count and retention windows.
@@ -77,8 +86,8 @@ public sealed class PerTickAttributionRing
         }
     }
 
-    /// <summary>The monotonic tick index of the most recently written row, or -1 if empty.</summary>
-    public long CurrentTickIndex => _writeTick - 1;
+    /// <summary>The game-tick index of the most recently written row, or -1 if empty.</summary>
+    public long LastGameTick => _lastGameTick;
 
     /// <summary>True if the ring is sized to hold allocation columns too.</summary>
     public bool TracksAllocations => _perModBytes != null;
@@ -86,15 +95,21 @@ public sealed class PerTickAttributionRing
     /// <summary>
     /// Writes one tick's row from a harvest of per-mod-category ms (and optional
     /// bytes). Called once per tick from <see cref="MetricCollector.EndTick"/>
-    /// after the smoothing pass; allocation-free.
+    /// after the smoothing pass; allocation-free. <paramref name="gameTick"/>
+    /// is the game's tick index (Main.GameUpdateCount) for this row; lookups
+    /// by game tick validate against it.
     /// </summary>
+    /// <param name="gameTick">Game-tick index for this row.</param>
     /// <param name="perModCatMs">[modId * <see cref="PerModAttribution.CategoryCount"/> + catId] ms values for this tick.</param>
     /// <param name="perModCatBytes">Parallel byte values; pass null if allocation tracking is off.</param>
-    public void Push(double[] perModCatMs, double[]? perModCatBytes)
+    public void Push(long gameTick, double[] perModCatMs, double[]? perModCatBytes)
     {
         int catCount = PerModAttribution.CategoryCount;
-        int tickSlot = (int)(_writeTick % _historyTicks);
-        int catTickSlot = (int)(_writeTick % _categorySnapshotTicks);
+        // Slot from the ring's own monotonic counter so wrap-around behaves
+        // regardless of how the game's tick counter is sourced. The game tick
+        // is stored alongside for lookup validation, not used for slot math.
+        int tickSlot = (int)(_writeCount % _historyTicks);
+        int catTickSlot = (int)(_writeCount % _categorySnapshotTicks);
 
         int byTickBase = tickSlot * _modCount;
         int byCatTickBase = catTickSlot * _modCount * catCount;
@@ -128,57 +143,95 @@ public sealed class PerTickAttributionRing
             }
         }
 
-        _writeTick++;
+        _lastGameTick = gameTick;
+        _writeCount++;
     }
 
     /// <summary>
-    /// Returns the per-mod ms total at <paramref name="tickIndex"/>, or 0 if the
-    /// tick is outside the retained window or before the ring was populated.
+    /// Returns the per-mod ms total at <paramref name="gameTick"/>, or 0 if
+    /// the tick is outside the retained window or before the ring was populated.
     /// </summary>
-    public float GetPerModMs(long tickIndex, int modId)
+    public float GetPerModMs(long gameTick, int modId)
     {
-        long ago = _writeTick - 1 - tickIndex;
-        if (ago < 0 || ago >= _historyTicks) return 0f;
+        long ago = _lastGameTick - gameTick;
+        if (_lastGameTick < 0 || ago < 0 || ago >= _historyTicks) return 0f;
         if ((uint)modId >= (uint)_modCount) return 0f;
-        int slot = (int)(tickIndex % _historyTicks);
-        return _perModMs[slot * _modCount + modId];
+        // Walk back from the most recently written slot; the ring is decoupled
+        // from game-tick magnitude so we use the ring's own write counter.
+        long latestSlot = (_writeCount - 1) % _historyTicks;
+        long slot = (latestSlot - ago + _historyTicks) % _historyTicks;
+        return _perModMs[(int)slot * _modCount + modId];
     }
 
     /// <summary>
-    /// Returns the per-mod allocation bytes total at <paramref name="tickIndex"/>,
+    /// Returns the per-mod allocation bytes total at <paramref name="gameTick"/>,
     /// or 0 if the tick is outside the retained window or tracking is off.
     /// </summary>
-    public float GetPerModBytes(long tickIndex, int modId)
+    public float GetPerModBytes(long gameTick, int modId)
     {
         if (_perModBytes == null) return 0f;
-        long ago = _writeTick - 1 - tickIndex;
-        if (ago < 0 || ago >= _historyTicks) return 0f;
+        long ago = _lastGameTick - gameTick;
+        if (_lastGameTick < 0 || ago < 0 || ago >= _historyTicks) return 0f;
         if ((uint)modId >= (uint)_modCount) return 0f;
-        int slot = (int)(tickIndex % _historyTicks);
-        return _perModBytes[slot * _modCount + modId];
+        long latestSlot = (_writeCount - 1) % _historyTicks;
+        long slot = (latestSlot - ago + _historyTicks) % _historyTicks;
+        return _perModBytes[(int)slot * _modCount + modId];
     }
 
     /// <summary>
-    /// Copies the per-mod-per-category snapshot for <paramref name="tickIndex"/>
-    /// into <paramref name="destinationMs"/> and (when allocation tracking is on)
-    /// <paramref name="destinationBytes"/>. Returns false if the tick is outside
-    /// the category snapshot window.
+    /// Copies the MOST RECENTLY WRITTEN per-mod-per-category row into the
+    /// destination spans. Decouples the snapshot from any game-tick-vs-ring
+    /// counter ambiguity. The spike detector calls this immediately after
+    /// the corresponding <see cref="Push"/>, so "most recently written" is
+    /// always the data for the tick the detector is reasoning about.
+    /// </summary>
+    public void CopyLatestCategorySnapshot(Span<float> destinationMs, Span<float> destinationBytes)
+    {
+        if (_writeCount == 0) return;
+        int catCount = PerModAttribution.CategoryCount;
+        int latestSlot = (int)((_writeCount - 1) % _categorySnapshotTicks);
+        int baseIdx = latestSlot * _modCount * catCount;
+        int n = _modCount * catCount;
+
+        int copyMs = n < destinationMs.Length ? n : destinationMs.Length;
+        for (int i = 0; i < copyMs; i++)
+        {
+            destinationMs[i] = _perModCatMs[baseIdx + i];
+        }
+
+        if (_perModCatBytes != null && destinationBytes.Length > 0)
+        {
+            int copyBytes = n < destinationBytes.Length ? n : destinationBytes.Length;
+            for (int i = 0; i < copyBytes; i++)
+            {
+                destinationBytes[i] = _perModCatBytes[baseIdx + i];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Copies the per-mod-per-category snapshot for <paramref name="gameTick"/>
+    /// into the destination spans. Returns false if the tick is outside the
+    /// category snapshot window.
     /// </summary>
     /// <remarks>
-    /// The category snapshot window is smaller than the full history window —
-    /// a spike from 25 seconds ago will still have a per-mod-total in
+    /// The category snapshot window is smaller than the full history window --
+    /// a spike from 25 seconds ago still has its per-mod totals via
     /// <see cref="GetPerModMs"/>, but the per-category breakdown is only kept
-    /// for the last <c>categorySnapshotTicks</c> ticks (default ~2s). The
-    /// detector captures the snapshot at spike-detection time so we never lose it.
+    /// for the last <c>categorySnapshotTicks</c> ticks (~2s default). The
+    /// detector captures the snapshot at spike-detection time via
+    /// <see cref="CopyLatestCategorySnapshot"/> so it's frozen before the
+    /// window can age out.
     /// </remarks>
-    public bool TryGetCategorySnapshot(long tickIndex, Span<float> destinationMs, Span<float> destinationBytes)
+    public bool TryGetCategorySnapshot(long gameTick, Span<float> destinationMs, Span<float> destinationBytes)
     {
-        long ago = _writeTick - 1 - tickIndex;
-        if (ago < 0 || ago >= _categorySnapshotTicks) return false;
+        long ago = _lastGameTick - gameTick;
+        if (_lastGameTick < 0 || ago < 0 || ago >= _categorySnapshotTicks) return false;
 
         int catCount = PerModAttribution.CategoryCount;
-        int slot = (int)(tickIndex % _categorySnapshotTicks);
-        int baseIdx = slot * _modCount * catCount;
+        long latestSlot = (_writeCount - 1) % _categorySnapshotTicks;
+        long slot = (latestSlot - ago + _categorySnapshotTicks) % _categorySnapshotTicks;
+        int baseIdx = (int)slot * _modCount * catCount;
         int n = _modCount * catCount;
 
         int copyMs = n < destinationMs.Length ? n : destinationMs.Length;
