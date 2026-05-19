@@ -53,6 +53,16 @@ public sealed class MetricCollector
     // pause time that accrued during this tick alone.
     private double _gcPauseMsAtTickStart;
 
+    // ---- Backend benchmarking (active in HookBackendMode.Parallel) ----------
+    // In Parallel mode both backends write to PerModAttribution -- delegate to
+    // slot 0, ILHook to slot 1. To benchmark them we keep a second set of raw
+    // arrays for backend 1 and a smoothed scalar total per backend.
+    private readonly double[]? _perModRawMsBackend1;
+    private double _backendTotalSmoothedMs0;
+    private double _backendTotalSmoothedMs1;
+    private int _divergenceLogCountdown;
+    private const int DivergenceLogIntervalTicks = 60 * 10; // every ~10s while in a world
+
     /// <summary>Creates a collector whose history holds <paramref name="historyCapacity"/> ticks.</summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyCapacity"/> is not positive.</exception>
     public MetricCollector(int historyCapacity)
@@ -70,6 +80,42 @@ public sealed class MetricCollector
         _perHookAverageMs = new double[PerModAttribution.HookCount];
         _perHookHistoryMs = new double[PerModAttribution.HookCount * historyCapacity];
         _perHookRollingMs = new double[PerModAttribution.HookCount];
+
+        // Only allocate the second-backend buffer if we're actually running both.
+        if (PerModAttribution.BackendCount > 1)
+        {
+            _perModRawMsBackend1 = new double[cells];
+        }
+    }
+
+    /// <summary>
+    /// Smoothed total CPU ms (sum across mods/categories) for the primary
+    /// backend's current tick. In Delegate-only or ILHook-only mode this is the
+    /// only number; in Parallel mode it's the delegate path's number.
+    /// </summary>
+    public double BackendTotalMs0 => _backendTotalSmoothedMs0;
+
+    /// <summary>
+    /// Smoothed total CPU ms for the secondary backend (ILHook in Parallel
+    /// mode). Zero in single-backend modes.
+    /// </summary>
+    public double BackendTotalMs1 => _backendTotalSmoothedMs1;
+
+    /// <summary>
+    /// Divergence ratio between the two backends in Parallel mode:
+    /// (ILHook - Delegate) / Delegate. Positive means ILHook reports higher
+    /// (typically expected because the delegate path's wrapper adds a tiny
+    /// per-call frame, but should be small). 0 in single-backend modes.
+    /// </summary>
+    public double BackendDivergence
+    {
+        get
+        {
+            if (_perModRawMsBackend1 == null) return 0d;
+            double baseline = _backendTotalSmoothedMs0;
+            if (baseline < 1e-6) return 0d;
+            return (_backendTotalSmoothedMs1 - baseline) / baseline;
+        }
     }
 
     /// <summary>The rolling per-tick history, oldest record first. The UI reads this to draw.</summary>
@@ -153,19 +199,34 @@ public sealed class MetricCollector
 
         _history.Push(in frame);
 
-        // Harvest this tick's per-mod cost, then fold it into the smoothed view.
-        PerModAttribution.HarvestInto(_perModRawMs);
+        // Harvest this tick's per-mod cost from backend 0 (the primary backend
+        // -- delegate in Delegate/Parallel mode, ILHook in ILHook-only mode --
+        // since HookBackend.ILHookBackendId folds to 0 when not parallel).
+        // Then fold it into the smoothed view.
+        PerModAttribution.HarvestInto(_perModRawMs, backendId: 0);
         UpdateRollingAverage(_perModRawMs, _perModHistoryMs, _perModRollingMs, _perModAverageMs, _sampleSlot);
         for (int i = 0; i < _perModSmoothedMs.Length; i++)
         {
             _perModSmoothedMs[i] += PerModSmoothing * (_perModRawMs[i] - _perModSmoothedMs[i]);
         }
 
-        PerModAttribution.HarvestHooksInto(_perHookRawMs);
+        PerModAttribution.HarvestHooksInto(_perHookRawMs, backendId: 0);
         UpdateRollingAverage(_perHookRawMs, _perHookHistoryMs, _perHookRollingMs, _perHookAverageMs, _sampleSlot);
         for (int i = 0; i < _perHookSmoothedMs.Length; i++)
         {
             _perHookSmoothedMs[i] += PerModSmoothing * (_perHookRawMs[i] - _perHookSmoothedMs[i]);
+        }
+
+        // Track per-backend totals so the UI can show a backend divergence badge
+        // and the log can periodically report the comparison.
+        double total0 = SumAll(_perModRawMs);
+        _backendTotalSmoothedMs0 += PerModSmoothing * (total0 - _backendTotalSmoothedMs0);
+
+        if (_perModRawMsBackend1 != null)
+        {
+            PerModAttribution.HarvestInto(_perModRawMsBackend1, backendId: 1);
+            double total1 = SumAll(_perModRawMsBackend1);
+            _backendTotalSmoothedMs1 += PerModSmoothing * (total1 - _backendTotalSmoothedMs1);
         }
 
         _sampleSlot++;
@@ -175,6 +236,34 @@ public sealed class MetricCollector
         }
 
         _tickStartTimestamp = -1L;
+    }
+
+    /// <summary>Returns true once per <see cref="DivergenceLogIntervalTicks"/> ticks, when parallel benchmarking is active.</summary>
+    public bool ConsumeDivergenceLogTrigger()
+    {
+        if (_perModRawMsBackend1 == null)
+        {
+            return false;
+        }
+
+        _divergenceLogCountdown--;
+        if (_divergenceLogCountdown > 0)
+        {
+            return false;
+        }
+
+        _divergenceLogCountdown = DivergenceLogIntervalTicks;
+        return true;
+    }
+
+    private static double SumAll(double[] values)
+    {
+        double sum = 0d;
+        for (int i = 0; i < values.Length; i++)
+        {
+            sum += values[i];
+        }
+        return sum;
     }
 
     private void UpdateRollingAverage(double[] source, double[] history, double[] rolling, double[] average, int slot)

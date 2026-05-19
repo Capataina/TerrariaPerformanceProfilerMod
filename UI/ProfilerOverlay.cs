@@ -351,11 +351,11 @@ internal sealed class OverlayPanel : UIElement
             new Rectangle(area.X + 8, area.Y + (int)HealthTopOffset - 6, area.Width - 16, 1),
             ProfilerTheme.Border);
 
-        DrawProfilerHealth(spriteBatch, area, x, area.Y + HealthTopOffset);
+        DrawProfilerHealth(spriteBatch, area, x, area.Y + HealthTopOffset, collector);
         DrawModTree(spriteBatch, area, collector);
     }
 
-    private static void DrawProfilerHealth(SpriteBatch spriteBatch, Rectangle area, float x, float y)
+    private static void DrawProfilerHealth(SpriteBatch spriteBatch, Rectangle area, float x, float y, MetricCollector collector)
     {
         CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods);
         double coverage    = total > 0 ? measured / (double)total : 1d;
@@ -367,11 +367,38 @@ internal sealed class OverlayPanel : UIElement
         DrawText(spriteBatch, $"hooks {measured}/{total} ({coverage:P0})",     new Vector2(x + 142f, y), covColor,               0.68f);
         DrawText(spriteBatch, $"full {fullMods}  partial {partialMods}",       new Vector2(x + 358f, y), ProfilerTheme.TextMuted, 0.68f);
 
+        // Backend badge: shows which instrumentation backend is feeding the tree.
+        // In Parallel mode, the right-hand text shows the ILHook total and divergence.
+        string backendLabel = HookBackend.Mode switch
+        {
+            HookBackendMode.Delegate => "backend: delegate",
+            HookBackendMode.ILHook   => "backend: ilhook",
+            HookBackendMode.Parallel => "backend: parallel",
+            _                        => "backend: ?",
+        };
+        DrawText(spriteBatch, backendLabel, new Vector2(x + 510f, y), ProfilerTheme.Accent, 0.58f);
+
         int barW = area.Width - 28;
         ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x,    (int)y + 18, barW,                     10), ProfilerTheme.Border);
         int fill = (int)(barW * coverage);
         if (fill > 0)
             ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, fill, 10), covColor);
+
+        // Parallel-mode comparison strip: one line under the coverage bar.
+        if (HookBackend.Mode == HookBackendMode.Parallel)
+        {
+            double del = collector.BackendTotalMs0;
+            double il  = collector.BackendTotalMs1;
+            double pct = collector.BackendDivergence * 100d;
+            Color  pctColor = System.Math.Abs(pct) <= 5d ? ProfilerTheme.Good
+                            : System.Math.Abs(pct) <= 20d ? ProfilerTheme.Amber
+                            : ProfilerTheme.Danger;
+            DrawText(spriteBatch,
+                $"compare   delegate {del:F2}ms   ilhook {il:F2}ms",
+                new Vector2(x, y + 32f), ProfilerTheme.TextMuted, 0.62f);
+            DrawText(spriteBatch, $"Δ {pct:+0.0;-0.0;0.0}%",
+                new Vector2(x + 380f, y + 32f), pctColor, 0.62f);
+        }
     }
 
     private void DrawModTree(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)

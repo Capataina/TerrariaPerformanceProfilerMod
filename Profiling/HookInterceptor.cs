@@ -264,6 +264,13 @@ public static class HookInterceptor
     /// <summary>Mod versions, in ModId order. Empty until <see cref="Install"/> runs.</summary>
     public static string[] ProfiledModVersions { get; private set; } = Array.Empty<string>();
 
+    /// <summary>
+    /// Discovered mods being profiled, in ModId order. <see cref="ILHookInterceptor"/>
+    /// reads this so both backends instrument the same modlist with consistent ids.
+    /// Empty until <see cref="Install"/> runs.
+    /// </summary>
+    public static IReadOnlyList<Mod> ProfiledMods { get; private set; } = Array.Empty<Mod>();
+
     /// <summary>Overrides discovered but skipped because their signature is not timed yet.</summary>
     public static int UnsupportedHookSignatures => _unsupportedHookSignatures;
 
@@ -318,6 +325,8 @@ public static class HookInterceptor
                 ProfiledModVersions[i] = profiled[i].Version?.ToString() ?? "unknown";
             }
 
+            ProfiledMods = profiled;
+
             _measuredHookCounts = new int[profiled.Count];
             _totalHookCounts = new int[profiled.Count];
             _unsupportedHookSamples = new List<string>[profiled.Count];
@@ -326,17 +335,23 @@ public static class HookInterceptor
                 _unsupportedHookSamples[i] = new List<string>();
             }
 
-            PerModAttribution.Configure(profiled.Count);
+            // Size attribution for the chosen number of backends (1 in single-mode,
+            // 2 in Parallel). Must run before any RegisterHook call so backend slots
+            // exist when detours start writing.
+            PerModAttribution.Configure(profiled.Count, HookBackend.BackendCount);
 
             int detours = 0;
-            for (int modId = 0; modId < profiled.Count; modId++)
+            if (HookBackend.DelegateActive)
             {
-                detours += InstallForMod(modId, profiled[modId], self);
+                for (int modId = 0; modId < profiled.Count; modId++)
+                {
+                    detours += InstallForMod(modId, profiled[modId], self);
+                }
             }
 
             Installed = true;
             self.Logger.Info(
-                $"HookInterceptor: {detours} timing detours installed across {profiled.Count} mods; " +
+                $"HookInterceptor[{HookBackend.Mode}]: {detours} delegate timing detours installed across {profiled.Count} mods; " +
                 $"{_unsupportedHookSignatures} overridden hooks skipped because their signature is not timed yet.");
         }
         catch (Exception ex)

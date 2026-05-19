@@ -3,6 +3,7 @@
 using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
+using PerformanceProfiler.Profiling;
 using PerformanceProfiler.UI;
 
 namespace PerformanceProfiler;
@@ -19,7 +20,19 @@ public class PerformanceProfiler : Mod
     {
         // Written to client.log: the machine-readable proof the mod loaded,
         // verifiable from the log without anyone watching chat.
-        Logger.Info("Performance Profiler loaded.");
+        Logger.Info($"Performance Profiler loaded (backend: {HookBackend.Mode}).");
+    }
+
+    /// <summary>
+    /// Runs in reverse load order on Mods → Reload. Disposes the ILHook detours
+    /// constructed via <c>new ILHook(...)</c> in <see cref="ILHookInterceptor"/>;
+    /// these are not auto-tracked by tModLoader the way <c>MonoModHooks.Add</c>
+    /// detours are, so without explicit disposal here the IL patches would
+    /// reference types in this assembly that's about to be unloaded.
+    /// </summary>
+    public override void Unload()
+    {
+        ILHookInterceptor.Uninstall();
     }
 }
 

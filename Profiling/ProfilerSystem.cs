@@ -30,12 +30,23 @@ public sealed class ProfilerSystem : ModSystem
 
     /// <summary>
     /// Installs the per-mod timing detours once, after every mod's content is
-    /// set up (so all hook-override methods exist). The detours persist for the
-    /// process and are removed by tModLoader when this mod unloads.
+    /// set up (so all hook-override methods exist). The delegate-pair detours
+    /// installed by <see cref="HookInterceptor"/> are removed automatically by
+    /// tModLoader on mod unload; the ILHook detours installed by
+    /// <see cref="ILHookInterceptor"/> are explicitly disposed in
+    /// <c>PerformanceProfiler.Unload</c> so their references to types in this
+    /// assembly don't outlive the unload.
     /// </summary>
     public override void PostSetupContent()
     {
+        // Delegate path always runs first -- it does the mod-list enumeration
+        // and PerModAttribution.Configure that the ILHook path reuses.
         HookInterceptor.Install(Mod);
+
+        if (HookBackend.ILHookActive)
+        {
+            ILHookInterceptor.Install(Mod, HookInterceptor.ProfiledMods);
+        }
     }
 
     /// <summary>
@@ -91,6 +102,16 @@ public sealed class ProfilerSystem : ModSystem
             npcCount: CountActive(Main.npc),
             projectileCount: CountActive(Main.projectile),
             dustCount: CountActive(Main.dust));
+
+        if (collector.ConsumeDivergenceLogTrigger())
+        {
+            double del = collector.BackendTotalMs0;
+            double il = collector.BackendTotalMs1;
+            double pct = collector.BackendDivergence * 100d;
+            Mod.Logger.Info(
+                $"[backend-compare] delegate={del:F3}ms ilhook={il:F3}ms " +
+                $"Δ={pct:+0.0;-0.0;0.0}% (mode={HookBackend.Mode})");
+        }
 
         _sessionLog?.Tick(collector);
     }
