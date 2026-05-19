@@ -36,22 +36,69 @@ public sealed class ProfilerOverlay : UIState
 /// <summary>
 /// The custom-drawn overlay panel. Everything inside is hand-drawn in
 /// <see cref="DrawSelf"/> with <see cref="ProfilerTheme"/>; no stock tModLoader
-/// widget chrome is used.
+/// widget chrome is used. Draggable by its header strip.
 /// </summary>
 internal sealed class OverlayPanel : UIElement
 {
     private const float HeaderHeight = 26f;
     private const float LineGap = 24f;
 
+    private bool _dragging;
+    private Vector2 _dragOffset;
+
+    public override void LeftMouseDown(UIMouseEvent evt)
+    {
+        base.LeftMouseDown(evt);
+
+        // Drag only by the header strip, the way a window title bar works.
+        Vector2 panelPosition = GetDimensions().Position();
+        if (evt.MousePosition.Y - panelPosition.Y <= HeaderHeight)
+        {
+            _dragging = true;
+            _dragOffset = evt.MousePosition - panelPosition;
+        }
+    }
+
+    public override void LeftMouseUp(UIMouseEvent evt)
+    {
+        base.LeftMouseUp(evt);
+        _dragging = false;
+    }
+
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
 
-        // Block gameplay clicks while the cursor is over the panel.
-        if (IsMouseHovering)
+        // Block gameplay clicks while the cursor is over the panel or dragging it.
+        if (IsMouseHovering || _dragging)
         {
             Main.LocalPlayer.mouseInterface = true;
         }
+
+        if (_dragging)
+        {
+            // A release that landed off the panel still ends the drag.
+            if (!Main.mouseLeft)
+            {
+                _dragging = false;
+            }
+            else
+            {
+                FollowMouse();
+            }
+        }
+    }
+
+    /// <summary>Moves the panel so the grabbed point stays under the cursor, clamped on-screen.</summary>
+    private void FollowMouse()
+    {
+        Vector2 target = Main.MouseScreen - _dragOffset;
+        float maxX = Main.screenWidth - GetDimensions().Width;
+        float maxY = Main.screenHeight - GetDimensions().Height;
+
+        Left.Set(MathHelper.Clamp(target.X, 0f, maxX < 0f ? 0f : maxX), 0f);
+        Top.Set(MathHelper.Clamp(target.Y, 0f, maxY < 0f ? 0f : maxY), 0f);
+        Recalculate();
     }
 
     protected override void DrawSelf(SpriteBatch spriteBatch)
