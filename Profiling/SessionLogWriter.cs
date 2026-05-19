@@ -559,7 +559,7 @@ public sealed class SessionLogWriter : IDisposable
 
     private static string ComputeIdentity()
     {
-        return Hash($"schema={SchemaVersion};profiler={ProfilerVersion()};mods={ModFingerprint()}");
+        return Hash($"schema={SchemaVersion};coverage={HookInterceptor.HookCoverageVersion};mods={ModFingerprint()}");
     }
 
     private static string ModFingerprint()

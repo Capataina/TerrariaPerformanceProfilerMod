@@ -7,6 +7,7 @@ using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
+using Terraria.DataStructures;
 using Terraria.ModLoader;
 using Terraria.ModLoader.Core;
 using Terraria.UI;
@@ -127,6 +128,66 @@ public delegate bool OrigBoolProjectilePlayerHook(object self, Projectile projec
 /// <summary>The On-hook delegate that wraps a bool(Projectile, Player) hook.</summary>
 public delegate bool BoolProjectilePlayerHookWrapper(OrigBoolProjectilePlayerHook orig, object self, Projectile projectile, Player player);
 
+/// <summary>The original-method delegate for a parameterless nullable-bool hook (e.g. CanFallThroughPlatforms).</summary>
+public delegate bool? OrigNullableBoolHook(object self);
+
+/// <summary>The On-hook delegate that wraps a bool?() hook.</summary>
+public delegate bool? NullableBoolHookWrapper(OrigNullableBoolHook orig, object self);
+
+/// <summary>The original-method delegate for a bool hook with a ref Color parameter (e.g. PreDraw).</summary>
+public delegate bool OrigBoolRefColorHook(object self, ref Color lightColor);
+
+/// <summary>The On-hook delegate that wraps a bool(ref Color) hook.</summary>
+public delegate bool BoolRefColorHookWrapper(OrigBoolRefColorHook orig, object self, ref Color lightColor);
+
+/// <summary>The original-method delegate for a Color? hook carrying a Color (e.g. GetAlpha).</summary>
+public delegate Color? OrigGetAlphaHook(object self, Color lightColor);
+
+/// <summary>The On-hook delegate that wraps a Color?(Color) hook.</summary>
+public delegate Color? GetAlphaHookWrapper(OrigGetAlphaHook orig, object self, Color lightColor);
+
+/// <summary>The original-method delegate for a void hook carrying a single int (e.g. OnKill).</summary>
+public delegate void OrigIntHook(object self, int value);
+
+/// <summary>The On-hook delegate that wraps a void(int) hook.</summary>
+public delegate void IntHookWrapper(OrigIntHook orig, object self, int value);
+
+/// <summary>The original-method delegate for a void hook carrying a Player and a bool.</summary>
+public delegate void OrigPlayerBoolHook(object self, Player player, bool flag);
+
+/// <summary>The On-hook delegate that wraps a void(Player, bool) hook.</summary>
+public delegate void PlayerBoolHookWrapper(OrigPlayerBoolHook orig, object self, Player player, bool flag);
+
+/// <summary>The original-method delegate for a void hook carrying an NPC and a ref NPC.HitModifiers (e.g. ModifyHitNPC).</summary>
+public delegate void OrigNpcRefHitModifiersHook(object self, NPC npc, ref NPC.HitModifiers modifiers);
+
+/// <summary>The On-hook delegate that wraps a void(NPC, ref NPC.HitModifiers) hook.</summary>
+public delegate void NpcRefHitModifiersHookWrapper(OrigNpcRefHitModifiersHook orig, object self, NPC npc, ref NPC.HitModifiers modifiers);
+
+/// <summary>The original-method delegate for a void hook carrying an NPC, HitInfo, and int (e.g. OnHitNPC).</summary>
+public delegate void OrigNpcHitInfoIntHook(object self, NPC target, NPC.HitInfo hit, int damageDone);
+
+/// <summary>The On-hook delegate that wraps a void(NPC, HitInfo, int) hook.</summary>
+public delegate void NpcHitInfoIntHookWrapper(OrigNpcHitInfoIntHook orig, object self, NPC target, NPC.HitInfo hit, int damageDone);
+
+/// <summary>The original-method delegate for a void tile hook carrying two ints, a bool, and a ref int (e.g. KillTile).</summary>
+public delegate void OrigTileIntIntBoolRefIntHook(object self, int i, int j, bool fail, ref int type);
+
+/// <summary>The On-hook delegate that wraps a void(int, int, bool, ref int) hook.</summary>
+public delegate void TileIntIntBoolRefIntHookWrapper(OrigTileIntIntBoolRefIntHook orig, object self, int i, int j, bool fail, ref int type);
+
+/// <summary>The original-method delegate for an item-draw hook (e.g. PreDrawInInventory / PreDrawInWorld).</summary>
+public delegate void OrigDrawItemHook(object self, SpriteBatch spriteBatch, Color color1, Color color2, float f1, float f2, int slot);
+
+/// <summary>The On-hook delegate that wraps a void(SpriteBatch, Color, Color, float, float, int) hook.</summary>
+public delegate void DrawItemHookWrapper(OrigDrawItemHook orig, object self, SpriteBatch spriteBatch, Color color1, Color color2, float f1, float f2, int slot);
+
+/// <summary>The original-method delegate for ModItem/GlobalItem Shoot.</summary>
+public delegate bool OrigShootHook(object self, Player player, EntitySource_ItemUse_WithAmmo source, Vector2 position, Vector2 velocity, int type, int damage, float knockBack);
+
+/// <summary>The On-hook delegate that wraps a bool(Player, EntitySource_ItemUse_WithAmmo, Vector2, Vector2, int, int, float) hook.</summary>
+public delegate bool ShootHookWrapper(OrigShootHook orig, object self, Player player, EntitySource_ItemUse_WithAmmo source, Vector2 position, Vector2 velocity, int type, int damage, float knockBack);
+
 /// <summary>
 /// Installs per-mod CPU timing detours and holds the discovered modlist.
 ///
@@ -148,6 +209,14 @@ public delegate bool BoolProjectilePlayerHookWrapper(OrigBoolProjectilePlayerHoo
 /// </summary>
 public static class HookInterceptor
 {
+    /// <summary>
+    /// Incremented every time a new batch of signature families is added to
+    /// <see cref="TryHookSupportedOverride"/>. <see cref="SessionLogWriter"/> folds
+    /// this into the session identity hash so old sessions measured with a narrower
+    /// coverage set are pruned automatically on the next load.
+    /// </summary>
+    public const int HookCoverageVersion = 2;
+
     // Hook categories, matching PerModAttribution.CategoryNames indices.
     private const int CategorySystems = 0;
     private const int CategoryPlayers = 1;
@@ -449,6 +518,13 @@ public static class HookInterceptor
                 return true;
             }
 
+            if (parameters.Length == 0 && returnType == typeof(bool?))
+            {
+                HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                MonoModHooks.Add(method, new NullableBoolHookWrapper(probe.TimeNullableBool));
+                return true;
+            }
+
             if (parameters.Length == 1)
             {
                 Type p0 = parameters[0].ParameterType;
@@ -528,6 +604,28 @@ public static class HookInterceptor
                     MonoModHooks.Add(method, new SpriteBatchHookWrapper(probe.TimeSpriteBatch));
                     return true;
                 }
+
+                if (p0 == typeof(int) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new IntHookWrapper(probe.TimeInt));
+                    return true;
+                }
+
+                if (p0 == typeof(Color) && returnType == typeof(Color?))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new GetAlphaHookWrapper(probe.TimeGetAlpha));
+                    return true;
+                }
+
+                // ref Color — e.g. PreDraw(ref Color lightColor)
+                if (p0.IsByRef && p0.GetElementType() == typeof(Color) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolRefColorHookWrapper(probe.TimeBoolRefColor));
+                    return true;
+                }
             }
 
             if (parameters.Length == 2)
@@ -574,6 +672,90 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolProjectilePlayerHookWrapper(probe.TimeBoolProjectilePlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Player) && p1 == typeof(bool) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new PlayerBoolHookWrapper(probe.TimePlayerBool));
+                    return true;
+                }
+
+                // void(NPC, ref NPC.HitModifiers) — e.g. ModifyHitNPC
+                if (p0 == typeof(NPC) && p1.IsByRef && p1.GetElementType() == typeof(NPC.HitModifiers) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new NpcRefHitModifiersHookWrapper(probe.TimeNpcRefHitModifiers));
+                    return true;
+                }
+            }
+
+            if (parameters.Length == 3)
+            {
+                Type p0 = parameters[0].ParameterType;
+                Type p1 = parameters[1].ParameterType;
+                Type p2 = parameters[2].ParameterType;
+
+                // void(NPC, HitInfo, int) — e.g. OnHitNPC
+                if (p0 == typeof(NPC) && p1 == typeof(NPC.HitInfo) && p2 == typeof(int) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new NpcHitInfoIntHookWrapper(probe.TimeNpcHitInfoInt));
+                    return true;
+                }
+            }
+
+            if (parameters.Length == 4)
+            {
+                Type p0 = parameters[0].ParameterType;
+                Type p1 = parameters[1].ParameterType;
+                Type p2 = parameters[2].ParameterType;
+                Type p3 = parameters[3].ParameterType;
+
+                // void(int, int, bool, ref int) — e.g. KillTile(i, j, fail, ref dustType)
+                if (p0 == typeof(int) && p1 == typeof(int) && p2 == typeof(bool) &&
+                    p3.IsByRef && p3.GetElementType() == typeof(int) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new TileIntIntBoolRefIntHookWrapper(probe.TimeTileIntIntBoolRefInt));
+                    return true;
+                }
+            }
+
+            if (parameters.Length == 6)
+            {
+                Type p0 = parameters[0].ParameterType;
+                Type p1 = parameters[1].ParameterType;
+
+                // void(SpriteBatch, Color, Color, float, float, int) — e.g. PreDrawInInventory / PreDrawInWorld
+                if (p0 == typeof(SpriteBatch) && p1 == typeof(Color) &&
+                    parameters[2].ParameterType == typeof(Color) &&
+                    parameters[3].ParameterType == typeof(float) &&
+                    parameters[4].ParameterType == typeof(float) &&
+                    parameters[5].ParameterType == typeof(int) &&
+                    returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new DrawItemHookWrapper(probe.TimeDrawItem));
+                    return true;
+                }
+            }
+
+            if (parameters.Length == 7)
+            {
+                // bool(Player, EntitySource_ItemUse_WithAmmo, Vector2, Vector2, int, int, float) — Shoot
+                if (parameters[0].ParameterType == typeof(Player) &&
+                    parameters[1].ParameterType == typeof(EntitySource_ItemUse_WithAmmo) &&
+                    parameters[2].ParameterType == typeof(Vector2) &&
+                    parameters[3].ParameterType == typeof(Vector2) &&
+                    parameters[4].ParameterType == typeof(int) &&
+                    parameters[5].ParameterType == typeof(int) &&
+                    parameters[6].ParameterType == typeof(float) &&
+                    returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new ShootHookWrapper(probe.TimeShoot));
                     return true;
                 }
             }
@@ -1087,6 +1269,136 @@ internal sealed class HookProbe
         try
         {
             return orig(self, projectile, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public bool? TimeNullableBool(OrigNullableBoolHook orig, object self)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public bool TimeBoolRefColor(OrigBoolRefColorHook orig, object self, ref Color lightColor)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, ref lightColor);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public Color? TimeGetAlpha(OrigGetAlphaHook orig, object self, Color lightColor)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, lightColor);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimeInt(OrigIntHook orig, object self, int value)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, value);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimePlayerBool(OrigPlayerBoolHook orig, object self, Player player, bool flag)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, player, flag);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimeNpcRefHitModifiers(OrigNpcRefHitModifiersHook orig, object self, NPC npc, ref NPC.HitModifiers modifiers)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, npc, ref modifiers);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimeNpcHitInfoInt(OrigNpcHitInfoIntHook orig, object self, NPC target, NPC.HitInfo hit, int damageDone)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, target, hit, damageDone);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimeTileIntIntBoolRefInt(OrigTileIntIntBoolRefIntHook orig, object self, int i, int j, bool fail, ref int type)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, i, j, fail, ref type);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public void TimeDrawItem(OrigDrawItemHook orig, object self, SpriteBatch spriteBatch, Color color1, Color color2, float f1, float f2, int slot)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, spriteBatch, color1, color2, f1, f2, slot);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    public bool TimeShoot(OrigShootHook orig, object self, Player player, EntitySource_ItemUse_WithAmmo source, Vector2 position, Vector2 velocity, int type, int damage, float knockBack)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, player, source, position, velocity, type, damage, knockBack);
         }
         finally
         {
