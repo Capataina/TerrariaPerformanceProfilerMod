@@ -66,7 +66,7 @@ Code is held to the standard a senior engineer would read cold and respect.
 
 - **Runtime:** C# on **.NET 8**. tModLoader 1.4.4 is pinned to .NET 8 — never target 9 or 10.
 - **Build:** `dotnet msbuild` from the mod folder, or in-game **Workshop → Develop Mods → Build + Reload**. Use `dotnet msbuild`, not `dotnet build` — tModLoader's targets expect it.
-- **Iteration loop:** edit `.cs` → build → tModLoader **Mods → Reload Mods** → re-enter the world (re-fires `OnWorldLoad`). Build errors land verbatim in `tModLoader/Logs/client.log`.
+- **Iteration loop:** edit `.cs` → build → tModLoader **Mods → Reload Mods** → re-enter the world (re-fires `OnWorldLoad`). Build errors and runtime logs land in `<Steam>/steamapps/common/tModLoader/tModLoader-Logs/client.log` (Steam install dir, not the save dir).
 - **File-lock on rebuild:** if a build fails with a file-access error, disable the mod in tModLoader and reload mods so the `.tmod` can be rewritten.
 - **Apple Silicon:** launch tModLoader windowed only — a fullscreen transition silently crashes on Apple Silicon ([#4941](https://github.com/tModLoader/tModLoader/issues/4941)).
 - **Instrumentation:** MonoMod IL detours go through tModLoader's official `MonoModHooks` API, never raw MonoMod — tModLoader tracks per-assembly detour ownership through it, which is also how per-mod identity attribution comes for free.

@@ -272,7 +272,7 @@ edit .cs  ──▶  dotnet msbuild   ──or──   in-game Build + Reload
    tModLoader → Mods → Reload Mods  ──▶  re-enter world (re-fires OnWorldLoad)
 ```
 
-Build failures land verbatim in `~/Library/Application Support/Terraria/tModLoader/Logs/client.log`.
+Build failures and runtime logs land in `~/Library/Application Support/Steam/steamapps/common/tModLoader/tModLoader-Logs/client.log` (in the Steam install dir, not the save dir).
 
 > **Apple Silicon note:** launch tModLoader in **windowed** mode only — a fullscreen transition triggers a silent crash on Apple Silicon ([tModLoader #4941](https://github.com/tModLoader/tModLoader/issues/4941)).
 
