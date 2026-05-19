@@ -225,6 +225,17 @@ public static class ILHookInterceptor
                 continue;
             }
 
+            // Open generic type definitions are templates with no compiled body
+            // -- MonoMod refuses to hook them, producing one "manipulator failed"
+            // warning per such type per launch. The closed instantiations are
+            // discovered separately via the inheritance pass on concrete subclasses
+            // (BaseMusicBoxItem<MusicA>, <MusicB>, ...). Skip the open form here
+            // so the warnings disappear and the closed form is the only entry point.
+            if (type.IsGenericTypeDefinition)
+            {
+                continue;
+            }
+
             int categoryId = ResolveCategory(type);
             if (categoryId < 0)
             {
@@ -234,6 +245,10 @@ public static class ILHookInterceptor
             InstrumentTypeOverrides(type, modId, categoryId, self);
         }
     }
+
+    // tModLoader's own assembly. Resolved once so the hot install loop avoids
+    // repeated typeof(Mod) lookups.
+    private static readonly Assembly _tmlAssembly = typeof(Terraria.ModLoader.Mod).Assembly;
 
     /// <summary>
     /// Mirrors <see cref="HookInterceptor.InstallForMod"/>'s type-to-category
@@ -299,6 +314,22 @@ public static class ILHookInterceptor
                 // already enumerated (in which case it's already hooked) or is
                 // outside our scope (a tModLoader base — never hookable). Skip
                 // either way to avoid double-instrumentation.
+                continue;
+            }
+
+            // Critical filter for the closed-generic case: we only ever hook
+            // methods whose declaring type lives in a MOD assembly. tModLoader's
+            // ModType<TEntity, TInstance> is the parent of every ModItem,
+            // ModProjectile, ModPlayer, ModNPC, etc. -- so every concrete mod
+            // content type "inherits" methods declared on ModType<...>. The
+            // .NET JIT shares compiled bodies between reference-type generic
+            // instantiations: hooking ModType<Projectile, ModProjectile>::NewInstance
+            // also patches the body that ModType<Player, ModPlayer>::NewInstance
+            // dispatches through, so tModLoader's player path crashes with an
+            // InvalidCastException when it expects a ModPlayer and meets the
+            // projectile-typed hook frame. Don't go there.
+            if (isClosedGenericInherit && declaringType.Assembly == _tmlAssembly)
+            {
                 continue;
             }
 
