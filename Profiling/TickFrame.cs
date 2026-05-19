@@ -44,10 +44,10 @@ public struct TickFrame
     public int DustCount;
 
     /// <summary>
-    /// Per-mod cost samples for this tick. The Ring Buffer owns one fixed-size
-    /// array per slot, allocated once and reused, so committing a tick is a copy
-    /// into existing storage and never allocates (Invariant 2). A null array
-    /// means the frame has not been bound to ring-buffer storage yet.
+    /// Per-mod cost samples for this tick, or null until per-mod attribution is
+    /// wired (a later milestone). Once populated, the Ring Buffer will own one
+    /// fixed-size array per slot, reused so committing a tick never allocates
+    /// (Invariant 2).
     /// </summary>
-    public PerModSample[] ModSamples;
+    public PerModSample[]? ModSamples;
 }
