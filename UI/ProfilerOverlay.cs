@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -13,8 +14,8 @@ namespace PerformanceProfiler.UI;
 /// <summary>
 /// The F9 profiler overlay: a dark panel, custom-drawn via <see cref="ProfilerTheme"/>
 /// to match design/Mockups.html. It shows the overall per-tick stats and, below
-/// them, the btop-style per-mod CPU list built from <see cref="HookInterceptor"/>'s
-/// attribution data.
+/// them, the btop-style foldable per-mod CPU tree. Clicking a mod row folds it
+/// open into a Systems / Players / NPCs / Projectiles breakdown.
 /// </summary>
 public sealed class ProfilerOverlay : UIState
 {
@@ -24,31 +25,33 @@ public sealed class ProfilerOverlay : UIState
         panel.Left.Set(16f, 0f);
         panel.Top.Set(16f, 0f);
         panel.Width.Set(OverlayPanel.PanelWidth, 0f);
-        panel.Height.Set(OverlayPanel.PanelHeightFor(HookInterceptor.ProfiledModNames.Length), 0f);
+        panel.Height.Set(OverlayPanel.CollapsedHeight(HookInterceptor.ProfiledModNames.Length), 0f);
         Append(panel);
     }
 }
 
-/// <summary>One per-mod row of the cost list: a mod name and its smoothed cost.</summary>
+/// <summary>One per-mod row of the cost tree: its ModId, name, and smoothed total cost.</summary>
 internal readonly struct ModRow : IComparable<ModRow>
 {
+    public readonly int ModId;
     public readonly string Name;
-    public readonly double Ms;
+    public readonly double TotalMs;
 
-    public ModRow(string name, double ms)
+    public ModRow(int modId, string name, double totalMs)
     {
+        ModId = modId;
         Name = name;
-        Ms = ms;
+        TotalMs = totalMs;
     }
 
     /// <summary>Sorts most-expensive first.</summary>
-    public int CompareTo(ModRow other) => other.Ms.CompareTo(Ms);
+    public int CompareTo(ModRow other) => other.TotalMs.CompareTo(TotalMs);
 }
 
 /// <summary>
 /// The custom-drawn overlay panel. Everything is hand-drawn in <see cref="DrawSelf"/>
 /// with <see cref="ProfilerTheme"/>; no stock tModLoader widget chrome is used.
-/// Draggable by its header strip.
+/// Draggable by its header strip; the per-mod rows fold open on click.
 /// </summary>
 internal sealed class OverlayPanel : UIElement
 {
@@ -59,16 +62,24 @@ internal sealed class OverlayPanel : UIElement
     private const float ListDividerOffset = 162f;
     private const float RowsTopOffset = 188f;
     private const float RowHeight = 17f;
+    private const float SubRowHeight = 15f;
     private const int MaxModRows = 12;
 
     private bool _dragging;
     private Vector2 _dragOffset;
 
-    // Reused each frame to sort the per-mod list without allocating.
+    // Per-mod cost rows, reused and sorted each frame without allocating.
     private ModRow[] _rows = Array.Empty<ModRow>();
+    private int _rowCount;
 
-    /// <summary>Panel height needed to show <paramref name="modCount"/> mods (capped at <see cref="MaxModRows"/>).</summary>
-    public static float PanelHeightFor(int modCount)
+    // ModIds whose rows are folded open. Keyed by ModId so the set survives the
+    // rows being re-sorted every frame.
+    private readonly HashSet<int> _expanded = new HashSet<int>();
+
+    private float _appliedHeight;
+
+    /// <summary>The panel height with every mod row collapsed.</summary>
+    public static float CollapsedHeight(int modCount)
     {
         int shown = modCount < MaxModRows ? modCount : MaxModRows;
         float height = RowsTopOffset + shown * RowHeight + 10f;
@@ -84,12 +95,21 @@ internal sealed class OverlayPanel : UIElement
     {
         base.LeftMouseDown(evt);
 
-        // Drag only by the header strip, the way a window title bar works.
-        Vector2 panelPosition = GetDimensions().Position();
-        if (evt.MousePosition.Y - panelPosition.Y <= HeaderHeight)
+        float localY = evt.MousePosition.Y - GetDimensions().Position().Y;
+
+        // The header strip starts a drag, the way a window title bar works.
+        if (localY <= HeaderHeight)
         {
             _dragging = true;
-            _dragOffset = evt.MousePosition - panelPosition;
+            _dragOffset = evt.MousePosition - GetDimensions().Position();
+            return;
+        }
+
+        // A click on a mod row folds it open or shut.
+        int modId = ModRowAt(localY);
+        if (modId >= 0 && !_expanded.Remove(modId))
+        {
+            _expanded.Add(modId);
         }
     }
 
@@ -118,6 +138,68 @@ internal sealed class OverlayPanel : UIElement
             {
                 FollowMouse();
             }
+        }
+
+        // Rebuild the sorted rows once per frame so DrawSelf and the click
+        // hit-test agree, then resize the panel for the current fold state.
+        MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        if (collector != null)
+        {
+            BuildSortedRows(collector);
+            ApplyHeight();
+        }
+    }
+
+    /// <summary>Returns the ModId of the row at panel-local y, or -1 if y is not on a mod row.</summary>
+    private int ModRowAt(float localY)
+    {
+        int catCount = PerModAttribution.CategoryCount;
+        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
+        float y = RowsTopOffset;
+
+        for (int i = 0; i < visible; i++)
+        {
+            if (localY >= y && localY < y + RowHeight)
+            {
+                return _rows[i].ModId;
+            }
+
+            y += RowHeight;
+            if (_expanded.Contains(_rows[i].ModId))
+            {
+                y += catCount * SubRowHeight;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Resizes the panel to fit the current fold state.</summary>
+    private void ApplyHeight()
+    {
+        int catCount = PerModAttribution.CategoryCount;
+        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
+        float height = RowsTopOffset + 10f;
+
+        for (int i = 0; i < visible; i++)
+        {
+            height += RowHeight;
+            if (_expanded.Contains(_rows[i].ModId))
+            {
+                height += catCount * SubRowHeight;
+            }
+        }
+
+        if (_rowCount > visible)
+        {
+            height += 14f;
+        }
+
+        if (Math.Abs(height - _appliedHeight) > 0.5f)
+        {
+            _appliedHeight = height;
+            Height.Set(height, 0f);
+            Recalculate();
         }
     }
 
@@ -167,71 +249,103 @@ internal sealed class OverlayPanel : UIElement
         DrawText(spriteBatch, $"tick #{latest.TickIndex}", new Vector2(x, y + StatGap * 4f + 4f),
             ProfilerTheme.TextDim, 0.72f);
 
-        // ---- Per-mod CPU list ----
-        DrawModList(spriteBatch, area, collector);
+        // ---- Foldable per-mod CPU tree ----
+        DrawModTree(spriteBatch, area, collector);
     }
 
-    /// <summary>Draws the btop-style sorted per-mod cost list with colour-graded bars.</summary>
-    private void DrawModList(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
+    /// <summary>Draws the foldable per-mod cost tree with colour-graded bars.</summary>
+    private void DrawModTree(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
     {
-        // Section divider and heading.
         int dividerY = area.Y + (int)ListDividerOffset;
         ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X + 8, dividerY, area.Width - 16, 1), ProfilerTheme.Border);
-        DrawText(spriteBatch, "PER-MOD CPU   ·   ms per tick", new Vector2(area.X + 14, dividerY + 8f),
+        DrawText(spriteBatch, "PER-MOD CPU   ·   click a mod to fold open", new Vector2(area.X + 14, dividerY + 8f),
             ProfilerTheme.Accent, 0.72f);
 
-        int rowCount = BuildSortedRows(collector);
-        if (rowCount == 0)
+        if (_rowCount == 0)
         {
             DrawText(spriteBatch, "no per-mod data yet", new Vector2(area.X + 14, area.Y + RowsTopOffset),
                 ProfilerTheme.TextMuted, 0.72f);
             return;
         }
 
-        double maxMs = _rows[0].Ms; // rows are sorted most-expensive first
-        int shown = rowCount < MaxModRows ? rowCount : MaxModRows;
+        IReadOnlyList<double> categoryMs = collector.PerModCategoryMs;
+        int catCount = PerModAttribution.CategoryCount;
+        double maxMs = _rows[0].TotalMs; // rows are sorted most-expensive first
+        int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
         float rowY = area.Y + RowsTopOffset;
 
-        for (int i = 0; i < shown; i++)
+        for (int i = 0; i < visible; i++)
         {
-            DrawModRow(spriteBatch, _rows[i], area.X, rowY, maxMs);
+            ModRow row = _rows[i];
+            bool expanded = _expanded.Contains(row.ModId);
+            DrawModRow(spriteBatch, row, area.X, rowY, maxMs, expanded);
             rowY += RowHeight;
+
+            if (expanded)
+            {
+                for (int c = 0; c < catCount; c++)
+                {
+                    int cell = row.ModId * catCount + c;
+                    double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                    DrawCategoryRow(spriteBatch, PerModAttribution.CategoryNames[c], catMs, row.TotalMs, area.X, rowY);
+                    rowY += SubRowHeight;
+                }
+            }
         }
 
-        if (rowCount > shown)
+        if (_rowCount > visible)
         {
-            DrawText(spriteBatch, $"+ {rowCount - shown} more mods", new Vector2(area.X + 14, rowY + 1f),
+            DrawText(spriteBatch, $"+ {_rowCount - visible} more mods", new Vector2(area.X + 14, rowY + 1f),
                 ProfilerTheme.TextDim, 0.66f);
         }
     }
 
-    /// <summary>Draws one mod row: name, a colour-graded cost bar, the millisecond value.</summary>
-    private static void DrawModRow(SpriteBatch spriteBatch, ModRow row, int panelX, float y, double maxMs)
+    /// <summary>Draws one mod row: a fold marker, the name, a colour-graded cost bar, the value.</summary>
+    private static void DrawModRow(SpriteBatch spriteBatch, ModRow row, int panelX, float y, double maxMs, bool expanded)
     {
-        DrawText(spriteBatch, Truncate(row.Name, 20), new Vector2(panelX + 14, y), ProfilerTheme.Text, 0.7f);
+        DrawText(spriteBatch, expanded ? "-" : "+", new Vector2(panelX + 12, y), ProfilerTheme.TextMuted, 0.7f);
+        DrawText(spriteBatch, Truncate(row.Name, 19), new Vector2(panelX + 26, y), ProfilerTheme.Text, 0.7f);
 
-        // Bar: a dim track with a graded fill proportional to the heaviest mod.
+        DrawBar(spriteBatch, panelX + 168, (int)y + 3, row.TotalMs, maxMs);
+        DrawText(spriteBatch, row.TotalMs.ToString("F3"), new Vector2(panelX + 312, y), ProfilerTheme.Amber, 0.68f);
+    }
+
+    /// <summary>Draws an indented category sub-row beneath an expanded mod row.</summary>
+    private static void DrawCategoryRow(SpriteBatch spriteBatch, string label, double catMs, double modTotalMs,
+        int panelX, float y)
+    {
+        DrawText(spriteBatch, label, new Vector2(panelX + 34, y), ProfilerTheme.TextMuted, 0.64f);
+        DrawBar(spriteBatch, panelX + 168, (int)y + 3, catMs, modTotalMs);
+        DrawText(spriteBatch, catMs.ToString("F3"), new Vector2(panelX + 312, y), ProfilerTheme.TextMuted, 0.62f);
+    }
+
+    /// <summary>Draws a dim track with a graded fill, <paramref name="value"/> relative to <paramref name="max"/>.</summary>
+    private static void DrawBar(SpriteBatch spriteBatch, int barX, int barY, double value, double max)
+    {
         const int barWidth = 132;
-        Rectangle track = new Rectangle(panelX + 168, (int)y + 3, barWidth, 8);
-        ProfilerTheme.FillRect(spriteBatch, track, ProfilerTheme.Border);
+        ProfilerTheme.FillRect(spriteBatch, new Rectangle(barX, barY, barWidth, 8), ProfilerTheme.Border);
 
-        double fraction = maxMs > 0d ? row.Ms / maxMs : 0d;
+        double fraction = max > 0d ? value / max : 0d;
+        if (fraction < 0d)
+        {
+            fraction = 0d;
+        }
+
         int fillWidth = (int)(barWidth * fraction);
         if (fillWidth > 0)
         {
             ProfilerTheme.FillRect(spriteBatch,
-                new Rectangle(track.X, track.Y, fillWidth, track.Height), ProfilerTheme.CostColor(fraction));
+                new Rectangle(barX, barY, fillWidth, 8), ProfilerTheme.CostColor(fraction));
         }
-
-        DrawText(spriteBatch, row.Ms.ToString("F3"), new Vector2(panelX + 312, y), ProfilerTheme.Amber, 0.68f);
     }
 
-    /// <summary>Fills and sorts <see cref="_rows"/> from the collector; returns the row count.</summary>
-    private int BuildSortedRows(MetricCollector collector)
+    /// <summary>Fills and sorts <see cref="_rows"/> from the collector's per-mod totals.</summary>
+    private void BuildSortedRows(MetricCollector collector)
     {
         string[] names = HookInterceptor.ProfiledModNames;
-        System.Collections.Generic.IReadOnlyList<double> costs = collector.PerModCpuMs;
-        int n = names.Length < costs.Count ? names.Length : costs.Count;
+        IReadOnlyList<double> categoryMs = collector.PerModCategoryMs;
+        int catCount = PerModAttribution.CategoryCount;
+        int n = names.Length;
 
         if (_rows.Length < n)
         {
@@ -240,7 +354,17 @@ internal sealed class OverlayPanel : UIElement
 
         for (int i = 0; i < n; i++)
         {
-            _rows[i] = new ModRow(names[i], costs[i]);
+            double total = 0d;
+            for (int c = 0; c < catCount; c++)
+            {
+                int cell = i * catCount + c;
+                if (cell < categoryMs.Count)
+                {
+                    total += categoryMs[cell];
+                }
+            }
+
+            _rows[i] = new ModRow(i, names[i], total);
         }
 
         if (n > 1)
@@ -248,7 +372,7 @@ internal sealed class OverlayPanel : UIElement
             Array.Sort(_rows, 0, n);
         }
 
-        return n;
+        _rowCount = n;
     }
 
     private static string Truncate(string text, int max)

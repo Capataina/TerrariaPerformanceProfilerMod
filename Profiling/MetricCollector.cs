@@ -8,7 +8,8 @@ namespace PerformanceProfiler.Profiling;
 
 /// <summary>
 /// Times each game tick, stores a rolling history of <see cref="TickFrame"/>s,
-/// and harvests the per-mod CPU attribution accumulated by the timing detours.
+/// and harvests the per-mod, per-category CPU attribution accumulated by the
+/// timing detours.
 ///
 /// Pure logic with no tModLoader dependency: every game-sourced value (the tick
 /// index, the entity counts) is passed in by the caller, so the collector is
@@ -30,11 +31,9 @@ public sealed class MetricCollector
 
     private readonly RingBuffer<TickFrame> _history;
 
-    // Raw per-mod CPU harvested for the most recent tick, in milliseconds.
+    // Per-mod, per-category CPU, [modId * CategoryCount + categoryId]. _raw is
+    // this tick's harvest; _smoothed is what the UI displays.
     private readonly double[] _perModRawMs;
-
-    // Exponentially smoothed per-mod CPU -- what the UI displays, so the tree
-    // shows steady numbers instead of 60 Hz flicker.
     private readonly double[] _perModSmoothedMs;
 
     // Stopwatch timestamp captured at BeginTick; -1 means "no tick currently open".
@@ -49,19 +48,21 @@ public sealed class MetricCollector
     public MetricCollector(int historyCapacity)
     {
         _history = new RingBuffer<TickFrame>(historyCapacity);
-        _perModRawMs = new double[PerModAttribution.ModCount];
-        _perModSmoothedMs = new double[PerModAttribution.ModCount];
+        int cells = PerModAttribution.ModCount * PerModAttribution.CategoryCount;
+        _perModRawMs = new double[cells];
+        _perModSmoothedMs = new double[cells];
     }
 
     /// <summary>The rolling per-tick history, oldest record first. The UI reads this to draw.</summary>
     public RingBuffer<TickFrame> History => _history;
 
     /// <summary>
-    /// Smoothed per-mod CPU, in milliseconds, indexed by ModId (see
-    /// <see cref="HookInterceptor.ProfiledModNames"/>). This is the stable
-    /// value the per-mod tree displays.
+    /// Smoothed per-mod, per-category CPU in milliseconds, indexed
+    /// [modId * <see cref="PerModAttribution.CategoryCount"/> + categoryId].
+    /// This is the stable value the per-mod tree displays; a mod's total is the
+    /// sum of its category cells.
     /// </summary>
-    public IReadOnlyList<double> PerModCpuMs => _perModSmoothedMs;
+    public IReadOnlyList<double> PerModCategoryMs => _perModSmoothedMs;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;

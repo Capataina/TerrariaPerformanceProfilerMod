@@ -19,10 +19,10 @@ public delegate void VoidHookWrapper(OrigVoidHook orig, object self);
 /// Installs per-mod CPU timing detours and holds the discovered modlist.
 ///
 /// At setup it walks every loaded mod, finds that mod's overrides of a curated
-/// set of parameterless per-tick hook methods (ModSystem / ModPlayer update
-/// hooks, ModNPC / ModProjectile AI), and installs a MonoMod On-hook on each
-/// via <see cref="MonoModHooks.Add"/>. Each detour times the wrapped call and
-/// credits the elapsed time to the owning mod through <see cref="PerModAttribution"/>.
+/// set of parameterless per-tick hook methods, and installs a MonoMod On-hook
+/// on each via <see cref="MonoModHooks.Add"/>. Each detour times the wrapped
+/// call and credits the elapsed time to the owning mod and hook category
+/// through <see cref="PerModAttribution"/>.
 ///
 /// On-hooks (not IL edits) are used deliberately: an On-hook wraps a method and
 /// can never corrupt its body, so a fault is contained to wrong numbers, never
@@ -30,12 +30,18 @@ public delegate void VoidHookWrapper(OrigVoidHook orig, object self);
 /// these hooks automatically when this mod unloads, because every hook delegate
 /// is declared in this assembly.
 ///
-/// First cut: only parameterless (void) instance hooks, one delegate shape. The
-/// per-entity GlobalNPC / GlobalProjectile hooks, which carry a parameter, are a
-/// planned follow-up.
+/// First cut: parameterless (void) instance hooks only -- one delegate shape.
+/// The per-entity GlobalNPC / GlobalProjectile hooks, which carry a parameter,
+/// are a planned follow-up.
 /// </summary>
 public static class HookInterceptor
 {
+    // Hook categories, matching PerModAttribution.CategoryNames indices.
+    private const int CategorySystems = 0;
+    private const int CategoryPlayers = 1;
+    private const int CategoryNpcs = 2;
+    private const int CategoryProjectiles = 3;
+
     private static readonly string[] SystemHooks =
     {
         "PreUpdateEntities", "PostUpdateNPCs", "PostUpdatePlayers",
@@ -129,15 +135,19 @@ public static class HookInterceptor
 
             if (typeof(ModSystem).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, SystemHooks, modId, self);
+                count += HookOverrides(type, SystemHooks, modId, CategorySystems, self);
             }
             else if (typeof(ModPlayer).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, PlayerHooks, modId, self);
+                count += HookOverrides(type, PlayerHooks, modId, CategoryPlayers, self);
             }
-            else if (typeof(ModNPC).IsAssignableFrom(type) || typeof(ModProjectile).IsAssignableFrom(type))
+            else if (typeof(ModNPC).IsAssignableFrom(type))
             {
-                count += HookOverrides(type, EntityHooks, modId, self);
+                count += HookOverrides(type, EntityHooks, modId, CategoryNpcs, self);
+            }
+            else if (typeof(ModProjectile).IsAssignableFrom(type))
+            {
+                count += HookOverrides(type, EntityHooks, modId, CategoryProjectiles, self);
             }
         }
 
@@ -148,7 +158,7 @@ public static class HookInterceptor
     /// Installs a timing detour on each parameterless hook in <paramref name="hookNames"/>
     /// that <paramref name="type"/> actually overrides (declares itself).
     /// </summary>
-    private static int HookOverrides(Type type, string[] hookNames, int modId, Mod self)
+    private static int HookOverrides(Type type, string[] hookNames, int modId, int categoryId, Mod self)
     {
         int count = 0;
         foreach (string name in hookNames)
@@ -166,7 +176,7 @@ public static class HookInterceptor
 
             try
             {
-                HookProbe probe = new HookProbe(modId);
+                HookProbe probe = new HookProbe(modId, categoryId);
                 MonoModHooks.Add(method, new VoidHookWrapper(probe.Time));
                 count++;
             }
@@ -189,20 +199,23 @@ public static class HookInterceptor
 }
 
 /// <summary>
-/// One installed timing detour: holds the ModId its hook belongs to and times
-/// the wrapped call. One instance per detour, captured by the hook delegate so
-/// the delegate is owned by this assembly (required for correct teardown).
+/// One installed timing detour: holds the ModId and hook category its hook
+/// belongs to and times the wrapped call. One instance per detour, captured by
+/// the hook delegate so the delegate is owned by this assembly (required for
+/// correct teardown).
 /// </summary>
 internal sealed class HookProbe
 {
     private readonly int _modId;
+    private readonly int _categoryId;
 
-    public HookProbe(int modId)
+    public HookProbe(int modId, int categoryId)
     {
         _modId = modId;
+        _categoryId = categoryId;
     }
 
-    /// <summary>Times the original hook and credits the elapsed time to the mod.</summary>
+    /// <summary>Times the original hook and credits the elapsed time to the mod and category.</summary>
     public void Time(OrigVoidHook orig, object self)
     {
         long start = Stopwatch.GetTimestamp();
@@ -215,7 +228,7 @@ internal sealed class HookProbe
             // finally, not catch: a mod throwing is the mod's own behaviour and
             // is never swallowed (Invariant 1). The time up to the throw is
             // still credited.
-            PerModAttribution.Add(_modId, Stopwatch.GetTimestamp() - start);
+            PerModAttribution.Add(_modId, _categoryId, Stopwatch.GetTimestamp() - start);
         }
     }
 }
