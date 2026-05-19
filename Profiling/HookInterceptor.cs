@@ -187,6 +187,7 @@ public static class HookInterceptor
     private static int[] _measuredHookCounts = Array.Empty<int>();
     private static int[] _totalHookCounts = Array.Empty<int>();
     private static List<string>[] _unsupportedHookSamples = Array.Empty<List<string>>();
+    private static readonly Dictionary<string, int> _unsupportedSignatureFrequency = new Dictionary<string, int>();
 
     /// <summary>Internal names of the mods being profiled, in ModId order. Empty until <see cref="Install"/> runs.</summary>
     public static string[] ProfiledModNames { get; private set; } = Array.Empty<string>();
@@ -205,6 +206,9 @@ public static class HookInterceptor
 
     /// <summary>Sample unsupported signatures by ModId, capped for report/UI readability.</summary>
     public static IReadOnlyList<IReadOnlyList<string>> UnsupportedHookSamples => _unsupportedHookSamples;
+
+    /// <summary>Frequency of each unsupported canonical signature shape, sorted descending by count.</summary>
+    public static IReadOnlyDictionary<string, int> UnsupportedSignatureFrequency => _unsupportedSignatureFrequency;
 
     /// <summary>True once the timing detours are installed.</summary>
     public static bool Installed { get; private set; }
@@ -225,6 +229,7 @@ public static class HookInterceptor
         try
         {
             _unsupportedHookSignatures = 0;
+            _unsupportedSignatureFrequency.Clear();
             List<Mod> profiled = new List<Mod>();
             foreach (Mod mod in ModLoader.Mods)
             {
@@ -382,6 +387,11 @@ public static class HookInterceptor
     private static void RecordUnsupported(int modId, Type type, MethodInfo method)
     {
         _unsupportedHookSignatures++;
+
+        ParameterInfo[] parameters = method.GetParameters();
+        string shape = SignatureShape(method.ReturnType, parameters);
+        _unsupportedSignatureFrequency[shape] = _unsupportedSignatureFrequency.TryGetValue(shape, out int existing) ? existing + 1 : 1;
+
         if ((uint)modId >= (uint)_totalHookCounts.Length)
         {
             return;
@@ -391,8 +401,32 @@ public static class HookInterceptor
         List<string> samples = _unsupportedHookSamples[modId];
         if (samples.Count < MaxUnsupportedSamplesPerMod)
         {
-            samples.Add(DisplayName(type, method, method.GetParameters()));
+            samples.Add(DisplayName(type, method, parameters));
         }
+    }
+
+    private static string SignatureShape(Type returnType, ParameterInfo[] parameters)
+    {
+        if (parameters.Length == 0)
+        {
+            return $"{returnType.Name}()";
+        }
+
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        sb.Append(returnType.Name).Append('(');
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(", ");
+            }
+
+            Type pt = parameters[i].ParameterType;
+            sb.Append(pt.IsByRef ? pt.GetElementType()!.Name + "&" : pt.Name);
+        }
+
+        sb.Append(')');
+        return sb.ToString();
     }
 
     private static bool TryHookSupportedOverride(MethodInfo method, Type type, int modId, int categoryId, Mod self)

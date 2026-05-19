@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -204,7 +205,20 @@ public sealed class SessionLogWriter : IDisposable
             coveragePercent = total == 0 ? 1d : measured / (double)total,
             fullyCoveredMods = fullMods,
             partiallyCoveredMods = partialMods,
+            unsupportedSignatureFrequency = SortedSignatureFrequency(),
         };
+    }
+
+    private static Dictionary<string, int> SortedSignatureFrequency()
+    {
+        IReadOnlyDictionary<string, int> raw = HookInterceptor.UnsupportedSignatureFrequency;
+        Dictionary<string, int> sorted = new Dictionary<string, int>(raw.Count);
+        foreach (KeyValuePair<string, int> pair in raw.OrderByDescending(p => p.Value))
+        {
+            sorted[pair.Key] = pair.Value;
+        }
+
+        return sorted;
     }
 
     private object[] SpikeObjects()
