@@ -77,6 +77,13 @@ public static class ILHookInterceptor
     private static int _measuredOverrides;
     private static int _skippedOverrides;
 
+    // Per-mod coverage counters, mirroring HookInterceptor's so the overlay can
+    // render PROFILER HEALTH for whichever backend is active. Total = every
+    // discovered hook override (whether or not we ended up instrumenting it);
+    // measured = ones we successfully wrapped.
+    private static int[] _measuredHookCounts = Array.Empty<int>();
+    private static int[] _totalHookCounts = Array.Empty<int>();
+
     /// <summary>True once <see cref="Install"/> has run successfully.</summary>
     public static bool Installed { get; private set; }
 
@@ -88,6 +95,12 @@ public static class ILHookInterceptor
 
     /// <summary>Manipulator-application exceptions caught during install.</summary>
     public static int Failures => _failures;
+
+    /// <summary>Per-mod count of hooks the ILHook backend successfully wrapped.</summary>
+    public static IReadOnlyList<int> MeasuredHookCounts => _measuredHookCounts;
+
+    /// <summary>Per-mod count of discovered hook overrides (measured + skipped).</summary>
+    public static IReadOnlyList<int> TotalHookCounts => _totalHookCounts;
 
     /// <summary>
     /// Walks the same mod surface as <see cref="HookInterceptor.Install"/> but
@@ -108,6 +121,8 @@ public static class ILHookInterceptor
         _measuredOverrides = 0;
         _skippedOverrides = 0;
         _sampleFailureLogged = false;
+        _measuredHookCounts = new int[profiledMods.Count];
+        _totalHookCounts = new int[profiledMods.Count];
 
         try
         {
@@ -156,6 +171,8 @@ public static class ILHookInterceptor
         _measuredOverrides = 0;
         _skippedOverrides = 0;
         _failures = 0;
+        _measuredHookCounts = Array.Empty<int>();
+        _totalHookCounts = Array.Empty<int>();
     }
 
     private static void InstallForMod(int modId, Mod mod, Mod self)
@@ -231,6 +248,14 @@ public static class ILHookInterceptor
                 continue;
             }
 
+            // Every method that reaches this point counts as a "discovered" hook
+            // override for coverage purposes, whether or not we end up wrapping it.
+            // That keeps the denominator consistent with HookInterceptor.
+            if ((uint)modId < (uint)_totalHookCounts.Length)
+            {
+                _totalHookCounts[modId]++;
+            }
+
             // Skip methods with no body (extern, [MethodImpl(InternalCall)],
             // anything Cecil can't read). Abstract is already filtered above;
             // this catches the rare runtime-implemented cases. Fully qualify
@@ -258,6 +283,10 @@ public static class ILHookInterceptor
                 ILHook hook = InstallTimingHook(method, hookId);
                 _installedHooks.Add(hook);
                 _measuredOverrides++;
+                if ((uint)modId < (uint)_measuredHookCounts.Length)
+                {
+                    _measuredHookCounts[modId]++;
+                }
             }
             catch (Exception ex)
             {

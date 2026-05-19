@@ -663,27 +663,43 @@ internal sealed class OverlayPanel : UIElement
 
     private static string CoverageBadge(int modId)
     {
-        int measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
-        int total    = modId < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[modId]    : 0;
+        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
+        IReadOnlyList<int> totals   = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
+        IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
+        int measured = modId < measureds.Count ? measureds[modId] : 0;
+        int total    = modId < totals.Count    ? totals[modId]    : 0;
         return total == measured ? "full" : measured == 0 ? "none" : $"{measured}/{total}";
     }
 
     private static Color CoverageColor(int modId)
     {
-        int    measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
-        int    total    = modId < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[modId]    : 0;
+        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
+        IReadOnlyList<int> totals   = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
+        IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
+        int    measured = modId < measureds.Count ? measureds[modId] : 0;
+        int    total    = modId < totals.Count    ? totals[modId]    : 0;
         double coverage = total > 0 ? measured / (double)total : 1d;
         return coverage >= 0.95d ? ProfilerTheme.Good : coverage >= 0.75d ? ProfilerTheme.Amber : ProfilerTheme.Danger;
     }
 
+    /// <summary>
+    /// Aggregates coverage from whichever backend should drive the headline
+    /// PROFILER HEALTH numbers. In Delegate-only mode we read the delegate
+    /// counters; in ILHook or Parallel modes we read the ILHook counters
+    /// (which represent the new system the user wants to validate).
+    /// </summary>
     private static void CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods)
     {
+        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
+        IReadOnlyList<int> totals   = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
+        IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
+
         total = 0; measured = 0; fullMods = 0; partialMods = 0;
         int mods = HookInterceptor.ProfiledModNames.Length;
         for (int i = 0; i < mods; i++)
         {
-            int modTotal    = i < HookInterceptor.TotalHookCounts.Count    ? HookInterceptor.TotalHookCounts[i]    : 0;
-            int modMeasured = i < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[i] : 0;
+            int modTotal    = i < totals.Count    ? totals[i]    : 0;
+            int modMeasured = i < measureds.Count ? measureds[i] : 0;
             total    += modTotal;
             measured += modMeasured;
             if (modTotal == modMeasured) fullMods++;
