@@ -168,7 +168,7 @@ internal sealed class OverlayPanel : UIElement
                 BuildSortedRows(SelectedCategoryMs(collector));
             }
 
-            ApplyHeight(SelectedHookMs(collector));
+            ApplyHeight(SelectedCategoryMs(collector), SelectedHookMs(collector));
         }
     }
 
@@ -224,8 +224,19 @@ internal sealed class OverlayPanel : UIElement
             y += RowHeight;
             if (_expanded.Contains(_rows[i].ModId))
             {
+                IReadOnlyList<double>? categoryMs = collector != null ? SelectedCategoryMs(collector) : null;
                 for (int c = 0; c < catCount; c++)
                 {
+                    if (categoryMs != null)
+                    {
+                        int cell = _rows[i].ModId * catCount + c;
+                        double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                        if (catMs <= 0.0005d)
+                        {
+                            continue;
+                        }
+                    }
+
                     y += SubRowHeight;
                     if (collector != null)
                     {
@@ -239,7 +250,7 @@ internal sealed class OverlayPanel : UIElement
     }
 
     /// <summary>Resizes the panel to fit the current fold state.</summary>
-    private void ApplyHeight(IReadOnlyList<double> hookMs)
+    private void ApplyHeight(IReadOnlyList<double> categoryMs, IReadOnlyList<double> hookMs)
     {
         int catCount = PerModAttribution.CategoryCount;
         int visible = _rowCount < MaxModRows ? _rowCount : MaxModRows;
@@ -252,6 +263,13 @@ internal sealed class OverlayPanel : UIElement
             {
                 for (int c = 0; c < catCount; c++)
                 {
+                    int cell = _rows[i].ModId * catCount + c;
+                    double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                    if (catMs <= 0.0005d)
+                    {
+                        continue;
+                    }
+
                     height += SubRowHeight;
                     height += CountVisibleHooks(_rows[i].ModId, c, hookMs) * HookRowHeight;
                 }
@@ -381,6 +399,11 @@ internal sealed class OverlayPanel : UIElement
                 {
                     int cell = row.ModId * catCount + c;
                     double catMs = cell < categoryMs.Count ? categoryMs[cell] : 0d;
+                    if (catMs <= 0.0005d)
+                    {
+                        continue;
+                    }
+
                     DrawCategoryRow(spriteBatch, PerModAttribution.CategoryNames[c], catMs, row.TotalMs, area.X, rowY);
                     rowY += SubRowHeight;
                     rowY = DrawHotHookRows(spriteBatch, row.ModId, c, catMs, hookMs, area.X, rowY);
