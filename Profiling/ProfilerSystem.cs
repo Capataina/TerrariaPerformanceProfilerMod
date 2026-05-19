@@ -22,7 +22,7 @@ public sealed class ProfilerSystem : ModSystem
     /// The per-tick measuring engine, live only while a world is loaded. The UI
     /// reads this to draw the overlay. Null between worlds.
     /// </summary>
-    public MetricCollector Collector { get; private set; }
+    public MetricCollector? Collector { get; private set; }
 
     /// <summary>
     /// Allocates the engine and its ring buffer once, at world entry. Paired
@@ -58,7 +58,7 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public override void PostUpdateEverything()
     {
-        MetricCollector collector = Collector;
+        MetricCollector? collector = Collector;
         if (collector == null || !collector.TickOpen)
         {
             return;
