@@ -1,7 +1,8 @@
 #nullable enable
 
 using Microsoft.Xna.Framework;
-using Terraria.GameContent.UI.Elements;
+using Microsoft.Xna.Framework.Graphics;
+using Terraria;
 using Terraria.ModLoader;
 using Terraria.UI;
 using PerformanceProfiler.Profiling;
@@ -9,78 +10,98 @@ using PerformanceProfiler.Profiling;
 namespace PerformanceProfiler.UI;
 
 /// <summary>
-/// The F9 profiler overlay: a single panel showing live per-tick measurements
-/// drawn from <see cref="ProfilerSystem"/>'s rolling history.
+/// The F9 profiler overlay: a single dark panel, custom-drawn via
+/// <see cref="ProfilerTheme"/> to match design/Mockups.html, showing live
+/// per-tick measurements from <see cref="ProfilerSystem"/>'s rolling history.
 ///
-/// Milestone 1 scope is the overall tick cost, not yet the per-mod btop tree
-/// (that is Milestone 2). The text lines refreshed every frame are fields;
-/// static text is a local in <see cref="OnInitialize"/>.
+/// Milestone 2 scope here is the overall-cost panel with the modern look; the
+/// foldable per-mod tree is added by the later M2 tasks.
 /// </summary>
 public sealed class ProfilerOverlay : UIState
 {
-    // Set in OnInitialize, which Activate() always runs before the first Update;
-    // null! documents that the compiler's nullable check is satisfied there.
-    private UIText _tickTime = null!;
-    private UIText _avgTickTime = null!;
-    private UIText _gcTime = null!;
-    private UIText _entityCounts = null!;
-    private UIText _status = null!;
+    private const float PanelWidth = 360f;
+    private const float PanelHeight = 190f;
 
     public override void OnInitialize()
     {
-        UIPanel panel = new UIPanel();
+        OverlayPanel panel = new OverlayPanel();
         panel.Left.Set(16f, 0f);
         panel.Top.Set(16f, 0f);
-        panel.Width.Set(300f, 0f);
-        panel.Height.Set(176f, 0f);
-        panel.BackgroundColor = new Color(14, 18, 26) * 0.92f;
-        panel.BorderColor = new Color(40, 48, 60) * 0.92f;
+        panel.Width.Set(PanelWidth, 0f);
+        panel.Height.Set(PanelHeight, 0f);
         Append(panel);
-
-        AddLine(panel, 6f, "PERFORMANCE PROFILER", 1f);
-        _tickTime = AddLine(panel, 38f, "tick: --");
-        _avgTickTime = AddLine(panel, 62f, "avg 30s: --");
-        _gcTime = AddLine(panel, 86f, "gc pause: --");
-        _entityCounts = AddLine(panel, 110f, "entities: --");
-        _status = AddLine(panel, 140f, "waiting for a world...");
     }
+}
 
-    /// <summary>Creates a left-aligned text line at the given y offset and appends it to the panel.</summary>
-    private static UIText AddLine(UIPanel panel, float top, string text, float scale = 0.85f)
-    {
-        UIText line = new UIText(text, scale);
-        line.Left.Set(6f, 0f);
-        line.Top.Set(top, 0f);
-        panel.Append(line);
-        return line;
-    }
+/// <summary>
+/// The custom-drawn overlay panel. Everything inside is hand-drawn in
+/// <see cref="DrawSelf"/> with <see cref="ProfilerTheme"/>; no stock tModLoader
+/// widget chrome is used.
+/// </summary>
+internal sealed class OverlayPanel : UIElement
+{
+    private const float HeaderHeight = 26f;
+    private const float LineGap = 24f;
 
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
 
+        // Block gameplay clicks while the cursor is over the panel.
+        if (IsMouseHovering)
+        {
+            Main.LocalPlayer.mouseInterface = true;
+        }
+    }
+
+    protected override void DrawSelf(SpriteBatch spriteBatch)
+    {
+        Rectangle area = GetDimensions().ToRectangle();
+
+        // Panel surface and header strip.
+        ProfilerTheme.DrawPanel(spriteBatch, area, ProfilerTheme.Panel, ProfilerTheme.Border);
+        Rectangle header = new Rectangle(area.X, area.Y, area.Width, (int)HeaderHeight);
+        ProfilerTheme.FillRect(spriteBatch, header, ProfilerTheme.Header);
+        ProfilerTheme.DrawBorder(spriteBatch, header, ProfilerTheme.Border);
+        DrawText(spriteBatch, "PERFORMANCE PROFILER", new Vector2(area.X + 10, area.Y + 7), ProfilerTheme.Accent, 0.82f);
+
+        float x = area.X + 14;
+        float y = area.Y + HeaderHeight + 14f;
+
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null || collector.History.Count == 0)
         {
-            _status.SetText("waiting for a world...");
-            _tickTime.SetText("tick: --");
-            _avgTickTime.SetText("avg 30s: --");
-            _gcTime.SetText("gc pause: --");
-            _entityCounts.SetText("entities: --");
+            DrawText(spriteBatch, "waiting for a world...", new Vector2(x, y), ProfilerTheme.TextMuted, 0.8f);
             return;
         }
 
         RingBuffer<TickFrame> history = collector.History;
         TickFrame latest = history.Newest;
 
-        _tickTime.SetText($"tick: {latest.FrameTimeMs:F2} ms");
-        _avgTickTime.SetText($"avg 30s: {AverageFrameTimeMs(history):F2} ms");
-        _gcTime.SetText($"gc pause: {latest.GcTimeMs:F2} ms");
-        _entityCounts.SetText($"npc {latest.NpcCount}   proj {latest.ProjectileCount}   dust {latest.DustCount}");
-        _status.SetText($"tick #{latest.TickIndex}  ({history.Count} sampled)");
+        DrawStat(spriteBatch, "tick", $"{latest.FrameTimeMs:F2} ms", x, y, ProfilerTheme.Amber);
+        DrawStat(spriteBatch, "avg 30s", $"{AverageFrameTimeMs(history):F2} ms", x, y + LineGap, ProfilerTheme.Text);
+        DrawStat(spriteBatch, "gc pause", $"{latest.GcTimeMs:F2} ms", x, y + LineGap * 2f, ProfilerTheme.Good);
+        DrawStat(spriteBatch, "entities",
+            $"npc {latest.NpcCount}   proj {latest.ProjectileCount}   dust {latest.DustCount}",
+            x, y + LineGap * 3f, ProfilerTheme.Text);
+
+        DrawText(spriteBatch, $"tick #{latest.TickIndex}    {history.Count} sampled",
+            new Vector2(x, y + LineGap * 4f + 6f), ProfilerTheme.TextDim, 0.72f);
     }
 
-    /// <summary>Mean tick wall-time across the whole rolling history.</summary>
+    /// <summary>Draws a "label   value" stat line: a muted label, then the value in its colour.</summary>
+    private static void DrawStat(SpriteBatch spriteBatch, string label, string value, float x, float y, Color valueColor)
+    {
+        DrawText(spriteBatch, label, new Vector2(x, y), ProfilerTheme.TextMuted, 0.8f);
+        DrawText(spriteBatch, value, new Vector2(x + 92f, y), valueColor, 0.8f);
+    }
+
+    /// <summary>Draws a line of text with the slight border that keeps it readable over gameplay.</summary>
+    private static void DrawText(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale)
+    {
+        Utils.DrawBorderString(spriteBatch, text, position, color, scale);
+    }
+
     private static double AverageFrameTimeMs(RingBuffer<TickFrame> history)
     {
         if (history.Count == 0)
