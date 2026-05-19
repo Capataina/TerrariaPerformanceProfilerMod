@@ -76,6 +76,15 @@ public static class ILHookInterceptor
     private static bool _sampleFailureLogged;
     private static int _measuredOverrides;
     private static int _skippedOverrides;
+    private static int _closedGenericHooks;
+
+    // Dedup set for closed-generic methods discovered via inheritance: many
+    // concrete subclasses of the same closed generic (e.g. ten mods inheriting
+    // BaseFoo<int>) would each surface the same MethodInfo for the inherited
+    // method. We must hook each unique MethodInfo at most once, otherwise
+    // MonoMod stacks detours on the same compiled body and double-counts the
+    // cost. RuntimeMethodHandle comparison is the cheapest reliable identity.
+    private static readonly HashSet<RuntimeMethodHandle> _instrumentedHandles = new HashSet<RuntimeMethodHandle>();
 
     // Per-mod coverage counters, mirroring HookInterceptor's so the overlay can
     // render PROFILER HEALTH for whichever backend is active. Total = every
@@ -95,6 +104,15 @@ public static class ILHookInterceptor
 
     /// <summary>Manipulator-application exceptions caught during install.</summary>
     public static int Failures => _failures;
+
+    /// <summary>
+    /// Count of hooks recovered via the closed-generic inheritance pass. These
+    /// are methods declared on open generic bases that MonoMod refuses to hook
+    /// directly, but whose closed instantiations (e.g. BaseFoo&lt;T&gt; with T
+    /// resolved to a concrete type by a subclass) do have compiled bodies and
+    /// are hookable.
+    /// </summary>
+    public static int ClosedGenericHooks => _closedGenericHooks;
 
     /// <summary>Per-mod count of hooks the ILHook backend successfully wrapped.</summary>
     public static IReadOnlyList<int> MeasuredHookCounts => _measuredHookCounts;
@@ -120,7 +138,9 @@ public static class ILHookInterceptor
         _failures = 0;
         _measuredOverrides = 0;
         _skippedOverrides = 0;
+        _closedGenericHooks = 0;
         _sampleFailureLogged = false;
+        _instrumentedHandles.Clear();
         _measuredHookCounts = new int[profiledMods.Count];
         _totalHookCounts = new int[profiledMods.Count];
 
@@ -134,6 +154,7 @@ public static class ILHookInterceptor
             Installed = true;
             self.Logger.Info(
                 $"ILHookInterceptor: {_installedHooks.Count} IL timing detours installed across {profiledMods.Count} mods; " +
+                $"{_closedGenericHooks} via closed-generic inheritance pass; " +
                 $"{_skippedOverrides} overrides skipped (no-body / dynamic / unsupported); {_failures} manipulator failures.");
         }
         catch (Exception ex)
@@ -167,10 +188,12 @@ public static class ILHookInterceptor
         }
 
         _installedHooks.Clear();
+        _instrumentedHandles.Clear();
         Installed = false;
         _measuredOverrides = 0;
         _skippedOverrides = 0;
         _failures = 0;
+        _closedGenericHooks = 0;
         _measuredHookCounts = Array.Empty<int>();
         _totalHookCounts = Array.Empty<int>();
     }
@@ -233,8 +256,19 @@ public static class ILHookInterceptor
 
     private static void InstrumentTypeOverrides(Type type, int modId, int categoryId, Mod self)
     {
+        // Walk WITHOUT DeclaredOnly so the iteration also surfaces methods this
+        // type inherits from a closed-generic base. Open generics like
+        // BaseMusicBoxItem<T> have no compiled body and MonoMod refuses to hook
+        // them; the closed instantiations (BaseMusicBoxItem<MusicA>) do, and
+        // their MethodInfo only becomes visible via the concrete subclass's
+        // inherited member list.
+        //
+        // Without DeclaredOnly we also see methods inherited from non-generic
+        // bases (e.g. ModItem's own virtuals that this type doesn't override).
+        // Those would already be hooked when we processed the base type, so we
+        // filter them out by checking DeclaringType below.
         MethodInfo[] methods = type.GetMethods(BindingFlags.Instance | BindingFlags.Public |
-            BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+            BindingFlags.NonPublic);
 
         foreach (MethodInfo method in methods)
         {
@@ -244,6 +278,35 @@ public static class ILHookInterceptor
             }
 
             if (!IsHookOverride(method))
+            {
+                continue;
+            }
+
+            Type? declaringType = method.DeclaringType;
+            if (declaringType == null)
+            {
+                continue;
+            }
+
+            bool isDirectOverride = declaringType == type;
+            bool isClosedGenericInherit = !isDirectOverride
+                && declaringType.IsGenericType
+                && !declaringType.IsGenericTypeDefinition;
+
+            if (!isDirectOverride && !isClosedGenericInherit)
+            {
+                // Inherited from a non-generic base. That base type was either
+                // already enumerated (in which case it's already hooked) or is
+                // outside our scope (a tModLoader base — never hookable). Skip
+                // either way to avoid double-instrumentation.
+                continue;
+            }
+
+            // Dedupe closed-generic instantiations: if BaseFoo<int> is the base
+            // of both Bar1 and Bar2, both surfaces the same MethodInfo when we
+            // walk Bar1 and Bar2. Hooking that MethodInfo twice would stack two
+            // detours on the same compiled body and double-count it.
+            if (isClosedGenericInherit && !_instrumentedHandles.Add(method.MethodHandle))
             {
                 continue;
             }
@@ -278,11 +341,19 @@ public static class ILHookInterceptor
 
             try
             {
+                // For closed-generic inherited methods, the type shown in the
+                // tree is the concrete subclass we walked (more useful to the
+                // player than the synthetic closed-generic name); the method
+                // is still the inherited one, which is what we actually hook.
                 string displayName = DisplayName(type, method);
                 int hookId = PerModAttribution.RegisterOrReuseHook(modId, categoryId, displayName);
                 ILHook hook = InstallTimingHook(method, hookId);
                 _installedHooks.Add(hook);
                 _measuredOverrides++;
+                if (isClosedGenericInherit)
+                {
+                    _closedGenericHooks++;
+                }
                 if ((uint)modId < (uint)_measuredHookCounts.Length)
                 {
                     _measuredHookCounts[modId]++;
