@@ -79,6 +79,54 @@ public delegate bool OrigBoolItemHook(object self, Item item);
 /// <summary>The On-hook delegate that wraps a bool hook carrying an Item.</summary>
 public delegate bool BoolItemHookWrapper(OrigBoolItemHook orig, object self, Item item);
 
+/// <summary>The original-method delegate for a void hook carrying a Player.</summary>
+public delegate void OrigVoidPlayerHook(object self, Player player);
+
+/// <summary>The On-hook delegate that wraps a void hook carrying a Player.</summary>
+public delegate void VoidPlayerHookWrapper(OrigVoidPlayerHook orig, object self, Player player);
+
+/// <summary>The original-method delegate for a void hook carrying an Item.</summary>
+public delegate void OrigVoidItemHook(object self, Item item);
+
+/// <summary>The On-hook delegate that wraps a void hook carrying an Item.</summary>
+public delegate void VoidItemHookWrapper(OrigVoidItemHook orig, object self, Item item);
+
+/// <summary>The original-method delegate for a void hook carrying an Item and a Player.</summary>
+public delegate void OrigItemPlayerHook(object self, Item item, Player player);
+
+/// <summary>The On-hook delegate that wraps a void(Item, Player) hook.</summary>
+public delegate void ItemPlayerHookWrapper(OrigItemPlayerHook orig, object self, Item item, Player player);
+
+/// <summary>The original-method delegate for a bool hook carrying an Item and a Player.</summary>
+public delegate bool OrigBoolItemPlayerHook(object self, Item item, Player player);
+
+/// <summary>The On-hook delegate that wraps a bool(Item, Player) hook.</summary>
+public delegate bool BoolItemPlayerHookWrapper(OrigBoolItemPlayerHook orig, object self, Item item, Player player);
+
+/// <summary>The original-method delegate for a void hook carrying an NPC and a Player.</summary>
+public delegate void OrigNpcPlayerHook(object self, NPC npc, Player player);
+
+/// <summary>The On-hook delegate that wraps a void(NPC, Player) hook.</summary>
+public delegate void NpcPlayerHookWrapper(OrigNpcPlayerHook orig, object self, NPC npc, Player player);
+
+/// <summary>The original-method delegate for a bool hook carrying an NPC and a Player.</summary>
+public delegate bool OrigBoolNpcPlayerHook(object self, NPC npc, Player player);
+
+/// <summary>The On-hook delegate that wraps a bool(NPC, Player) hook.</summary>
+public delegate bool BoolNpcPlayerHookWrapper(OrigBoolNpcPlayerHook orig, object self, NPC npc, Player player);
+
+/// <summary>The original-method delegate for a void hook carrying a Projectile and a Player.</summary>
+public delegate void OrigProjectilePlayerHook(object self, Projectile projectile, Player player);
+
+/// <summary>The On-hook delegate that wraps a void(Projectile, Player) hook.</summary>
+public delegate void ProjectilePlayerHookWrapper(OrigProjectilePlayerHook orig, object self, Projectile projectile, Player player);
+
+/// <summary>The original-method delegate for a bool hook carrying a Projectile and a Player.</summary>
+public delegate bool OrigBoolProjectilePlayerHook(object self, Projectile projectile, Player player);
+
+/// <summary>The On-hook delegate that wraps a bool(Projectile, Player) hook.</summary>
+public delegate bool BoolProjectilePlayerHookWrapper(OrigBoolProjectilePlayerHook orig, object self, Projectile projectile, Player player);
+
 /// <summary>
 /// Installs per-mod CPU timing detours and holds the discovered modlist.
 ///
@@ -398,10 +446,24 @@ public static class HookInterceptor
                     return true;
                 }
 
+                if (p0 == typeof(Player) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new VoidPlayerHookWrapper(probe.TimeVoidPlayer));
+                    return true;
+                }
+
                 if (p0 == typeof(Player) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolPlayerHookWrapper(probe.TimeBoolPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Item) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new VoidItemHookWrapper(probe.TimeVoidItem));
                     return true;
                 }
 
@@ -433,6 +495,54 @@ public static class HookInterceptor
                     return true;
                 }
             }
+
+            if (parameters.Length == 2)
+            {
+                Type p0 = parameters[0].ParameterType;
+                Type p1 = parameters[1].ParameterType;
+
+                if (p0 == typeof(Item) && p1 == typeof(Player) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new ItemPlayerHookWrapper(probe.TimeItemPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Item) && p1 == typeof(Player) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolItemPlayerHookWrapper(probe.TimeBoolItemPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(NPC) && p1 == typeof(Player) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new NpcPlayerHookWrapper(probe.TimeNpcPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(NPC) && p1 == typeof(Player) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolNpcPlayerHookWrapper(probe.TimeBoolNpcPlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Projectile) && p1 == typeof(Player) && returnType == typeof(void))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new ProjectilePlayerHookWrapper(probe.TimeProjectilePlayer));
+                    return true;
+                }
+
+                if (p0 == typeof(Projectile) && p1 == typeof(Player) && returnType == typeof(bool))
+                {
+                    HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
+                    MonoModHooks.Add(method, new BoolProjectilePlayerHookWrapper(probe.TimeBoolProjectilePlayer));
+                    return true;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -451,12 +561,12 @@ public static class HookInterceptor
 
     private static string DisplayName(Type type, MethodInfo method, ParameterInfo[] parameters)
     {
-        if (parameters.Length == 0)
+        return parameters.Length switch
         {
-            return $"{type.Name}.{method.Name}()";
-        }
-
-        return $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name})";
+            0 => $"{type.Name}.{method.Name}()",
+            1 => $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name})",
+            _ => $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name}, {parameters[1].ParameterType.Name})",
+        };
     }
 
     /// <summary>
@@ -831,6 +941,118 @@ internal sealed class HookProbe
         try
         {
             return orig(self, item);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a void(Player) hook.</summary>
+    public void TimeVoidPlayer(OrigVoidPlayerHook orig, object self, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a void(Item) hook.</summary>
+    public void TimeVoidItem(OrigVoidItemHook orig, object self, Item item)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, item);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a void(Item, Player) hook.</summary>
+    public void TimeItemPlayer(OrigItemPlayerHook orig, object self, Item item, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, item, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool(Item, Player) hook and returns the original value unchanged.</summary>
+    public bool TimeBoolItemPlayer(OrigBoolItemPlayerHook orig, object self, Item item, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, item, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a void(NPC, Player) hook.</summary>
+    public void TimeNpcPlayer(OrigNpcPlayerHook orig, object self, NPC npc, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, npc, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool(NPC, Player) hook and returns the original value unchanged.</summary>
+    public bool TimeBoolNpcPlayer(OrigBoolNpcPlayerHook orig, object self, NPC npc, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, npc, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a void(Projectile, Player) hook.</summary>
+    public void TimeProjectilePlayer(OrigProjectilePlayerHook orig, object self, Projectile projectile, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            orig(self, projectile, player);
+        }
+        finally
+        {
+            PerModAttribution.Add(_modId, _categoryId, _hookId, Stopwatch.GetTimestamp() - start);
+        }
+    }
+
+    /// <summary>Times a bool(Projectile, Player) hook and returns the original value unchanged.</summary>
+    public bool TimeBoolProjectilePlayer(OrigBoolProjectilePlayerHook orig, object self, Projectile projectile, Player player)
+    {
+        long start = Stopwatch.GetTimestamp();
+        try
+        {
+            return orig(self, projectile, player);
         }
         finally
         {
