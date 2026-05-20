@@ -89,12 +89,26 @@ public sealed class MetricCollector
     private readonly PerTickAttributionRing _perTickRing;
     private readonly SpikeDetector _spikeDetector;
     private readonly Baseline _baseline = new Baseline();
+    // Self-health is owned by ProfilerSystem (a process singleton) because
+    // install-time measurement happens before any world exists. The collector
+    // just drives its refresh cadence.
+    private readonly ProfilerSelfHealth _selfHealth;
     private const int CategorySnapshotTicks = 120; // 2 s @ 60 tps
 
-    /// <summary>Creates a collector whose history holds <paramref name="historyCapacity"/> ticks.</summary>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyCapacity"/> is not positive.</exception>
+    /// <summary>
+    /// Creates a collector whose history holds <paramref name="historyCapacity"/>
+    /// ticks. Uses a freshly-allocated <see cref="ProfilerSelfHealth"/>; the
+    /// <see cref="ProfilerSystem"/>-owned singleton is the production path
+    /// — this overload is for tests.
+    /// </summary>
     public MetricCollector(int historyCapacity)
+        : this(historyCapacity, new ProfilerSelfHealth()) { }
+
+    /// <summary>Creates a collector that drives an existing self-health instance.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="historyCapacity"/> is not positive.</exception>
+    public MetricCollector(int historyCapacity, ProfilerSelfHealth selfHealth)
     {
+        _selfHealth = selfHealth;
         _history = new RingBuffer<TickFrame>(historyCapacity);
         _historyCapacity = historyCapacity;
         int cells = PerModAttribution.ModCount * PerModAttribution.CategoryCount;
@@ -240,6 +254,16 @@ public sealed class MetricCollector
     public Baseline Baseline => _baseline;
 
     /// <summary>
+    /// Live measurement of the profiler's own footprint: install-delta
+    /// managed heap, bytes-per-hook, process working set, severity. Refreshed
+    /// at ~1 Hz from <see cref="EndTick"/> so the per-frame path doesn't pay
+    /// the <c>proc_pidinfo</c> cost. <see cref="ProfilerSelfHealth.MarkInstallStart"/>
+    /// and <see cref="ProfilerSelfHealth.MarkInstallEnd"/> are called by
+    /// <see cref="ProfilerSystem"/> around the hook-install pass.
+    /// </summary>
+    public ProfilerSelfHealth SelfHealth => _selfHealth;
+
+    /// <summary>
     /// Force-close any spike window that's still open. Called by
     /// <c>ProfilerSystem.OnWorldUnload</c> before the final session report is
     /// written so an in-progress spike that ended with the world exit is still
@@ -371,6 +395,11 @@ public sealed class MetricCollector
         // on an actual new spike, which is a rare event.
         _perTickRing.Push(frame.TickIndex, _perModRawMs, _tracksAllocations ? _perModRawBytes : null);
         _spikeDetector.OnTick(frame, _baseline, _perTickRing);
+
+        // Self-health refresh is cadence-gated to ~1 Hz inside the call; it
+        // costs nothing on 59 of every 60 ticks. The 60th tick pays one
+        // proc_pidinfo + one GC.GetTotalMemory read.
+        _selfHealth.Refresh(frame.TickIndex);
 
         _sampleSlot++;
         if (_sampleSlot == _historyCapacity)

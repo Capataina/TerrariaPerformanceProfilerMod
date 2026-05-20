@@ -59,8 +59,21 @@ public sealed class ProfilerSystem : ModSystem
     /// <c>PerformanceProfiler.Unload</c> so their references to types in this
     /// assembly don't outlive the unload.
     /// </summary>
+    /// <summary>
+    /// Process-wide self-health measurement. Owned here instead of on
+    /// <see cref="MetricCollector"/> because the install-time delta is
+    /// captured BEFORE the per-world collector exists; the collector picks
+    /// up the same instance at world-load via <c>InstallSelfHealth</c>.
+    /// </summary>
+    internal static ProfilerSelfHealth SelfHealth { get; } = new ProfilerSelfHealth();
+
     public override void PostSetupContent()
     {
+        // Capture the managed-heap baseline immediately before our install
+        // pass. ProfilerSelfHealth forces a Gen2 here so transient content-
+        // load junk doesn't end up counted against us. Cost: ~50-150 ms once.
+        SelfHealth.MarkInstallStart();
+
         // Delegate path always runs first -- it does the mod-list enumeration
         // and PerModAttribution.Configure that the ILHook path reuses.
         HookInterceptor.Install(Mod);
@@ -69,6 +82,20 @@ public sealed class ProfilerSystem : ModSystem
         {
             ILHookInterceptor.Install(Mod, HookInterceptor.ProfiledMods);
         }
+
+        // Capture the post-install heap. Delta = our hook-install cost,
+        // including Mono.Cecil method body cache + MonoMod trampolines.
+        // Bytes-per-hook is the headline metric for the eventual memory-burn
+        // mitigation work: tracking it across versions tells us whether we're
+        // getting heavier or lighter as the codebase evolves.
+        // PerModAttribution.HookCount is the union across both backends
+        // (RegisterOrReuseHook collapses parallel-mode duplicates), so a
+        // single read is the right denominator.
+        SelfHealth.MarkInstallEnd(PerModAttribution.HookCount);
+        Mod.Logger.Info(
+            $"Profiler self-health: install delta {SelfHealth.InstallDeltaBytes / (1024 * 1024):F1} MB " +
+            $"across {SelfHealth.InstalledHookCount} hooks " +
+            $"({SelfHealth.BytesPerHook / 1024:F1} KB/hook).");
 
         // Context registry is built after every mod's ModBiomes have been
         // registered (PostSetupContent runs after ModContent.Load). The
@@ -91,7 +118,10 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public override void OnWorldLoad()
     {
-        Collector = new MetricCollector(HistoryCapacity);
+        // Inject the process-singleton self-health so install-delta measurements
+        // captured at PostSetupContent survive across world loads. The
+        // collector handles per-tick refresh; install-time state stays put.
+        Collector = new MetricCollector(HistoryCapacity, SelfHealth);
 
         // Session logging is an agent surface, never a gameplay dependency. A
         // permissions/path/IO failure here must NEVER take down the profiler
