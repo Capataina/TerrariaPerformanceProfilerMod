@@ -38,8 +38,8 @@ internal static class TabRegistry
     {
         new TreeTab(),
         new SpikesTab(),
-        // Three parallel agents add their tabs here, one per agent:
-        //     new EventsTab(),
+        new EventsTab(),
+        // Two parallel agents add their tabs here, one per agent:
         //     new OverviewTab(),
         //     new InsightsTab(),
     };
