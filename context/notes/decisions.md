@@ -2,6 +2,18 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — Context-transition dynamic-vs-hardcoded audit
+
+Caner asked whether ContextTransitionWatcher adapts to modded content or whether new mods need code changes here. Audit result:
+
+**Dynamic (works automatically when a mod adds content):** biomes (BiomeRegistry enumerates ModContent.GetContent<ModBiome>() at PostSetupContent; bitset grows; watcher loops all bits), bosses (BossSampler reads Main.npc[] + NPCID.Sets.ShouldBeCountedAsBoss, Lang.GetNPCNameValue gives modded NPC names), sub-worlds (SubworldProbe reflects SubworldLibrary.Current), hardmode (Main.hardMode bool), time-of-day (Main.dayTime bool), player deaths (Main.LocalPlayer.dead regardless of damage source), world snapshots (live reads of position / statLife / mana / entity counts). The dimensions a player actually walks through and interacts with all pick up modded content with no code change.
+
+**Vanilla-only — tML 1.4.4 platform gap, not our hardcoding:** weather flags (no ModWeather API to enumerate modded weather events; existing comment in WeatherSources.cs already documents this), invasions (no ModInvasion API; InvasionId enum mirrors vanilla Terraria.ID.InvasionID + DD2Event), game mode (no API to register new difficulties at Main.GameModeInfo level).
+
+**Decision:** wait for tML 1.4.5+ to ship those APIs rather than build a reflection-based workaround. Caner's framing: if an API doesn't exist in tML, almost nobody is adding that content type anyway, so the gap is narrow in practice. Revisit when a tML release notes promise ModWeather / ModInvasion / mod difficulty support.
+
+When that ships, the changes are bounded: WeatherSources gains modded-flag enumeration, InvasionId becomes a string keyed off ModInvasion identity, GameMode enum becomes a string. The ContextTransitionWatcher's diff logic doesn't change — it's already shaped to iterate whatever flag/id space the data layer provides.
+
 ## 2026-05-20 — Tracker arsenal + v0.4 (evening session)
 
 Triggered by a real-world playtest where Caner's session lagged dramatically when he opened CheatSheet's NPC-spawn menu, but my profiler couldn't narrate what happened — I had to write an external C# inspector script to query the DB by hand, and even then misread the data twice before he corrected me ("it wasn't the BindingOfRarria spike, it was the spawn-menu cluster; it wasn't EoC dying, it was EoC killing me"). The lesson: data sitting in the DB without a narrator is data the user has to interpret manually, which defeats the entire point of the database. v0.4 fixes that.
