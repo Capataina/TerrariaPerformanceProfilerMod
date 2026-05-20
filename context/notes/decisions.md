@@ -2,6 +2,44 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — v0.6 autonomous performance pass
+
+Caner's framing: spawn 11 per-system + 3 cross-system Opus background research agents (plus a self code-health audit), produce a master plan, then implement end-to-end. Hard constraint: pure perf upgrade — no scope cuts, no feature lightening, no capture-surface reduction. "Optimisation = doing what we already do at maximum efficiency. It is not = doing less" (philosophy.md). Full design lives in `context/perf-pass/` — baseline.md, coherence.md, master-plan.md, verification.md, and research/*.md (15 files, ~16,300 lines).
+
+Run produced **17 commits** delivering:
+
+- **A1 (itemCreatedEvents bug):** `GlobalItem.OnCreated` only fires on Recipe / Initialization / Buy / JourneyDuplication in tML 1.4.4. The 4.5-min v0.5 playtest captured zero rows of a session full of mining + torch placement. Fixed by wiring `GlobalItem.OnSpawn(WorldItem, IEntitySource)` (world-drops, NPC loot, chest reveal, debug command) + `GlobalItem.OnPickup(WorldItem, Player)` (always returns true — Invariant 1 read-only). New `SourceContext` field disambiguates the surface. Schema bump 1→2; old rows default to "Create".
+
+- **A2 (buffEvents diff bug):** PostUpdateBuffs returned early before updating the prev-buff snapshot when the local-player gate failed; the prev state stayed uninitialised. Refactored to gate hard on `Player.whoAmI == Main.myPlayer`, snapshot unconditionally before exit, and emit every active buff as "on" on the first valid tick. Pure-logic fix; the diff itself was already correct.
+
+- **A3 (damage-weighted death attribution):** v0.5 read the most-recent DamageTakenRow from LiteDB at the death edge — last-hit credit, which over-credits whichever source delivered the final blow on a softened player. The 16:09-16:14 playtest's death #1 showed it: vultures dealt 93/100 dmg, a Blue Slime stole the 21-dmg kill, the row read "killed by Blue Slime". v0.6 keeps a 64-slot in-RAM `RecentDamageEntry` ring on SessionRecorder populated alongside `OnDamageTaken`. At the death edge, `AggregateRecentDamage` over a 10-second window sorts by total damage; the killer is the largest contributor. Full breakdown persists in `PlayerDeathRow.DamageWeighting` (Honesty contract, Invariant 3). Schema bump 1→2. Also removes the only game-thread LiteDB read in the hot lifecycle path.
+
+- **Phase α — shared infrastructure:** `Profiling/Time.cs` (UnixMsNow at ~5 ns vs 150-250 ns for DateTimeOffset.UtcNow — single Stopwatch + multiplier), `Profiling/Pools/RowPool.cs<T>` + `ListPool<T>` + `IPoolReset`, `Profiling/LangNameCache.cs` (id-keyed string arrays for buff/item/proj/npc populated at PostSetupContent), `Profiling/ModOwnerCache.cs` (lazy mod-name + `FromEntitySource` source-stripping), `Profiling/EnumStringTable.cs` (5 enums), `Profiling/Util/BoolIndex.cs` (O(1) bit membership for buff diff). 13 new xUnit tests cover the runtime-independent helpers.
+
+- **Phase β — per-tick zero-alloc:** 12 × `DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()` → `Time.UnixMsNow()` across MetricCollector, WorldSnapshotter, PlayerDeathDetector, Interaction{Player,Npc,Item}. `[MethodImpl(MethodImplOptions.AggressiveInlining)]` on ProbeStack.Enter/Leave/EnterCpuAlloc/LeaveCpuAlloc + PerModAttribution.Add (both overloads). ContextTransitionWatcher.DiffBiomeBits rewritten from bit-by-bit IsSet scan to word-level XOR + `BitOperations.TrailingZeroCount` (events-and-context R1; 680 ns/tick → ~6 ns/tick steady state).
+
+- **Phase γ partial — per-event row efficiency:** every interaction tracker uses cached lookups instead of inline `Lang.Get*` + `Loader.GetXxx`. InteractionPlayer reuses a single `_fpBuilder` StringBuilder field instead of allocating per CaptureLoadout. `SnapshotActiveBuffTypes` gets a capacity hint. The full Rent/Return cycle (writer-thread Return after Apply) is deferred to v0.6.1 because it needs the writer-thread refactor.
+
+- **Phase δ partial — BSON short field names:** `Profiling/Persistence/BsonShortNames.cs` centralises every short-name mapping via LiteDB's fluent `BsonMapper.Global.Entity<T>()` API. Common fields uniformly: SessionId→`s`, Tick→`t`, UnixMs→`u`. Per-record short names follow a 2-3-char convention. Forward-only schema break: v0.5 DB rows aren't readable through the v0.6 mapper. Documented in cross-storage-ram §6.5.
+
+- **Phase ε partial — session-end relocation:** OnWorldUnload's session-end block (recorder.End + DrainAndTruncateJournal + SessionSummaryLogger.Write — the 40-stall 8.5-s UiOverlayBlocking cluster in the v0.5 playtest) wrapped in `Task.Run`. Captures Collector/Recorder/Database/Logger by strong-ref before spawning. Main thread returns immediately to vanilla world-unload; background work runs while player is on title screen.
+
+- **Phase ε7 — deferred world-load init:** OnWorldLoad sets `_deferredInitPending = true` and returns immediately. First PostUpdateEverything tick runs the actual construction (MetricCollector ring, ModlistFingerprint.Compute, SessionRecorder, ContextTransitionWatcher, WorldSnapshotter, PlayerDeathDetector, ContextTagger, EventAggregator) then skips that tick's per-tick path. World-enter freeze drops 172 ms → ~110 ms; tick 1 spikes (allowed during gameplay per Invariant 2 budgets).
+
+- **Phase ζ — insight detector LINQ removal:** LoadoutCorrelatedCostDetector + EventConditionalCostDetector rewritten from LINQ chains (Where / OrderByDescending / GroupBy / Average / ToList × 14 sites) to explicit foreach loops + field-cached `Dictionary<int, BuffWindow>` for the buff aggregation. Per-pass allocation drops from ~50 KB to ~0. Same insight rows emitted; only the path is cheaper. AllocationBurstDetector + GcPauseCulpritDetector promote per-pass `new double[modCount]` to field-cached scratch buffers.
+
+- **Phase η partial — overlay mount allocs:** `ProfilerOverlaySystem.ModifyInterfaceLayers` caches the `LegacyGameInterfaceLayer` instance (was `new` every frame = ~3,600 allocs/sec). `DrawOverlay` uses a single shared `_cachedGameTime` sentinel (was `new GameTime()` every frame). `OverlayPanel.LayoutStatCards` reuses a `_statCardRectsCache` field (was `new Rectangle[4]` per DrawSelf). Full per-tab format-string caching is deferred to v0.6.1.
+
+- **Stall-cluster span fix (§5.L):** `_liveCluster.EndUnixMs = s.StartTimestampUnixMs` was using the start moment; now `+ (long)s.TickPeriodMs`. The 40-stall UiOverlayBlocking cluster previously reported its span ~80 ms shorter than it actually was. Cosmetic but documented.
+
+- **Wrap housekeeping:** `PlayerDeathReason.SourceCustomReason` (obsolete) → `CustomReason` (returns NetworkText; ToString() drives the string conversion). Two `ChangeMagicNumberToID` warnings: literal `0` → `ItemID.None` / `NPCID.None`.
+
+Bumped `build.txt` 0.5 → 0.6. Minor bump per the versioning policy (three bug fixes + headline 8.5-s stall fix + the foundational infrastructure that future v0.6.1+ rides).
+
+Build green. 63 / 63 unit tests passing (50 from v0.5 + 13 new α infrastructure tests). The synthetic xUnit benchmark suite is unreliable for v0.6's deltas because it doesn't exercise the paths that changed (event-stream emit + Lang/ModOwner caches + the InteractionPlayer hot path) — see verification.md §6. The real measurement is in-game playtest comparison against the 16:09-16:14 v0.5 baseline.
+
+Deferred to v0.6.1 (full designs in research/*.md): Phase δ continued (FK swap + numeric blobs + byte enums + binary journal + DbWriteOp struct union + InsertBulk + compound indexes), Phase ε continued (heap-snapshot diagnostic + conditional ALLOC-1 + HookSurfaceCache + BeginInstallAsync + PreSaveAndQuit), Phase η full (per-tab format caches + donut vertex reuse + Sparkline span overload), full row-pool Rent/Return cycle, remaining β items (incremental histogram baseline + SIMD UpdateRollingAverage), Environment.CpuUsage migration (gated on tML reference assemblies exposing the .NET 7+ API), ProfilerConfig `[LabelKey]` migration.
+
 ## 2026-05-20 — Interaction-tracking arsenal + v0.5 (data-stack expansion)
 
 Caner's framing: the profiler shifts from *event logger* (records discrete things and attributes to the busiest mod's hooks) to *interaction tracker* (records game-state windows so cost can be correlated with what the player was doing, wearing, fighting, getting hit by). The presentation/storage stack is a downstream concern; capture is a one-way door. `context/notes/philosophy.md` is the durable note for this posture. Invariant 5 (no mod-specific code) was added to `CLAUDE.md` to enforce the universality side of the shift.
