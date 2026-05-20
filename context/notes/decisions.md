@@ -2,6 +2,34 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — LiteDB persistence + v0.3 (afternoon session)
+
+The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) is gone. The new persistence layer is a single LiteDB file plus a redo log plus three rotating backups, all under `Profiling/Persistence/`. Implementation followed `context/notes/litedb-migration-plan.md` end to end; every decision below is the plan's recommendation accepted.
+
+**LiteDB 5.0.21, not 6.0 prerelease.** The 6.0 line has been in prerelease for a year; we cannot accept that risk on the persistence layer of a public mod. 5.0.21 is MIT, 100% managed, single 510 KB DLL, ships inside the `.tmod` via `dllReferences = LiteDB` and `lib/LiteDB.dll`. Re-evaluate when 6.0 ships stable.
+
+**Modular stream registry, not a monolith.** The first cut had `ProfilerDatabase.ApplyOne` as a 14-case switch covering every `DbOpKind`; `ReconstructOp` duplicated the same fan-out for journal replay; `EnsureIndexes` listed every collection's indexes centrally. Adding a new tracked subsystem meant editing three places in one 600-line file. Refactored to `IPersistenceStream` + `StreamRegistry`: each logical collection group is a single file under `Streams/` declaring its own `Kinds[]`, `Apply`, `Reconstruct`, `EnsureIndexes`. Adding a new collection is now a single new file plus one registry line. `ProfilerDatabase` dropped from 605 lines to 431 and now owns only cross-cutting concerns (open + recovery, schema versioning, journal replay routing, backup rotation, compact, lifecycle).
+
+**Single writer thread, lock-free producer queue.** `DbWriterThread` owns every LiteDB write. The game thread enqueues via `System.Threading.Channels.Channel.CreateUnbounded` (single-reader, multi-writer); enqueue cost measured at 276 ns/op. The writer batches up to 64 ops per LiteDB pass, runs an explicit `Checkpoint()` every 60s of activity (#1568 mitigation), and drains the queue on dispose. Invariant 2 (overhead budget) intact.
+
+**Four-layer crash safety.** LiteDB built-in WAL (free) → `profiler.events.log` append-only NDJSON redo log → 3 rotating `profiler.litedb.bak-{1,2,3}` backups → quarantine-and-fresh if all backups unreadable. Recovery flow on every open: probe the main file read-only; promote the newest readable backup if it fails; replay any non-empty journal idempotently; mark orphan sessions as `crash-detected` without fabricating an `EndedUtc` (honesty contract — Invariant 3).
+
+**One-shot legacy JSON ingestion.** `LegacyJsonImporter.RunOnceIfNeeded` walks `Sessions/*.json` once at startup, ingests `(identity, startedUtc, endedUtc, mode, modFingerprint)` into `SessionRow` rows, and moves each file to `ImportedLegacyJson/`. A `.imported` sentinel guards against re-runs.
+
+**24h warm-tier TTL, lifetime cold + archive.** Per-tick raw never reaches disk (stays in the existing 30s RAM ring); 1Hz `tickAggregatesWarm` rows expire 24h after creation; 1/min `tickAggregatesCold` and 1/session `tickAggregatesArchive` rows are kept forever. Sweep runs at every open via a single indexed `DeleteMany(x => x.ExpireAtUtc < now)`.
+
+**Per-stream idempotency on natural key.** Every stream's `Apply` upserts: warm aggregates on `(sessionId, secondIndex)`, cold on `(sessionId, minuteIndex)`, archive on `sessionId`, mod / hook aggregate batches use wipe-and-bulk on `sessionId`, identity upserts use the existing natural keys. Replay re-runs ops that already landed without duplicating rows.
+
+**Compaction is manual, never silent.** `/profiler-compact` chat command runs `db.Checkpoint()` then `db.Rebuild()` (the LiteDB equivalent of SQLite VACUUM). Refuses to run inside a world because `Rebuild()` is not concurrency-safe with the writer thread's bursts.
+
+**Performance characteristics (measured, debug build, M-series):** game-thread enqueue 276 ns/op, writer-thread sustained 310 ops/sec (above the 60/sec floor), 10-min Calamity-scale session DB 752 KB (well under the 5 MB §3.4 target), `FindTop10` by start time 0.4 ms across 50 sessions. The "let's see how well LiteDB performs" question has a number now.
+
+**Two real bugs surfaced during test wiring:** `Pragma("USER_VERSION")` returns BsonValue wrapping Int32 (not Int64), so the original `(int)(long)` cast threw on every DB open in production; replaced with `.AsInt32`. `Channel.Reader.Count` is unsupported on the unbounded channel variant on .NET 8 / macOS; replaced with an `Interlocked`-tracked `_approxQueueDepth` counter. Without the test pass these would have shipped silently.
+
+**44/44 xUnit tests passing.** Round-trip fixtures (open + reopen, session start/end, warm idempotency, crash detection, backup rotation, spike/stall row landing) plus benchmark fixtures (enqueue latency, drain throughput, file size, read latency). The benchmark fixtures are observability tests — they assert sanity floors but the real value is the numbers in `ITestOutputHelper`.
+
+**Bumped build.txt 0.2 → 0.3.** A new schema version, a deleted writer, a new chat command, a benchmark surface; clearly a minor bump.
+
 ## 2026-05-20 — UI overhaul + v0.2
 
 Eight commits landed the complete UI overhaul plus the SelfHealth cadence-guard bug fix and the v0.2 version bump.

@@ -19,7 +19,7 @@ context/
 │
 ├── systems/                 One file per stable subsystem (canonical reality)
 │   hook-instrumentation, metric-collection, spike-detection,
-│   allocation-tracking, insights-engine, session-logging, overlay,
+│   allocation-tracking, insights-engine, persistence, overlay,
 │   events-and-context, test-harness, mod-lifecycle
 │
 ├── tmodloader/              Per-API reference: what tModLoader exposes
