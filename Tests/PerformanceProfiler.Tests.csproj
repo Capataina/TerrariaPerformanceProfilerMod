@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Non-shipping test harness for pure-logic surfaces (ranking, insight
+    promotion, ring buffers, etc.). Lives inside the mod source folder so the
+    tests stay next to the code, but is deliberately excluded from the .tmod
+    package via build.txt's buildIgnore and from the main project's Compile
+    glob via PerformanceProfiler.csproj.
+
+    Run with:
+        dotnet test Tests/PerformanceProfiler.Tests.csproj
+
+    This project does NOT import tModLoader.targets — tests only exercise
+    pure helpers that have no tModLoader runtime dependency. The handful
+    of source files we need are linked in via Compile Include below; we
+    deliberately avoid a ProjectReference to the mod project because that
+    would drag tModLoader assemblies into the test runner.
+
+    When you add a test fixture for a new pure-logic source file, add the
+    file to the Compile Include list AND ensure that file genuinely has no
+    Terraria.ModLoader references. If it does, mock the dependency or test
+    a lower-level helper instead.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>PerformanceProfiler.Tests</RootNamespace>
+    <!-- Don't auto-include parent-directory .cs files; we curate the list below. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Test files in this folder. -->
+    <Compile Include="**\*.cs" Exclude="bin\**;obj\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure-logic source files lifted in from the mod project. Each entry's
+         file must have zero Terraria.ModLoader dependencies (verified per add). -->
+    <Compile Include="..\Profiling\RingBuffer.cs" Link="Source\RingBuffer.cs" />
+    <Compile Include="..\Profiling\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
+    <Compile Include="..\Profiling\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
+    <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+  </ItemGroup>
+
+</Project>

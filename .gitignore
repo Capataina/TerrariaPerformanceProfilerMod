@@ -13,3 +13,6 @@ obj/
 
 # Agent worktrees (transient subagent isolation copies)
 .claude/worktrees/
+
+# Runtime lock files from background scheduled tasks
+.claude/scheduled_tasks.lock

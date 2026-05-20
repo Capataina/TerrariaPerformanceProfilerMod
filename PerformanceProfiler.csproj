@@ -6,4 +6,17 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!--
+    Exclude the non-shipping Tests/ project from the main mod build. The
+    test files Compile Include the pure-logic sources via Link from their
+    own .csproj; including them here would pull xUnit attributes and types
+    that the mod runtime can't resolve. Also keeps the test .csproj itself
+    from being discovered as a sub-project.
+  -->
+  <ItemGroup>
+    <Compile Remove="Tests\**\*.cs" />
+    <None Remove="Tests\**\*" />
+    <Content Remove="Tests\**\*" />
+  </ItemGroup>
 </Project>
