@@ -38,6 +38,16 @@ internal static class OverlayState
     /// <summary>True if the user selected 30S AVG over NOW.</summary>
     public static bool ShowAverage { get; set; }
 
+    /// <summary>
+    /// Drill-down hint: a modId the Overview tab wants the TREE tab to pre-expand
+    /// and scroll into view on its next refresh. <c>-1</c> means no hint pending.
+    /// Set by <see cref="Tabs.OverviewTab"/> on a double-click; consumed and
+    /// reset to <c>-1</c> by <see cref="Tabs.TreeTab"/> on its next Tick.
+    /// Cross-tab scratch state owned by no specific tab; lives here so the two
+    /// tabs don't have to reach into each other's private fields.
+    /// </summary>
+    public static int PreselectedModId { get; set; } = -1;
+
     // Frozen snapshot arrays — written by the chrome on pause, read by tabs.
     // Each is the collector's smoothed view at the moment PAUSE was hit, so
     // the tab keeps showing that exact slice instead of moving past it.

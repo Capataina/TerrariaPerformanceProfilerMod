@@ -30,27 +30,39 @@ internal sealed class InsightsTab : IOverlayTab
     private const float RowHeight = 28f;
     private const int VisibleRows = 8;
 
+    /// <summary>1 Hz refresh cadence: re-evaluate detectors and re-rank only once a second instead of every frame.</summary>
+    private const int RefreshIntervalTicks = 60;
+
     private readonly InsightsEngine _engine = new InsightsEngine();
-    private IReadOnlyList<InsightRecord> _ranked = System.Array.Empty<InsightRecord>();
+
+    // _ranked is a reusable list that InsightStore.TopInto writes into; the
+    // previous shape allocated a fresh List + Dictionary + lambda closure
+    // every frame.
+    private readonly List<InsightRecord> _ranked = new List<InsightRecord>(VisibleRows);
     private long _nowTick;
+    private long _lastRefreshTick = -RefreshIntervalTicks;
 
     public bool IsAvailable(MetricCollector? collector) => collector != null && collector.History.Count > 0;
 
     public void Tick(MetricCollector collector)
     {
-        // History.Last gives us the most recent tick index. If history is
-        // empty we already returned false from IsAvailable.
         long sessionLengthTicks = collector.History.Count;
         long latestTick = sessionLengthTicks > 0
             ? collector.History[collector.History.Count - 1].TickIndex
             : 0L;
         _nowTick = latestTick;
 
+        // 1 Hz refresh. Detectors read 30s-smoothed accessors, so the
+        // displayed set doesn't move meaningfully tick-to-tick; the previous
+        // shape ran the entire detector roster and a full re-rank 60×/sec.
+        if (latestTick - _lastRefreshTick < RefreshIntervalTicks) return;
+        _lastRefreshTick = latestTick;
+
         if (!OverlayState.Paused)
         {
             _engine.Evaluate(collector, latestTick, sessionLengthTicks);
         }
-        _ranked = _engine.Store.Top(VisibleRows, latestTick);
+        _engine.Store.TopInto(_ranked, VisibleRows, latestTick);
     }
 
     public float MeasurePanelHeight(MetricCollector collector)
@@ -98,11 +110,11 @@ internal sealed class InsightsTab : IOverlayTab
             rowY += RowHeight;
         }
 
-        IReadOnlyDictionary<string, List<string>> gated = _engine.GatedPatterns();
-        if (gated.Count > 0)
+        // Gated-pattern label is pre-formatted at engine construction so no
+        // Linq / string.Join / array allocation runs in the Draw hot path.
+        if (_engine.GatedLabel.Length > 0)
         {
-            OverlayDraw.Text(sb,
-                "gated detectors waiting on: " + string.Join(", ", System.Linq.Enumerable.ToArray(gated.Keys)),
+            OverlayDraw.Text(sb, _engine.GatedLabel,
                 new Vector2(area.X + 18, rowY + 2f), ProfilerTheme.TextDim, 0.55f);
         }
     }

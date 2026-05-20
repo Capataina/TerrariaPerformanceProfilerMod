@@ -128,8 +128,19 @@ internal sealed class ModImpactScorer
     private bool _dirty = true;
     private ImpactSortMode _lastSortMode = ImpactSortMode.Composite;
 
+    // Cached view wrapper. Reusing one instance avoids boxing a fresh
+    // ArraySegment on every Sorted access -- the previous shape allocated
+    // ~6 wrappers per frame at 60 fps (about 9 KB/s of garbage in a profiler
+    // whose job is to surface allocation pressure).
+    private readonly SortedView _sortedView;
+
+    public ModImpactScorer()
+    {
+        _sortedView = new SortedView(this);
+    }
+
     /// <summary>The sorted view of the most recent <see cref="Recompute"/>.</summary>
-    public IReadOnlyList<ModImpact> Sorted => new ArraySegment<ModImpact>(_sorted, 0, _modCount);
+    public IReadOnlyList<ModImpact> Sorted => _sortedView;
 
     /// <summary>Number of mods currently in the leaderboard.</summary>
     public int Count => _modCount;
@@ -317,5 +328,27 @@ internal sealed class ModImpactScorer
 
         _gcMsPerByte = totalGcMs / totalBytes;
         _gcCalibratedFromHistory = true;
+    }
+
+    /// <summary>
+    /// Stable IReadOnlyList wrapper over the scorer's <c>_sorted</c> array.
+    /// Reads the array's live state through the back-reference, so a single
+    /// instance can serve every <see cref="Sorted"/> caller across the whole
+    /// session without ever allocating. Enumeration via foreach is supported
+    /// but not used in the hot path — overlay tabs index by position.
+    /// </summary>
+    private sealed class SortedView : IReadOnlyList<ModImpact>
+    {
+        private readonly ModImpactScorer _owner;
+        public SortedView(ModImpactScorer owner) { _owner = owner; }
+        public int Count => _owner._modCount;
+        public ModImpact this[int index] => _owner._sorted[index];
+
+        public IEnumerator<ModImpact> GetEnumerator()
+        {
+            int n = _owner._modCount;
+            for (int i = 0; i < n; i++) yield return _owner._sorted[i];
+        }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

@@ -27,6 +27,12 @@ public sealed class InsightsEngine
     private readonly InsightStore _store;
     private readonly List<InsightRecord> _scratch = new List<InsightRecord>(16);
 
+    // Gated-pattern map is computed once at construction (detector roster is
+    // static). The previous shape rebuilt it per call from inside Draw, which
+    // ran 60×/sec and allocated a fresh Dictionary + List every frame.
+    private readonly Dictionary<string, List<string>> _gatedMap;
+    private readonly string _gatedLabel;
+
     /// <summary>
     /// Constructs the engine with the default detector roster: every pattern
     /// in <see cref="PatternKey"/> represented, in-scope ones live and
@@ -51,6 +57,41 @@ public sealed class InsightsEngine
             new GcPauseCulpritDetector(),
             new HookFrequencyTailDetector(),
         };
+
+        _gatedMap = BuildGatedMap(_detectors);
+        _gatedLabel = BuildGatedLabel(_gatedMap);
+    }
+
+    private static Dictionary<string, List<string>> BuildGatedMap(List<IInsightDetector> detectors)
+    {
+        var result = new Dictionary<string, List<string>>();
+        for (int i = 0; i < detectors.Count; i++)
+        {
+            IInsightDetector det = detectors[i];
+            if (!det.IsGated) continue;
+            string gate = det.GatedOn ?? "unknown";
+            if (!result.TryGetValue(gate, out List<string>? list))
+            {
+                list = new List<string>(2);
+                result[gate] = list;
+            }
+            list.Add(det.Pattern.ToString());
+        }
+        return result;
+    }
+
+    private static string BuildGatedLabel(Dictionary<string, List<string>> gated)
+    {
+        if (gated.Count == 0) return string.Empty;
+        var sb = new System.Text.StringBuilder("gated detectors waiting on: ");
+        bool first = true;
+        foreach (string key in gated.Keys)
+        {
+            if (!first) sb.Append(", ");
+            sb.Append(key);
+            first = false;
+        }
+        return sb.ToString();
     }
 
     /// <summary>The live + history store. Tabs and exporters read from here.</summary>
@@ -83,23 +124,16 @@ public sealed class InsightsEngine
 
     /// <summary>
     /// Returns the set of gated detector names with their gate reasons.
-    /// Consumed by the JSONL exporter for the <c>insights.gated</c> field.
+    /// Cached at construction; the detector roster is static so the map
+    /// never changes. Consumed by the JSONL exporter for the
+    /// <c>insights.gated</c> field.
     /// </summary>
-    public IReadOnlyDictionary<string, List<string>> GatedPatterns()
-    {
-        Dictionary<string, List<string>> result = new Dictionary<string, List<string>>();
-        for (int i = 0; i < _detectors.Count; i++)
-        {
-            IInsightDetector det = _detectors[i];
-            if (!det.IsGated) continue;
-            string gate = det.GatedOn ?? "unknown";
-            if (!result.TryGetValue(gate, out List<string>? list))
-            {
-                list = new List<string>(2);
-                result[gate] = list;
-            }
-            list.Add(det.Pattern.ToString());
-        }
-        return result;
-    }
+    public IReadOnlyDictionary<string, List<string>> GatedPatterns() => _gatedMap;
+
+    /// <summary>
+    /// Pre-formatted "gated detectors waiting on: events, litedb" label.
+    /// Cached at construction so the InsightsTab's <c>Draw</c> can render
+    /// it without invoking Linq or string.Join per frame.
+    /// </summary>
+    public string GatedLabel => _gatedLabel;
 }

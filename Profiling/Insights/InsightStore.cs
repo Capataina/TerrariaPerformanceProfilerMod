@@ -40,11 +40,30 @@ public sealed class InsightStore
     private readonly List<InsightRecord> _history = new List<InsightRecord>(64);
     private readonly long _ttlTicks;
 
+    // Reusable scratch buffers for Top(). Allocated once; the previous
+    // implementation allocated a fresh List + Dictionary per call which ran
+    // ~60×/sec under the InsightsTab's per-frame refresh, ironically generating
+    // garbage in a profiler designed to measure it.
+    private readonly List<InsightRecord> _topAllScratch = new List<InsightRecord>(LiveCap);
+    private readonly Dictionary<PatternKey, int> _topPerPattern = new Dictionary<PatternKey, int>();
+    private readonly Comparison<InsightRecord> _topComparer;
+    private long _topComparerNowTick;
+
     public InsightStore() : this(DefaultTtlTicks) { }
 
     public InsightStore(long ttlTicks)
     {
         _ttlTicks = ttlTicks;
+        // Capture _topComparerNowTick by reference via the closure; only allocates
+        // the comparer once instead of per Top() call. _topComparerNowTick is
+        // refreshed in TopInto() before each Sort.
+        _topComparer = (a, b) =>
+        {
+            double sa = RankingScorer.Score(a, _topComparerNowTick, _ttlTicks);
+            double sb = RankingScorer.Score(b, _topComparerNowTick, _ttlTicks);
+            int cmp = sb.CompareTo(sa);
+            return cmp != 0 ? cmp : b.LastSeenTick.CompareTo(a.LastSeenTick);
+        };
     }
 
     /// <summary>Every record ever surfaced this session, including ones evicted from live.</summary>
@@ -112,33 +131,49 @@ public sealed class InsightStore
     public IEnumerable<InsightRecord> AllLive() => _live.Values;
 
     /// <summary>
-    /// Returns up to <paramref name="n"/> ranked records, respecting the
-    /// per-pattern cap. Sort is by descending score from
+    /// Writes up to <paramref name="n"/> ranked records into <paramref name="destination"/>,
+    /// respecting the per-pattern cap. Sort is by descending score from
     /// <see cref="RankingScorer.Score"/>; ties broken by last-seen tick.
+    /// <paramref name="destination"/> is cleared first; allocation is bounded
+    /// to whatever growth that List needs to fit the result.
+    ///
+    /// <para>
+    /// Reuses scratch buffers and a captured comparer so steady-state operation
+    /// (the InsightsTab refresh path) is allocation-free past the initial warmup.
+    /// </para>
+    /// </summary>
+    public void TopInto(List<InsightRecord> destination, int n, long nowTick)
+    {
+        destination.Clear();
+        if (_live.Count == 0) return;
+
+        _topAllScratch.Clear();
+        foreach (InsightRecord r in _live.Values) _topAllScratch.Add(r);
+
+        _topComparerNowTick = nowTick;
+        _topAllScratch.Sort(_topComparer);
+
+        _topPerPattern.Clear();
+        for (int i = 0; i < _topAllScratch.Count && destination.Count < n; i++)
+        {
+            InsightRecord rec = _topAllScratch[i];
+            _topPerPattern.TryGetValue(rec.Pattern, out int seen);
+            if (seen >= PerPatternCap) continue;
+            _topPerPattern[rec.Pattern] = seen + 1;
+            destination.Add(rec);
+        }
+    }
+
+    /// <summary>
+    /// Convenience wrapper that allocates a fresh list. Prefer
+    /// <see cref="TopInto"/> from the hot path; this exists for tests and
+    /// exporters that don't run per-frame.
     /// </summary>
     public IReadOnlyList<InsightRecord> Top(int n, long nowTick)
     {
         if (_live.Count == 0) return Array.Empty<InsightRecord>();
-        List<InsightRecord> all = new List<InsightRecord>(_live.Count);
-        foreach (InsightRecord r in _live.Values) all.Add(r);
-        all.Sort((a, b) =>
-        {
-            double sa = RankingScorer.Score(a, nowTick, _ttlTicks);
-            double sb = RankingScorer.Score(b, nowTick, _ttlTicks);
-            int cmp = sb.CompareTo(sa);
-            return cmp != 0 ? cmp : b.LastSeenTick.CompareTo(a.LastSeenTick);
-        });
-
         List<InsightRecord> result = new List<InsightRecord>(n);
-        Dictionary<PatternKey, int> perPattern = new Dictionary<PatternKey, int>();
-        for (int i = 0; i < all.Count && result.Count < n; i++)
-        {
-            InsightRecord rec = all[i];
-            perPattern.TryGetValue(rec.Pattern, out int seen);
-            if (seen >= PerPatternCap) continue;
-            perPattern[rec.Pattern] = seen + 1;
-            result.Add(rec);
-        }
+        TopInto(result, n, nowTick);
         return result;
     }
 

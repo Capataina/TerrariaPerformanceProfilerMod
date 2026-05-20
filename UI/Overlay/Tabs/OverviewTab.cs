@@ -88,6 +88,15 @@ internal sealed class OverviewTab : IOverlayTab
     private int _scrollOffset;
     private long _tickCounter;
 
+    // Double-click drill-down state. A second click on the same mod-row within
+    // DoubleClickWindowTicks switches to TREE and asks TreeTab to pre-expand
+    // that mod (see OverlayState.PreselectedModId). The first click still
+    // toggles inline expansion of the OverviewTab row -- the drill is an
+    // additional gesture on top, not a replacement.
+    private const long DoubleClickWindowTicks = 30; // ~500 ms at 60 fps
+    private int _lastClickModId = -1;
+    private long _lastClickTick = long.MinValue;
+
     public bool IsAvailable(MetricCollector? collector) => collector != null;
 
     // ---- Lifecycle -----------------------------------------------------------
@@ -122,9 +131,12 @@ internal sealed class OverviewTab : IOverlayTab
         }
 
         // Hidden-rows summary line if anything is folded by the filter or the scroll.
+        // Count each line separately -- Draw renders one line for scroll-hidden
+        // and a second for filter-hidden, so we must reserve both heights.
         int hidden = Math.Max(0, visibleCount - _scrollOffset - rendered);
         int filtered = _scorer.Count - visibleCount;
-        if (hidden > 0 || filtered > 0) h += 14f;
+        if (hidden > 0) h += 14f;
+        if (filtered > 0) h += 14f;
 
         // Footer (calibration note) always present.
         h += FooterPadding + 12f;
@@ -182,7 +194,22 @@ internal sealed class OverviewTab : IOverlayTab
             int modId = ResolveVisibleModId(_scrollOffset + i);
             if (localY >= rowY && localY < rowY + RowHeight && modId >= 0)
             {
+                // Double-click on the same row → drill into TREE.
+                bool isDoubleClick = modId == _lastClickModId
+                                  && (_tickCounter - _lastClickTick) <= DoubleClickWindowTicks;
+                if (isDoubleClick)
+                {
+                    OverlayState.PreselectedModId = modId;
+                    OverlayState.ActiveTabIndex = 1; // TREE
+                    _lastClickModId = -1;
+                    _lastClickTick = long.MinValue;
+                    return;
+                }
+
+                // Single click → toggle the inline component breakdown.
                 if (!_expanded.Remove(modId)) _expanded.Add(modId);
+                _lastClickModId = modId;
+                _lastClickTick = _tickCounter;
                 return;
             }
             rowY += RowHeight;
@@ -245,11 +272,12 @@ internal sealed class OverviewTab : IOverlayTab
 
             if (expanded)
             {
-                DrawComponentRow(sb, area.X, rowY, "cpu",   impact.CpuMs,     ComponentBarMax(impact, ImpactSortMode.Cpu),   ComponentAnnotation(impact, ImpactSortMode.Cpu),   true);
+                double rowMax = ComponentBarMax(impact);
+                DrawComponentRow(sb, area.X, rowY, "cpu",   impact.CpuMs,     rowMax, string.Empty,                          true);
                 rowY += SubRowHeight;
-                DrawComponentRow(sb, area.X, rowY, "spike", impact.SpikeMs,   ComponentBarMax(impact, ImpactSortMode.Spike), "pending (sibling SpikeTracker)", false);
+                DrawComponentRow(sb, area.X, rowY, "spike", impact.SpikeMs,   rowMax, "pending (sibling SpikeTracker)",       false);
                 rowY += SubRowHeight;
-                DrawComponentRow(sb, area.X, rowY, "alloc", impact.AllocMsEq, ComponentBarMax(impact, ImpactSortMode.Alloc), ComponentAnnotation(impact, ImpactSortMode.Alloc), _scorer.IsCalibrated && impact.AllocBytesPerTick > 0d);
+                DrawComponentRow(sb, area.X, rowY, "alloc", impact.AllocMsEq, rowMax, AllocComponentAnnotation(impact),       _scorer.IsCalibrated && impact.AllocBytesPerTick > 0d);
                 rowY += SubRowHeight;
             }
         }
@@ -444,7 +472,7 @@ internal sealed class OverviewTab : IOverlayTab
         return _scorer.Sorted[sortedIdx].ModId;
     }
 
-    private static double ComponentBarMax(in ModImpact impact, ImpactSortMode comp)
+    private static double ComponentBarMax(in ModImpact impact)
     {
         // Scale sub-bars to whichever of this row's three components is biggest,
         // so the bars are internally comparable for that mod. This is the
@@ -455,13 +483,10 @@ internal sealed class OverviewTab : IOverlayTab
         return m;
     }
 
-    private static string ComponentAnnotation(in ModImpact impact, ImpactSortMode comp) => comp switch
-    {
-        ImpactSortMode.Alloc => impact.AllocBytesPerTick > 0d
+    private static string AllocComponentAnnotation(in ModImpact impact) =>
+        impact.AllocBytesPerTick > 0d
             ? $"({OverlayDraw.FormatBytes(impact.AllocBytesPerTick)}/tick)"
-            : "",
-        _ => "",
-    };
+            : string.Empty;
 
     private static Color BandBarColor(ImpactBand band) => band switch
     {

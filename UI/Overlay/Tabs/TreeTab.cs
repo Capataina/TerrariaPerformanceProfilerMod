@@ -54,6 +54,30 @@ internal sealed class TreeTab : IOverlayTab
             BuildSortedRows(OverlayState.SelectedCategoryMs(collector), OverlayState.SelectedCategoryBytes(collector));
         }
 
+        // Drill-down hint from the Overview tab: pre-expand the requested mod
+        // and scroll it into view, then consume the hint. Runs after
+        // BuildSortedRows so the row's position in _rows is up-to-date.
+        int preselected = OverlayState.PreselectedModId;
+        if (preselected >= 0)
+        {
+            _expanded.Add(preselected);
+            int rowIndex = -1;
+            for (int i = 0; i < _rowCount; i++)
+            {
+                if (_rows[i].ModId == preselected) { rowIndex = i; break; }
+            }
+            if (rowIndex >= 0)
+            {
+                // Centre it in the visible window where possible; otherwise
+                // place it at the top of the visible region.
+                int half = OverlayLayout.MaxModRows / 2;
+                int target = Math.Max(0, rowIndex - half);
+                int maxOffForScroll = Math.Max(0, _rowCount - OverlayLayout.MaxModRows);
+                _scrollOffset = Math.Min(target, maxOffForScroll);
+            }
+            OverlayState.PreselectedModId = -1;
+        }
+
         int maxOff = Math.Max(0, _rowCount - OverlayLayout.MaxModRows);
         if (_scrollOffset > maxOff) _scrollOffset = maxOff;
     }

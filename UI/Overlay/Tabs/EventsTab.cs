@@ -71,10 +71,21 @@ internal sealed class EventsTab : IOverlayTab
     private const float RowHeight = 16f;
     private const int VisibleRowCount = 12;
 
-    /// <summary>Tab rows, rebuilt each Tick from the aggregator. Sorted as documented above.</summary>
+    /// <summary>Refresh cadence: rebuild rows + "now-active" summary at 1 Hz instead of 60 Hz. Inputs are 30s-smoothed so 60-frame staleness is invisible.</summary>
+    private const int RefreshIntervalTicks = 60;
+
+    /// <summary>Tab rows, rebuilt at 1 Hz from the aggregator. Sorted as documented above.</summary>
     private EventRow[] _rows = Array.Empty<EventRow>();
     private int _rowCount;
     private int _scrollOffset;
+
+    // Throttle / cache state. _tickCounter advances per-frame; _lastRefreshTick
+    // records the last counter value at which we did the heavy rebuild + summary.
+    // _cachedNowSummary holds the last "Forest · Day · Hardmode" header string
+    // so Draw doesn't have to rebuild it 60× per second.
+    private long _tickCounter;
+    private long _lastRefreshTick = -RefreshIntervalTicks;
+    private string _cachedNowSummary = "(no buckets active)";
 
     public bool IsAvailable(MetricCollector? collector)
     {
@@ -91,7 +102,18 @@ internal sealed class EventsTab : IOverlayTab
             return;
         }
 
-        BuildRows(agg);
+        _tickCounter++;
+        // 1 Hz refresh. SnapshotRows allocates a fresh List per call; doing it
+        // at 60 Hz produces ~200-600 KB/s of garbage in a profiler designed
+        // to surface allocation pressure. The bucket dictionaries the
+        // aggregator maintains DO update every tick; the displayed table just
+        // doesn't need to follow that closely.
+        if (_tickCounter - _lastRefreshTick >= RefreshIntervalTicks)
+        {
+            _lastRefreshTick = _tickCounter;
+            BuildRows(agg);
+            _cachedNowSummary = ComputeNowActiveSummary(agg);
+        }
 
         int maxOff = Math.Max(0, _rowCount - VisibleRowCount);
         if (_scrollOffset > maxOff) _scrollOffset = maxOff;
@@ -172,7 +194,7 @@ internal sealed class EventsTab : IOverlayTab
         EventDimension.Boss       => "Boss",
         EventDimension.Invasion   => "Invasion",
         EventDimension.Difficulty => "Mode",
-        EventDimension.Subworld   => "Sub",
+        EventDimension.Subworld   => "Subworld",
         _ => "?",
     };
 
@@ -187,8 +209,8 @@ internal sealed class EventsTab : IOverlayTab
         ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
 
         string header = agg == null || !agg.HasContext
-            ? "EVENTS   .   waiting for first tick"
-            : $"EVENTS   .   now: {NowActiveSummary(agg)}";
+            ? "EVENTS   ·   waiting for first tick"
+            : $"EVENTS   ·   now: {_cachedNowSummary}";
         OverlayDraw.Text(sb, header, new Vector2(area.X + 18, divY + 6f), ProfilerTheme.Accent, 0.7f);
 
         if (_rowCount == 0)
@@ -296,18 +318,19 @@ internal sealed class EventsTab : IOverlayTab
         return $"{m:D2}:{s:D2}";
     }
 
-    private static string NowActiveSummary(EventAggregator agg)
+    /// <summary>
+    /// Renders the "Forest · Day · Hardmode" header summary from the live
+    /// aggregator. Called at 1 Hz from <see cref="Tick"/> and the result is
+    /// cached in <see cref="_cachedNowSummary"/>; Draw reads the cache.
+    /// </summary>
+    private static string ComputeNowActiveSummary(EventAggregator agg)
     {
-        // One pass over each dimension, building a compact "Forest . Day .
-        // Hardmode" string. Allocation-bounded; runs at chrome refresh, not
-        // per-tick.
         var parts = new List<string>(8);
 
-        // Biomes — only the ones marked active this tick.
+        // Biomes — only the ones marked active this tick. Cap to first three.
         for (int i = 0; i < BiomeRegistry.Count; i++)
         {
             if (!agg.IsActiveNow(EventDimension.Biome, i)) continue;
-            // Cap to the first three to keep the line short.
             if (parts.Count >= 3) break;
             parts.Add(BiomeRegistry.Biomes[i].DisplayName);
         }
@@ -327,12 +350,24 @@ internal sealed class EventsTab : IOverlayTab
             parts.Add(BossSampler.DisplayName(bosses[0]));
         }
 
-        if (agg.Latest.VanillaInvasion != InvasionId.None)
+        // Vanilla invasion -- typed lookup (was .ToString() which boxes the enum).
+        InvasionId inv = agg.Latest.VanillaInvasion;
+        if (inv != InvasionId.None)
         {
-            parts.Add(agg.Latest.VanillaInvasion.ToString());
+            parts.Add(InvasionShortName(inv));
         }
 
         if (parts.Count == 0) return "(no buckets active)";
-        return string.Join(" . ", parts);
+        return string.Join(" · ", parts);
     }
+
+    private static string InvasionShortName(InvasionId id) => id switch
+    {
+        InvasionId.Goblins     => "Goblin Army",
+        InvasionId.FrostLegion => "Frost Legion",
+        InvasionId.Pirates     => "Pirate Invasion",
+        InvasionId.Martians    => "Martian Madness",
+        InvasionId.OldOnesArmy => "Old Ones Army",
+        _ => "Invasion",
+    };
 }
