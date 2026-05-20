@@ -315,7 +315,7 @@ public sealed class MetricCollector
         // gap. If a stall fires, those samples are the closest thing we have
         // to per-mod attribution for the gap (the gap itself contains no
         // BeginTick/EndTick window we could measure inside).
-        long nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long nowUnixMs = Time.UnixMsNow();
         // Pass the smoothed per-mod cost AND the focus state so the
         // detector can attribute the stall to the mods that were costing
         // the most when the gap began (CheatSheet-menu case) and
@@ -368,7 +368,7 @@ public sealed class MetricCollector
 
         TickFrame frame = new TickFrame
         {
-            TimestampUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            TimestampUnixMs = Time.UnixMsNow(),
             TickIndex = tickIndex,
             FrameTimeMs = TimestampDeltaMs(_tickStartTimestamp, endTimestamp),
             GcTimeMs = gcTimeMs,

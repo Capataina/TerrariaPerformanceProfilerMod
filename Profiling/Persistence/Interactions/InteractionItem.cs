@@ -89,7 +89,7 @@ internal sealed class InteractionItem : GlobalItem
         recorder.OnItemCreated(new ItemCreatedRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             ItemType = item.type,
             ItemName = item.Name ?? "",
             OwningMod = owningMod,

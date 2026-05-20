@@ -46,7 +46,7 @@ internal sealed class InteractionNpc : GlobalNPC
         recorder.OnNpcSpawn(new NpcSpawnRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             NpcType = npc.type,
             NpcName = npc.TypeName ?? "",
             OwningMod = owningMod,

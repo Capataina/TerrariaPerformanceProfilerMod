@@ -64,7 +64,7 @@ internal sealed class InteractionPlayer : ModPlayer
         var row = new DamageTakenRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             SourceKind = kind,
             SourceId = id,
             SourceName = name,
@@ -88,7 +88,7 @@ internal sealed class InteractionPlayer : ModPlayer
         recorder.OnDamageDealt(new DamageDealtRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             Path = "melee",
             ItemId = 0,
             ProjectileId = 0,
@@ -108,7 +108,7 @@ internal sealed class InteractionPlayer : ModPlayer
         recorder.OnDamageDealt(new DamageDealtRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             Path = "item",
             ItemId = item?.type ?? 0,
             ProjectileId = 0,
@@ -134,7 +134,7 @@ internal sealed class InteractionPlayer : ModPlayer
         recorder.OnDamageDealt(new DamageDealtRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             Path = "projectile",
             ItemId = 0,
             ProjectileId = proj?.type ?? 0,
@@ -243,7 +243,7 @@ internal sealed class InteractionPlayer : ModPlayer
         recorder.OnBuffEvent(new BuffEventRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             Edge = edge,
             BuffType = buffType,
             BuffName = name,
@@ -284,7 +284,7 @@ internal sealed class InteractionPlayer : ModPlayer
         return new LoadoutSnapshotRow
         {
             Tick = (long)Main.GameUpdateCount,
-            UnixMs = System.DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             Reason = reason,
             HeldItemType = Player.HeldItem?.type ?? 0,
             HeldItemName = Player.HeldItem?.Name ?? "",

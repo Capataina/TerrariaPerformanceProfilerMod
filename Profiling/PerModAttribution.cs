@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -198,6 +199,7 @@ public static class PerModAttribution
     /// <c>backendId: 0</c>; kept as a separate entry so the hot path's call site
     /// is short.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Add(int modId, int categoryId, int hookId, long elapsedStopwatchTicks)
     {
         Add(0, modId, categoryId, hookId, elapsedStopwatchTicks);
@@ -210,6 +212,7 @@ public static class PerModAttribution
     /// indices are ignored rather than throwing, since this runs inside other
     /// mods' code and must never disrupt them (Invariant 1).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Add(int backendId, int modId, int categoryId, int hookId, long elapsedStopwatchTicks)
     {
         if ((uint)backendId >= (uint)_ticksByBackend.Length)

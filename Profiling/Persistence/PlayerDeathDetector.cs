@@ -68,7 +68,7 @@ internal sealed class PlayerDeathDetector
         float tx = player.position.X / 16f;
         float ty = player.position.Y / 16f;
 
-        long deathUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long deathUnixMs = Time.UnixMsNow();
 
         // v0.6: damage-weighted attribution over the last 10 seconds.
         // The recorder's in-RAM ring replaces the v0.5 LiteDB query.

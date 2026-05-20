@@ -2,6 +2,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -68,6 +69,7 @@ public static class ProbeStack
     /// constant by the IL manipulator, so this is effectively a static call
     /// with one int argument -- no allocation, no boxing.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Enter(int hookId)
     {
         Frame[]? s = _stack;
@@ -98,6 +100,7 @@ public static class ProbeStack
     /// Leave with no Enter is silently dropped rather than throwing, so a bad
     /// manipulator can never crash the host (Invariant 4).
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Leave()
     {
         int d = _depth - 1;
@@ -127,6 +130,7 @@ public static class ProbeStack
     /// the API inside this method, and keeps Enter symmetric with Leave's
     /// reading-it-internally model.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void EnterCpuAlloc(int hookId, long allocBytesAtEnter)
     {
         Frame[]? s = _stack;
@@ -156,6 +160,7 @@ public static class ProbeStack
     /// preserves the ExceptionHandler IL surface from the original
     /// migration plan.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void LeaveCpuAlloc()
     {
         int d = _depth - 1;

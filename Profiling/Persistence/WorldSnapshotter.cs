@@ -62,7 +62,7 @@ internal sealed class WorldSnapshotter
         return new WorldSnapshotRow
         {
             Tick = ctx.TickIndex,
-            UnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UnixMs = Time.UnixMsNow(),
             TileX = player != null ? player.position.X / 16f : 0f,
             TileY = player != null ? player.position.Y / 16f : 0f,
             Hp = player?.statLife ?? 0,
