@@ -1,6 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
+using PerformanceProfiler.Profiling;
 using PerformanceProfiler.UI.Overlay.Tabs;
 
 namespace PerformanceProfiler.UI.Overlay;
@@ -43,14 +44,57 @@ internal static class TabRegistry
         new InsightsTab(),
     };
 
-    /// <summary>The tab currently shown, derived from <see cref="OverlayState.ActiveTabIndex"/>.</summary>
-    public static IOverlayTab Active
+    // Reused buffer for the visible-tab list so the per-frame chrome path
+    // doesn't allocate. Rebuilt in-place by BuildVisible() each call.
+    private static readonly List<IOverlayTab> _visibleScratch = new List<IOverlayTab>(8);
+
+    /// <summary>
+    /// Returns the subset of <see cref="Tabs"/> that are available for the given
+    /// collector state, preserving registry order. Returns the full list when
+    /// <paramref name="collector"/> is null (chrome runs before collector exists).
+    /// The returned list is a shared, reused buffer — never store the reference
+    /// past the current frame.
+    /// </summary>
+    public static IReadOnlyList<IOverlayTab> Visible(MetricCollector? collector)
     {
-        get
+        _visibleScratch.Clear();
+        for (int i = 0; i < Tabs.Count; i++)
         {
-            int idx = OverlayState.ActiveTabIndex;
-            if (idx < 0 || idx >= Tabs.Count) idx = 0;
-            return Tabs[idx];
+            IOverlayTab tab = Tabs[i];
+            if (collector == null || tab.IsAvailable(collector)) _visibleScratch.Add(tab);
         }
+        // If every tab is unavailable (collector exists but no history yet)
+        // fall back to showing the full list so the player still sees the
+        // strip; empty-state copy is each tab's own concern.
+        if (_visibleScratch.Count == 0) _visibleScratch.AddRange(Tabs);
+        return _visibleScratch;
     }
+
+    /// <summary>
+    /// Clamps <see cref="OverlayState.ActiveTabIndex"/> into the visible list
+    /// and returns the resulting active tab. Indices are interpreted against
+    /// the visible list so disabling a tab transparently shifts later tabs
+    /// up — the chrome's click handler maps clicks to the same visible-list
+    /// index that this getter returns. When the previously-active tab is no
+    /// longer visible, the index falls back to <c>0</c>.
+    /// </summary>
+    public static IOverlayTab ResolveActive(MetricCollector? collector)
+    {
+        IReadOnlyList<IOverlayTab> visible = Visible(collector);
+        int idx = OverlayState.ActiveTabIndex;
+        if (idx < 0 || idx >= visible.Count)
+        {
+            idx = 0;
+            OverlayState.ActiveTabIndex = 0;
+        }
+        return visible[idx];
+    }
+
+    /// <summary>
+    /// Back-compat accessor for paths that don't have a collector handy. The
+    /// resolution path that actually dispatches input/draws uses
+    /// <see cref="ResolveActive"/> with the live collector; this getter falls
+    /// back to the full-list view for paths that pre-date the contract.
+    /// </summary>
+    public static IOverlayTab Active => ResolveActive(null);
 }

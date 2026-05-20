@@ -6,15 +6,24 @@ namespace PerformanceProfiler.Profiling.Insights.Detectors;
 
 /// <summary>
 /// FREE_REMOVAL_CANDIDATE — mod's session cost sits below an epsilon ms/tick
-/// floor across the whole observed history. The plan (§4.9) gates this on a
-/// real engagement signal; until that lands, the detector still fires but
-/// the renderer hedges hard ("no engagement signal yet").
+/// floor across the whole observed history.
+///
+/// <para>
+/// <b>Currently gated.</b> The plan (§4.9) requires a real engagement signal
+/// (Events tab boss/biome buckets + persistence-backed lifetime visits) before
+/// this pattern can responsibly fire. <see cref="InsightsEngine.Evaluate"/>
+/// skips gated detectors before calling <see cref="Evaluate"/>, so this
+/// detector currently emits zero records — it's registered solely so the
+/// roster + gate visibility is honest in the overlay's gated-pattern label.
+/// The <see cref="Evaluate"/> implementation stays in place against the day
+/// the gate clears, and the resulting record's <see cref="InsightRecord.Scope"/>
+/// is already set to <see cref="EvidenceScope.NeedsPersistence"/>.
+/// </para>
 ///
 /// <para>
 /// Honesty contract: the rendered string is descriptive only. It states the
 /// cost and the absence of a measured engagement signal, badges the time
-/// window as "this session", and never says "remove this mod". See plan
-/// §8.3.
+/// window as "this session", and never says "remove this mod". See plan §8.3.
 /// </para>
 /// </summary>
 public sealed class FreeRemovalCandidateDetector : IInsightDetector
@@ -77,6 +86,7 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
                 },
                 Confidence = Confidence.Preliminary,
                 Audience = DefaultAudience,
+                Scope = EvidenceScope.NeedsPersistence,
             });
         }
     }

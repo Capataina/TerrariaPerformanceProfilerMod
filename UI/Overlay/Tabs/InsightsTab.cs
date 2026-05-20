@@ -33,12 +33,20 @@ internal sealed class InsightsTab : IOverlayTab
     /// <summary>1 Hz refresh cadence: re-evaluate detectors and re-rank only once a second instead of every frame.</summary>
     private const int RefreshIntervalTicks = 60;
 
-    private readonly InsightsEngine _engine = new InsightsEngine();
+    // Shared with SessionLogWriter so the agent-readable session.json and the
+    // player-facing tab read the same store; dual-surface observability would
+    // be broken if each side ran its own engine instance.
+    private readonly InsightsEngine _engine = InsightsEngine.GetOrCreateShared();
 
     // _ranked is a reusable list that InsightStore.TopInto writes into; the
     // previous shape allocated a fresh List + Dictionary + lambda closure
     // every frame.
     private readonly List<InsightRecord> _ranked = new List<InsightRecord>(VisibleRows);
+    // Parallel list of pre-truncated row bodies, refilled at the same 1 Hz
+    // cadence as _ranked. Pulls the OverlayDraw.Truncate allocation out of
+    // the per-frame DrawInsightRow path (audit overlay-ui finding).
+    private readonly List<string> _rankedBodies = new List<string>(VisibleRows);
+    private const int BodyTruncateMax = 80;
     private long _nowTick;
     private long _lastRefreshTick = -RefreshIntervalTicks;
 
@@ -63,6 +71,17 @@ internal sealed class InsightsTab : IOverlayTab
             _engine.Evaluate(collector, latestTick, sessionLengthTicks);
         }
         _engine.Store.TopInto(_ranked, VisibleRows, latestTick);
+
+        // Re-truncate row bodies into the parallel cache at the same cadence.
+        // InsightRenderer caches the rendered string on the record; this layer
+        // caches the truncated form so DrawInsightRow can read both without
+        // allocating per-frame.
+        _rankedBodies.Clear();
+        for (int i = 0; i < _ranked.Count; i++)
+        {
+            string body = InsightRenderer.Render(_ranked[i], Audience.Player, Density.Short);
+            _rankedBodies.Add(OverlayDraw.Truncate(body, BodyTruncateMax));
+        }
     }
 
     public float MeasurePanelHeight(MetricCollector collector)
@@ -106,7 +125,8 @@ internal sealed class InsightsTab : IOverlayTab
         float rowY = area.Y + OverlayLayout.RowsTopOffset;
         for (int i = 0; i < _ranked.Count; i++)
         {
-            DrawInsightRow(sb, area, _ranked[i], rowY);
+            string body = i < _rankedBodies.Count ? _rankedBodies[i] : string.Empty;
+            DrawInsightRow(sb, area, _ranked[i], body, rowY);
             rowY += RowHeight;
         }
 
@@ -119,11 +139,12 @@ internal sealed class InsightsTab : IOverlayTab
         }
     }
 
-    private static void DrawInsightRow(SpriteBatch sb, Rectangle area, InsightRecord rec, float y)
+    private static void DrawInsightRow(SpriteBatch sb, Rectangle area, InsightRecord rec, string body, float y)
     {
         string label = rec.Pattern.ToString();
         OverlayDraw.Text(sb, label, new Vector2(area.X + 18, y), ProfilerTheme.TextMuted, 0.6f);
 
+        // Confidence badge: statistical strength of the claim.
         Color badgeColor = rec.Confidence switch
         {
             Confidence.High => ProfilerTheme.Good,
@@ -134,8 +155,22 @@ internal sealed class InsightsTab : IOverlayTab
         string badge = rec.Confidence == Confidence.Preliminary ? "preliminary" : rec.Confidence.ToString();
         OverlayDraw.Text(sb, badge, new Vector2(area.X + 540f, y), badgeColor, 0.6f);
 
-        string body = InsightRenderer.Render(rec, Audience.Player, Density.Short);
-        OverlayDraw.Text(sb, OverlayDraw.Truncate(body, 80), new Vector2(area.X + 26f, y + 13f),
+        // Data-strength badge: scope of evidence behind the claim. Orthogonal
+        // to confidence (a tightly-fit one-session observation is still weaker
+        // than lifetime data); the honesty contract requires both visible.
+        string scopeBadge = rec.Scope switch
+        {
+            EvidenceScope.LifetimeData     => "lifetime data",
+            EvidenceScope.NeedsPersistence => "needs persistence",
+            _                              => "this session",
+        };
+        Color scopeColor = rec.Scope == EvidenceScope.LifetimeData
+            ? ProfilerTheme.Accent
+            : ProfilerTheme.TextDim;
+        OverlayDraw.Text(sb, scopeBadge, new Vector2(area.X + 540f, y + 13f), scopeColor, 0.52f);
+
+        // body is pre-truncated by Tick at 1 Hz; no per-frame allocation.
+        OverlayDraw.Text(sb, body, new Vector2(area.X + 26f, y + 13f),
             ProfilerTheme.Text, 0.62f);
     }
 }

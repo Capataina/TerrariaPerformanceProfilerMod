@@ -88,6 +88,35 @@ internal sealed class OverviewTab : IOverlayTab
     private int _scrollOffset;
     private long _tickCounter;
 
+    /// <summary>
+    /// Truncated display names indexed by ModId. Built lazily on first draw
+    /// (HookInterceptor.ProfiledModNames is empty until PostSetupContent runs)
+    /// and reused thereafter — names don't change within a session, so the
+    /// Substring + ".." that <see cref="OverlayDraw.Truncate"/> would produce
+    /// per row per frame is computed exactly once per mod here. The audit's
+    /// overlay-ui finding ("Move truncation allocations out of per-row draw
+    /// paths") flagged this allocation specifically.
+    /// </summary>
+    private string[] _truncatedNames = Array.Empty<string>();
+    private const int NameTruncateMax = 32;
+
+    private string TruncatedNameFor(int modId)
+    {
+        string[] source = HookInterceptor.ProfiledModNames;
+        if (_truncatedNames.Length < source.Length)
+        {
+            string[] grown = new string[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                grown[i] = OverlayDraw.Truncate(source[i], NameTruncateMax);
+            }
+            _truncatedNames = grown;
+        }
+        return (uint)modId < (uint)_truncatedNames.Length
+            ? _truncatedNames[modId]
+            : "mod #" + modId;
+    }
+
     // Double-click drill-down state. A second click on the same mod-row within
     // DoubleClickWindowTicks switches to TREE and asks TreeTab to pre-expand
     // that mod (see OverlayState.PreselectedModId). The first click still
@@ -344,13 +373,15 @@ internal sealed class OverviewTab : IOverlayTab
 
     // ---- Row drawing ---------------------------------------------------------
 
-    private static void DrawLeaderboardRow(SpriteBatch sb, int panelX, float y, in ModImpact impact, double maxComposite, bool expanded)
+    private void DrawLeaderboardRow(SpriteBatch sb, int panelX, float y, in ModImpact impact, double maxComposite, bool expanded)
     {
-        string[] names = HookInterceptor.ProfiledModNames;
-        string name = impact.ModId < names.Length ? names[impact.ModId] : $"mod #{impact.ModId}";
+        // Mod names are session-stable, so the truncated form is computed once
+        // per mod into _truncatedNames and reused thereafter. Avoids the per-row,
+        // per-frame Substring allocation the audit flagged in overlay-ui.md.
+        string name = TruncatedNameFor(impact.ModId);
 
         OverlayDraw.Text(sb, expanded ? "-" : "+", new Vector2(panelX + RowExpandX, y + 2), ProfilerTheme.Accent, 0.72f);
-        OverlayDraw.Text(sb, OverlayDraw.Truncate(name, 32), new Vector2(panelX + RowNameX, y + 2), BandTextColor(impact.Band), 0.78f);
+        OverlayDraw.Text(sb, name, new Vector2(panelX + RowNameX, y + 2), BandTextColor(impact.Band), 0.78f);
 
         DrawCompositeBar(sb, panelX + RowBarX, (int)y + 4, impact.Composite, maxComposite, impact.Band, RowBarHeight);
         OverlayDraw.Text(sb, impact.Composite.ToString("F2") + " ms", new Vector2(panelX + RowValueX, y + 2), BandTextColor(impact.Band), 0.72f);

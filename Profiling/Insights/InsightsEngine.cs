@@ -23,6 +23,21 @@ namespace PerformanceProfiler.Profiling.Insights;
 /// </summary>
 public sealed class InsightsEngine
 {
+    /// <summary>
+    /// Process-wide engine reference, lazily created on first read. Owned by
+    /// whichever subsystem touches it first (typically the InsightsTab); both
+    /// the player overlay and the agent-readable session JSON read through
+    /// this so the two surfaces never see different record sets. Cleared by
+    /// <see cref="ProfilerSystem"/> at world unload to drop session state.
+    /// </summary>
+    public static InsightsEngine? Shared { get; set; }
+
+    /// <summary>Returns the shared engine, lazily allocating it if needed.</summary>
+    public static InsightsEngine GetOrCreateShared()
+    {
+        return Shared ??= new InsightsEngine();
+    }
+
     private readonly List<IInsightDetector> _detectors;
     private readonly InsightStore _store;
     private readonly List<InsightRecord> _scratch = new List<InsightRecord>(16);

@@ -204,10 +204,21 @@ public sealed class InsightStore
         return k;
     }
 
+    /// <summary>
+    /// Maps (confirmationCount, pAdjusted) onto the four confidence buckets.
+    /// Repetition is treated as evidence of persistence, not statistical
+    /// support: a record with <c>pAdjusted == 1d</c> (the detector explicitly
+    /// declares "no hypothesis test ran") can never reach Medium on confirmations
+    /// alone. The honesty contract requires confidence badges to be defensible
+    /// independently of how often the same untested observation re-fires.
+    /// </summary>
     private static Confidence PromoteConfidence(int confirmationCount, double pAdjusted)
     {
+        // High requires both: stable repeat behaviour AND a small adjusted p-value.
         if (confirmationCount >= 4 && pAdjusted <= 0.05) return Confidence.High;
-        if (confirmationCount >= 3) return Confidence.Medium;
+        // Medium requires statistical evidence at the lower bar; repetition alone
+        // never promotes past Low.
+        if (confirmationCount >= 3 && pAdjusted <= 0.10) return Confidence.Medium;
         if (confirmationCount >= 2) return Confidence.Low;
         return Confidence.Preliminary;
     }

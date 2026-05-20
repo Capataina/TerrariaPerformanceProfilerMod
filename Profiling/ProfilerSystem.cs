@@ -5,6 +5,7 @@ using System.IO;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Insights;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -138,6 +139,10 @@ public sealed class ProfilerSystem : ModSystem
         Collector = null;
         _contextTagger = null;
         Events = null;
+        // Insights engine carries per-session detector state; clear it so the
+        // next world starts with an empty live + history set rather than
+        // inheriting the previous session's records.
+        InsightsEngine.Shared = null;
         BossSampler.Clear();
         SubworldProbe.Clear();
         Mod.Logger.Info("Profiler disarmed: world unloaded.");

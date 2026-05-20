@@ -31,6 +31,29 @@ public enum PatternKey : byte
 public enum Confidence : byte { Preliminary = 0, Low = 1, Medium = 2, High = 3 }
 
 /// <summary>
+/// Data-strength badge orthogonal to <see cref="Confidence"/>. A record can be
+/// statistically tight (High confidence) within a single session and still be
+/// weaker than lifetime data accumulated across many sessions; the honesty
+/// contract requires the UI to make that distinction visible (README §insights).
+///
+/// <list type="bullet">
+///   <item><b>ThisSession</b> — every signal sourced from the current world only.
+///   The current default for in-scope detectors.</item>
+///   <item><b>LifetimeData</b> — record draws on prior sessions retained via
+///   the persistence layer (LiteDB; not yet wired).</item>
+///   <item><b>NeedsPersistence</b> — the detector has a real claim it cannot
+///   substantiate without persistence (e.g. NEW_CONTRIBUTOR, FREE_REMOVAL).
+///   Renders with a "needs persistence" hedge until LiteDB lands.</item>
+/// </list>
+/// </summary>
+public enum EvidenceScope : byte
+{
+    ThisSession      = 0,
+    LifetimeData     = 1,
+    NeedsPersistence = 2,
+}
+
+/// <summary>
 /// Who the rendered output is aimed at. Some patterns are modder-only
 /// (HookFrequencyTail); some make sense to both audiences with different
 /// densities. Selected at render time, never at detect time.
@@ -127,6 +150,15 @@ public sealed class InsightRecord
     public Evidence   Evidence;
     public Confidence Confidence;
     public Audience   Audience;
+
+    /// <summary>
+    /// Data-strength badge — see <see cref="EvidenceScope"/>. Defaults to
+    /// <see cref="EvidenceScope.ThisSession"/>; detectors that need lifetime
+    /// data they don't have yet (FREE_REMOVAL, NEW_CONTRIBUTOR) set
+    /// <see cref="EvidenceScope.NeedsPersistence"/> so the UI hedge is
+    /// deterministic, not template-driven.
+    /// </summary>
+    public EvidenceScope Scope;
 
     public long FirstSeenTick;
     public long LastSeenTick;

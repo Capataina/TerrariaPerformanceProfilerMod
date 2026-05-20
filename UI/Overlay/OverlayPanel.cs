@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -79,7 +80,7 @@ internal sealed class OverlayPanel : UIElement
         // Content band: delegate to the active tab.
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
-        TabRegistry.Active.HandleClick(localX, localY, collector);
+        TabRegistry.ResolveActive(collector).HandleClick(localX, localY, collector);
     }
 
     public override void LeftMouseUp(UIMouseEvent evt)
@@ -97,7 +98,7 @@ internal sealed class OverlayPanel : UIElement
         if (collector == null) return;
 
         int delta = evt.ScrollWheelValue > 0 ? -1 : 1;
-        TabRegistry.Active.HandleScroll(delta, collector);
+        TabRegistry.ResolveActive(collector).HandleScroll(delta, collector);
     }
 
     private bool ClickHeaderControl(float localX, float localY)
@@ -139,9 +140,12 @@ internal sealed class OverlayPanel : UIElement
             return;
         }
 
-        // Tab pills (left side). Number of pills follows TabRegistry.
-        int tabCount = TabRegistry.Tabs.Count;
-        for (int slot = 0; slot < tabCount; slot++)
+        // Tab pills (left side). Click indices map to the visible-tab list so
+        // hidden tabs (IsAvailable == false) get skipped over and players see
+        // the click land on whatever pill they actually saw.
+        MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        IReadOnlyList<IOverlayTab> visible = TabRegistry.Visible(collector);
+        for (int slot = 0; slot < visible.Count; slot++)
         {
             float x = OverlayLayout.TabFirstX + slot * (OverlayLayout.TabWidth + OverlayLayout.TabGap);
             if (localX >= x && localX <= x + OverlayLayout.TabWidth)
@@ -172,7 +176,9 @@ internal sealed class OverlayPanel : UIElement
 
         // Tab refresh + panel resize. The active tab decides its own height;
         // the chrome only enforces the change against the UIElement.
-        IOverlayTab active = TabRegistry.Active;
+        // ResolveActive clamps the persisted index against the visible list,
+        // so a tab that just became unavailable can never receive Tick.
+        IOverlayTab active = TabRegistry.ResolveActive(collector);
         active.Tick(collector);
         ApplyHeight(active.MeasurePanelHeight(collector));
     }
@@ -219,8 +225,10 @@ internal sealed class OverlayPanel : UIElement
         DrawStats(spriteBatch, area, collector);
         DrawProfilerHealth(spriteBatch, area, collector);
 
-        // Tab content: everything from DividerOffset down.
-        TabRegistry.Active.Draw(spriteBatch, area, collector);
+        // Tab content: everything from DividerOffset down. ResolveActive matches
+        // the index used by the tab strip and the click handler, so the painted
+        // active pill always corresponds to the tab whose content we're drawing.
+        TabRegistry.ResolveActive(collector).Draw(spriteBatch, area, collector);
     }
 
     private static void DrawHeaderStrip(SpriteBatch spriteBatch, Rectangle area)
@@ -246,10 +254,15 @@ internal sealed class OverlayPanel : UIElement
         ProfilerTheme.FillRect(spriteBatch,
             new Rectangle(area.X, (int)(stripY + OverlayLayout.TabStripHeight - 1), area.Width, 1), ProfilerTheme.Border);
 
+        // Visible-tab list — hidden tabs (IsAvailable == false) don't paint a
+        // pill. The click handler uses the same visible-index basis so the
+        // strip stays the source of truth for what's selectable.
+        MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        IReadOnlyList<IOverlayTab> visible = TabRegistry.Visible(collector);
         int activeIdx = OverlayState.ActiveTabIndex;
-        for (int slot = 0; slot < TabRegistry.Tabs.Count; slot++)
+        for (int slot = 0; slot < visible.Count; slot++)
         {
-            DrawTabPill(spriteBatch, area, slot, TabRegistry.Tabs[slot].Label, slot == activeIdx);
+            DrawTabPill(spriteBatch, area, slot, visible[slot].Label, slot == activeIdx);
         }
 
         DrawMetricPill(spriteBatch, area);

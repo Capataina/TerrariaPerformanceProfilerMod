@@ -8,6 +8,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PerformanceProfiler.Profiling.Insights;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -33,9 +34,9 @@ internal sealed class SessionLogFailureException : Exception
 /// </summary>
 public sealed class SessionLogWriter : IDisposable
 {
-    // Schema 3: spike rows now come from MetricCollector.Spikes (median-based
-    // coalesced windows) instead of an in-writer hardcoded-threshold list.
-    private const int SchemaVersion = 3;
+    // Schema 4: adds the `insights` block (live + history records, gated detector
+    // map) so the agent-readable surface matches the in-game Insights tab.
+    private const int SchemaVersion = 4;
     private const int TimelineIntervalTicks = 60 * 60;
     private const int TimelineTopMods = 10;
     private const int SpikeTopMods = 10;
@@ -142,6 +143,7 @@ public sealed class SessionLogWriter : IDisposable
             coverage = Coverage(),
             timeline = _timeline,
             spikes = SpikeObjects(collector),
+            insights = InsightsBlock(),
             final = final && collector != null ? FinalSummary(collector) : null,
         };
 
@@ -336,6 +338,100 @@ public sealed class SessionLogWriter : IDisposable
     {
         if (collector == null) return Array.Empty<object>();
         return SpikeWindowsJson(collector);
+    }
+
+    /// <summary>
+    /// Renders the shared <see cref="InsightsEngine"/>'s live and history record
+    /// sets into JSON-friendly objects, plus the gated-detector map so a future
+    /// agent reader can see which patterns still need the events / persistence
+    /// gates to clear. When no engine has been initialised yet (e.g. the player
+    /// never opened the Insights tab this session) the block reports empty
+    /// arrays — the schema field is always present so consumers don't need to
+    /// branch on its absence.
+    /// </summary>
+    private static object InsightsBlock()
+    {
+        InsightsEngine? engine = InsightsEngine.Shared;
+        if (engine == null)
+        {
+            return new
+            {
+                live = Array.Empty<object>(),
+                history = Array.Empty<object>(),
+                gated = new Dictionary<string, string[]>(),
+            };
+        }
+
+        return new
+        {
+            live = RecordsToJson(engine.Store.AllLive()),
+            history = RecordsToJson(engine.Store.History),
+            gated = GatedToJson(engine.GatedPatterns()),
+        };
+    }
+
+    private static object[] RecordsToJson(IEnumerable<InsightRecord> records)
+    {
+        List<object> rows = new List<object>();
+        foreach (InsightRecord r in records)
+        {
+            rows.Add(RecordToJson(r));
+        }
+        return rows.ToArray();
+    }
+
+    private static object RecordToJson(InsightRecord r)
+    {
+        return new
+        {
+            pattern = r.Pattern.ToString(),
+            patternId = (int)r.Pattern,
+            confidence = r.Confidence.ToString(),
+            scope = r.Scope.ToString(),
+            audience = r.Audience.ToString(),
+            confirmationCount = r.ConfirmationCount,
+            firstSeenTick = r.FirstSeenTick,
+            lastSeenTick = r.LastSeenTick,
+            subject = new
+            {
+                modId = r.Subject.ModId,
+                modName = r.Subject.ModId >= 0 && r.Subject.ModId < HookInterceptor.ProfiledModNames.Length
+                    ? HookInterceptor.ProfiledModNames[r.Subject.ModId]
+                    : null,
+                hookId = r.Subject.HookId,
+                contextKey = r.Subject.ContextKey,
+                contextDim = r.Subject.ContextDim,
+            },
+            magnitude = new
+            {
+                baselineMs = r.Magnitude.BaselineMs,
+                observedMs = r.Magnitude.ObservedMs,
+                ratioOrDelta = r.Magnitude.RatioOrDelta,
+                allocBytes = r.Magnitude.AllocBytes,
+                count = r.Magnitude.Count,
+            },
+            evidence = new
+            {
+                sampleN = r.Evidence.SampleN,
+                baselineN = r.Evidence.BaselineN,
+                pValue = r.Evidence.PValue,
+                pValueAdjusted = r.Evidence.PValueAdjusted,
+                effectSize = r.Evidence.EffectSize,
+                firstTickIndex = r.Evidence.FirstTickIndex,
+                lastTickIndex = r.Evidence.LastTickIndex,
+                baseline = r.Evidence.Baseline.ToString(),
+            },
+        };
+    }
+
+    private static Dictionary<string, string[]> GatedToJson(IReadOnlyDictionary<string, List<string>> gated)
+    {
+        Dictionary<string, string[]> result = new Dictionary<string, string[]>(gated.Count);
+        foreach (KeyValuePair<string, List<string>> kv in gated)
+        {
+            result[kv.Key] = kv.Value.ToArray();
+        }
+        return result;
     }
 
     private static object[] Mods()

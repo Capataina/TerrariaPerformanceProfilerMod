@@ -32,7 +32,7 @@ public static class RankingScorer
     /// </summary>
     public static double Score(InsightRecord rec, long nowTick, long ttlTicks)
     {
-        double mag = NormaliseMagnitude(rec.Magnitude.RatioOrDelta);
+        double mag = NormaliseMagnitude(rec);
         double conf = ConfidenceWeight(rec.Confidence);
         double rec_ = RecencyWeight(nowTick - rec.LastSeenTick, ttlTicks);
         double act = Actionability(rec.Pattern);
@@ -47,14 +47,49 @@ public static class RankingScorer
              + WAudience * aud;
     }
 
-    private static double NormaliseMagnitude(double ratioOrDelta)
+    /// <summary>
+    /// Normalises a record's <see cref="Magnitude.RatioOrDelta"/> to <c>[0,1]</c>
+    /// according to its <see cref="PatternKey"/>. Two regimes coexist:
+    /// <list type="bullet">
+    ///   <item>Share patterns — <c>HotHookDominance</c>, <c>AllocationBurst</c>,
+    ///   <c>PeakContributorToSpike</c> — store a fraction in <c>[0,1]</c>
+    ///   (e.g. "this hook is 42% of category cost"). They pass through unchanged.</item>
+    ///   <item>Ratio patterns — everything else — store a multiple where
+    ///   <c>1.0</c> means baseline. A soft knee at 10× saturates to 1.</item>
+    /// </list>
+    /// <para>
+    /// Before this split, every detector ran through the ratio curve, which
+    /// collapsed all share values in <c>[0,1]</c> to a magnitude of zero. A
+    /// 40% contributor and a 90% contributor ranked identically on magnitude,
+    /// erasing the strongest live signal the in-scope detectors produce.
+    /// </para>
+    /// </summary>
+    private static double NormaliseMagnitude(InsightRecord rec)
     {
-        // Clamp to [0, 1] with a soft knee around 10x. Ratios below 1 are
-        // suppressed; 1x → 0, 2x → ~0.2, 5x → ~0.5, 10x+ → 1.
-        if (ratioOrDelta <= 1d) return 0d;
-        double v = (ratioOrDelta - 1d) / 9d;
+        double v = rec.Magnitude.RatioOrDelta;
+        return IsSharePattern(rec.Pattern)
+            ? ClampUnit(v)
+            : RatioCurve(v);
+    }
+
+    /// <summary>True if the pattern emits a fractional share in <c>[0,1]</c> as its magnitude.</summary>
+    private static bool IsSharePattern(PatternKey k) => k switch
+    {
+        PatternKey.HotHookDominance       => true,
+        PatternKey.AllocationBurst        => true,
+        PatternKey.PeakContributorToSpike => true,
+        _                                 => false,
+    };
+
+    /// <summary>Soft knee at 10×: <c>1×</c>→0, <c>2×</c>→~0.11, <c>5×</c>→~0.44, <c>10×+</c>→1.</summary>
+    private static double RatioCurve(double ratio)
+    {
+        if (ratio <= 1d) return 0d;
+        double v = (ratio - 1d) / 9d;
         return v >= 1d ? 1d : v;
     }
+
+    private static double ClampUnit(double v) => v < 0d ? 0d : v > 1d ? 1d : v;
 
     private static double ConfidenceWeight(Confidence c) => c switch
     {
