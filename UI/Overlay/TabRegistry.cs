@@ -36,11 +36,11 @@ internal static class TabRegistry
     /// </summary>
     public static List<IOverlayTab> Tabs { get; } = new List<IOverlayTab>
     {
+        new OverviewTab(),
         new TreeTab(),
         new SpikesTab(),
-        // Three parallel agents add their tabs here, one per agent:
+        // Two parallel agents add their tabs here, one per agent:
         //     new EventsTab(),
-        //     new OverviewTab(),
         //     new InsightsTab(),
     };
 
