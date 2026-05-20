@@ -88,6 +88,7 @@ public sealed class MetricCollector
     // records when the frame time crosses the (median × N) threshold.
     private readonly PerTickAttributionRing _perTickRing;
     private readonly SpikeDetector _spikeDetector;
+    private readonly StallDetector _stallDetector = new StallDetector();
     private readonly Baseline _baseline = new Baseline();
     // Self-health is owned by ProfilerSystem (a process singleton) because
     // install-time measurement happens before any world exists. The collector
@@ -245,6 +246,17 @@ public sealed class MetricCollector
     public IReadOnlyList<SpikeWindow> Spikes => _spikeDetector.Windows;
 
     /// <summary>
+    /// Stalls detected this session — wall-clock gaps between consecutive
+    /// <see cref="BeginTick"/> calls that exceeded the baseline tick period by
+    /// the configured multiplier. Distinct from <see cref="Spikes"/>: a spike
+    /// is too much work inside one tick, a stall is wall time elapsing without
+    /// the game advancing (GC pauses, OS-suspended process, draw-thread
+    /// blocking). Both are lag from the player's view; they have different
+    /// causes so they're modelled separately.
+    /// </summary>
+    public IReadOnlyList<StallEvent> Stalls => _stallDetector.Events;
+
+    /// <summary>
     /// Shared baseline (median frame time, median tick period, allocation
     /// rate, calibration state) recomputed once per <see cref="EndTick"/>.
     /// Every detector reads from this instead of carrying its own absolute
@@ -272,20 +284,48 @@ public sealed class MetricCollector
     /// </summary>
     public void FlushSpikes() => _spikeDetector.Flush();
 
+    /// <summary>
+    /// Shared baseline (median frame time, median tick period, allocation
+    /// rate, calibration state) — kept here for the legacy
+    /// <see cref="Baseline"/> getter further down. Stall-period derivation
+    /// lives on the baseline; the property exists separately for clarity at
+    /// call sites that only want tick stats vs only want self-health.
+    /// </summary>
+    internal StallDetector StallDetectorRef => _stallDetector;
+
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
 
     /// <summary>
     /// Marks the start of a tick: captures the wall-clock and GC-pause baselines
-    /// the matching <see cref="EndTick"/> measures against, and clears the
-    /// per-mod accumulator so the detours start the tick from zero.
+    /// the matching <see cref="EndTick"/> measures against, runs the
+    /// <see cref="StallDetector"/> against the gap from the previous tick,
+    /// and clears the per-mod accumulator so the detours start the tick from
+    /// zero.
     /// </summary>
-    public void BeginTick()
+    /// <param name="tickIndex">The game's tick index for this tick. Used by the stall detector for event tagging.</param>
+    public void BeginTick(long tickIndex)
     {
         _tickStartTimestamp = Stopwatch.GetTimestamp();
         _gcPauseMsAtTickStart = GcPauseMilliseconds();
+
+        // Stall detection runs HERE, before BeginTick clears the per-mod
+        // accumulator. The detector compares this tick's BeginTick stamp
+        // against the previous one; if the wall gap exceeds the baseline
+        // multiplier, it emits a StallEvent with full GC/CPU/heap deltas.
+        long nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _stallDetector.OnBeginTick(_tickStartTimestamp, tickIndex, nowUnixMs, _baseline);
+
         PerModAttribution.BeginTick();
     }
+
+    /// <summary>
+    /// Back-compat overload used by tests that don't carry a tick index.
+    /// The stall detector falls back to using the count of ticks seen as
+    /// its index; loses cross-reference fidelity but keeps the detector
+    /// behaviour intact.
+    /// </summary>
+    public void BeginTick() => BeginTick(_history.Count);
 
     /// <summary>
     /// Marks the end of a tick, builds its <see cref="TickFrame"/>, commits it

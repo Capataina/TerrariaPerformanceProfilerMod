@@ -184,7 +184,9 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public override void PreUpdateEntities()
     {
-        Collector?.BeginTick();
+        // Pass the live game tick index so the stall detector can attribute
+        // events to real ticks instead of synthetic counters.
+        Collector?.BeginTick((long)Main.GameUpdateCount);
     }
 
     /// <summary>

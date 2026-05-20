@@ -53,6 +53,7 @@
     <Compile Include="..\Profiling\PerModSample.cs" Link="Source\PerModSample.cs" />
     <Compile Include="..\Profiling\TickFrame.cs" Link="Source\TickFrame.cs" />
     <Compile Include="..\Profiling\Baseline.cs" Link="Source\Baseline.cs" />
+    <Compile Include="..\Profiling\StallDetector.cs" Link="Source\StallDetector.cs" />
     <Compile Include="..\Profiling\Events\BiomeBitset.cs" Link="Source\Events\BiomeBitset.cs" />
     <Compile Include="..\Profiling\Events\WeatherFlags.cs" Link="Source\Events\WeatherFlags.cs" />
     <Compile Include="..\Profiling\Events\InvasionId.cs" Link="Source\Events\InvasionId.cs" />
