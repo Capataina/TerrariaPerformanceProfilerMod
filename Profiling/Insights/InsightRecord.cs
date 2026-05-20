@@ -21,6 +21,9 @@ public enum PatternKey : byte
     NewContributor         = 8,
     PeakContributorToSpike = 9,
     HookFrequencyTail      = 10,
+    LoadoutCorrelatedCost  = 11,
+    EventConditionalCost   = 12,
+    LoadoutCombinationCost = 13,
 }
 
 /// <summary>

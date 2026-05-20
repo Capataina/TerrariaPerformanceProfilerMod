@@ -15,11 +15,23 @@ namespace PerformanceProfiler.Tests;
 public class StallClassifierTests
 {
     [Fact]
-    public void Lone_LongStall_LowCpu_IsProcessSuspended()
+    public void Lone_LongStall_LowCpu_FocusLost_IsProcessSuspended()
     {
-        // 2-second stall, CPU was idle, no GC, no recent neighbours.
-        var cause = StallDetector.ClassifyCause(wallMs: 2000, gcMs: 0, gen2Delta: 0, cpuMs: 50, recentStallsInLast5s: 0);
+        // 2-second stall, CPU was idle, no GC, no recent neighbours, focus
+        // LOST during the gap — the real OS-suspend signature.
+        var cause = StallDetector.ClassifyCause(wallMs: 2000, gcMs: 0, gen2Delta: 0, cpuMs: 50,
+            recentStallsInLast5s: 0, baselineMs: 16.67, focusHeldAcrossGap: false);
         Assert.Equal(StallCause.ProcessSuspended, cause);
+    }
+
+    [Fact]
+    public void Lone_LongStall_LowCpu_FocusHeld_IsMainThreadFreeze()
+    {
+        // Same shape, focus held — the v0.4 misdiagnosis case. Now correctly
+        // classifies as MainThreadFreeze instead of ProcessSuspended.
+        var cause = StallDetector.ClassifyCause(wallMs: 2000, gcMs: 0, gen2Delta: 0, cpuMs: 50,
+            recentStallsInLast5s: 0, baselineMs: 16.67, focusHeldAcrossGap: true);
+        Assert.Equal(StallCause.MainThreadFreeze, cause);
     }
 
     [Fact]
@@ -63,8 +75,10 @@ public class StallClassifierTests
     [Fact]
     public void Long_Lone_Stall_With_Cluster_Below_Threshold_Still_Suspended()
     {
-        // 2 stalls in 5s is below the cluster threshold (5).
-        var cause = StallDetector.ClassifyCause(wallMs: 1800, gcMs: 0, gen2Delta: 0, cpuMs: 40, recentStallsInLast5s: 2);
+        // 2 stalls in 5s is below the cluster threshold (5). Focus lost
+        // → real OS suspend, not a freeze.
+        var cause = StallDetector.ClassifyCause(wallMs: 1800, gcMs: 0, gen2Delta: 0, cpuMs: 40,
+            recentStallsInLast5s: 2, baselineMs: 16.67, focusHeldAcrossGap: false);
         Assert.Equal(StallCause.ProcessSuspended, cause);
     }
 

@@ -73,6 +73,12 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<StallClusterRow>         StallClusters         => _db.GetCollection<StallClusterRow>("stallClusters");
     public ILiteCollection<PlayerDeathRow>          PlayerDeaths          => _db.GetCollection<PlayerDeathRow>("playerDeaths");
     public ILiteCollection<WorldSnapshotRow>        WorldSnapshots        => _db.GetCollection<WorldSnapshotRow>("worldSnapshots");
+    public ILiteCollection<DamageTakenRow>          DamageTaken           => _db.GetCollection<DamageTakenRow>("damageTakenEvents");
+    public ILiteCollection<DamageDealtRow>          DamageDealt           => _db.GetCollection<DamageDealtRow>("damageDealtEvents");
+    public ILiteCollection<NpcSpawnRow>             NpcSpawns             => _db.GetCollection<NpcSpawnRow>("npcSpawnEvents");
+    public ILiteCollection<ItemCreatedRow>          ItemCreations         => _db.GetCollection<ItemCreatedRow>("itemCreatedEvents");
+    public ILiteCollection<LoadoutSnapshotRow>      LoadoutSnapshots      => _db.GetCollection<LoadoutSnapshotRow>("loadoutSnapshots");
+    public ILiteCollection<BuffEventRow>            BuffEvents            => _db.GetCollection<BuffEventRow>("buffEvents");
 
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
         : this(root, StreamRegistry.Default(), log, profilerVersion) { }

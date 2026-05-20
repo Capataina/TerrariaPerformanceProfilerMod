@@ -73,6 +73,12 @@ public sealed class StreamRegistry
             new InsightStream(),
             new PlayerDeathStream(),
             new WorldSnapshotStream(),
+            new DamageTakenStream(),
+            new DamageDealtStream(),
+            new NpcSpawnStream(),
+            new ItemCreatedStream(),
+            new LoadoutSnapshotStream(),
+            new BuffEventStream(),
         });
     }
 }

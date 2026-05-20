@@ -41,13 +41,26 @@ public class StallDetectorTests
     }
 
     [Fact]
-    public void ClassifyCause_CpuMuchLessThanWall_IsProcessSuspended()
+    public void ClassifyCause_CpuMuchLessThanWall_FocusLost_IsProcessSuspended()
     {
-        // 800 ms wall, 50 ms CPU — the process was sleeping (laptop closed,
-        // app backgrounded, OS preempted us for another process).
+        // 800 ms wall, 50 ms CPU, focus LOST during the gap — the OS gave
+        // focus to another app (real cmd-tab / sleep / background).
         StallCause c = StallDetector.ClassifyCause(
-            wallMs: 800, gcMs: 0, gen2Delta: 0, cpuMs: 50);
+            wallMs: 800, gcMs: 0, gen2Delta: 0, cpuMs: 50,
+            recentStallsInLast5s: 0, baselineMs: 16.67, focusHeldAcrossGap: false);
         Assert.Equal(StallCause.ProcessSuspended, c);
+    }
+
+    [Fact]
+    public void ClassifyCause_CpuMuchLessThanWall_FocusHeld_IsMainThreadFreeze()
+    {
+        // Same wall + CPU shape, but the game kept focus throughout. This
+        // is what the v0.4 playtest hit: a real game-thread freeze that
+        // was misclassified as ProcessSuspended. v0.5 distinguishes them.
+        StallCause c = StallDetector.ClassifyCause(
+            wallMs: 1800, gcMs: 0, gen2Delta: 0, cpuMs: 50,
+            recentStallsInLast5s: 0, baselineMs: 16.67, focusHeldAcrossGap: true);
+        Assert.Equal(StallCause.MainThreadFreeze, c);
     }
 
     [Fact]
@@ -72,10 +85,11 @@ public class StallDetectorTests
     public void ClassifyCause_ProcessSuspendedTrumpsGcCheck()
     {
         // Edge case: gc reading happened to span the suspend window. CPU
-        // delta is the most reliable suspend signal so it wins over a stale
-        // gc reading that might look dominant.
+        // delta + focus-loss is the unambiguous suspend signal so it
+        // wins over a stale gc reading that might look dominant.
         StallCause c = StallDetector.ClassifyCause(
-            wallMs: 1000, gcMs: 600, gen2Delta: 1, cpuMs: 50);
+            wallMs: 1000, gcMs: 600, gen2Delta: 1, cpuMs: 50,
+            recentStallsInLast5s: 0, baselineMs: 16.67, focusHeldAcrossGap: false);
         Assert.Equal(StallCause.ProcessSuspended, c);
     }
 

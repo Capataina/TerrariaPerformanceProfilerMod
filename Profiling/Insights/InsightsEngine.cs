@@ -71,6 +71,15 @@ public sealed class InsightsEngine
             new NewContributorDetector(),
             new GcPauseCulpritDetector(),
             new HookFrequencyTailDetector(),
+
+            // v0.5 interaction-tracking detectors. The first two query the
+            // DB streams added in v0.5 (loadoutSnapshots, buffEvents,
+            // tickAggregatesWarm) and are available as soon as a world has
+            // been loaded; the third declares itself gated on
+            // cross-session loadout aggregation.
+            new LoadoutCorrelatedCostDetector(),
+            new EventConditionalCostDetector(),
+            new LoadoutCombinationCostDetector(),
         };
 
         _gatedMap = BuildGatedMap(_detectors);

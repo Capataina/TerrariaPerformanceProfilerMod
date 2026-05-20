@@ -316,11 +316,14 @@ public sealed class MetricCollector
         // to per-mod attribution for the gap (the gap itself contains no
         // BeginTick/EndTick window we could measure inside).
         long nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        // Pass the smoothed per-mod cost so the detector can attribute the
-        // stall to the mods that were costing the most when the gap began —
-        // critical for the "CheatSheet menu spawned a stall" case where the
-        // attribution is not derivable from the per-tick CPU work alone.
-        _stallDetector.OnBeginTick(_tickStartTimestamp, tickIndex, nowUnixMs, _baseline, _perModSmoothedMs);
+        // Pass the smoothed per-mod cost AND the focus state so the
+        // detector can attribute the stall to the mods that were costing
+        // the most when the gap began (CheatSheet-menu case) and
+        // distinguish a real OS suspension (focus lost during the gap)
+        // from a main-thread freeze (focus held, game just didn't
+        // progress — the v0.4 misdiagnosis).
+        bool hadFocus = ProfilerFocusProbe.Read();
+        _stallDetector.OnBeginTick(_tickStartTimestamp, tickIndex, nowUnixMs, _baseline, _perModSmoothedMs, hadFocus);
 
         // Note: PerModAttribution accumulator is NOT cleared here anymore.
         // The clear moved to EndTick (after harvest) so that draw-thread

@@ -44,6 +44,9 @@ public sealed class ProfilerSystem : ModSystem
     /// <summary>Live recorder's session id while a world is loaded; null otherwise. Read by chat commands to scope their queries.</summary>
     public LiteDB.ObjectId? LiveRecorderSessionId => _recorder?.SessionId;
 
+    /// <summary>Live recorder while a world is loaded; null otherwise. Read by the GlobalNPC / GlobalItem / ModPlayer interaction hooks.</summary>
+    public Persistence.SessionRecorder? LiveRecorder => _recorder;
+
     /// <summary>
     /// Per-tick game-state snapshotter (biomes, bosses, weather, invasion,
     /// subworld). Created once at world load, ticked from

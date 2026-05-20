@@ -99,6 +99,8 @@
     <Compile Remove="..\Profiling\Persistence\PlayerDeathDetector.cs" />
     <Compile Remove="..\Profiling\Persistence\SessionSummaryLogger.cs" />
     <Compile Remove="..\Profiling\Persistence\Commands\*.cs" />
+    <Compile Remove="..\Profiling\Persistence\Interactions\*.cs" />
+    <Compile Remove="..\Profiling\ProfilerFocusProbe.cs" />
   </ItemGroup>
 
 </Project>

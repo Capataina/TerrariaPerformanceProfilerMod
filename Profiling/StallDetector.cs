@@ -27,6 +27,8 @@ public enum StallCause : byte
     UiOverlayBlocking = 5,
     /// <summary>Stall fired during a known world-load tick window (entering or leaving a world). JIT + asset bind dominate; not a real gameplay stall.</summary>
     WorldLoad = 6,
+    /// <summary>Wall advanced, CPU did not, but the game retained input focus throughout. The OS wasn't suspending us — something inside the main thread blocked (lock, sync I/O, render-thread wait). Distinct from <see cref="ProcessSuspended"/>, which requires focus loss.</summary>
+    MainThreadFreeze = 7,
 }
 
 /// <summary>
@@ -207,6 +209,15 @@ public sealed class StallDetector
     private bool _hasBaselineSample;
     private int _ticksSeen;
 
+    /// <summary>
+    /// True if every tick since the previous BeginTick had focus. Reset to
+    /// the current-tick focus state after each successful tick. A stall
+    /// gap that includes any focus-lost frame flips this false → indicates
+    /// the OS gave focus to another app during the gap, which is the
+    /// real ProcessSuspended signature.
+    /// </summary>
+    private bool _focusHeldAcrossGap = true;
+
     public StallDetector()
     {
         _view = new StallEventsView(_events);
@@ -236,19 +247,26 @@ public sealed class StallDetector
     /// <param name="tickStartUnixMs">Wall-clock time at this tick's start (for log cross-reference).</param>
     /// <param name="baseline">Shared baseline service for the relative threshold.</param>
     public void OnBeginTick(long beginStamp, long tickIndex, long tickStartUnixMs, Baseline baseline)
-        => OnBeginTick(beginStamp, tickIndex, tickStartUnixMs, baseline, null);
+        => OnBeginTick(beginStamp, tickIndex, tickStartUnixMs, baseline, null, hadFocusThisTick: true);
 
-    /// <summary>
-    /// Extended overload that captures per-mod attribution at stall time. The
-    /// classifier also gets a cluster-shape signal (count of stalls in the
-    /// last ~5s) so a clustered run of medium-duration stalls classifies as
-    /// <see cref="StallCause.UiOverlayBlocking"/> rather than misreading them
-    /// all as <see cref="StallCause.ProcessSuspended"/>.
-    /// </summary>
     public void OnBeginTick(long beginStamp, long tickIndex, long tickStartUnixMs, Baseline baseline,
         IReadOnlyList<double>? perModSmoothedMs)
+        => OnBeginTick(beginStamp, tickIndex, tickStartUnixMs, baseline, perModSmoothedMs, hadFocusThisTick: true);
+
+    /// <summary>
+    /// Full overload. Captures per-mod attribution at stall time AND the
+    /// focus-retention signal so the classifier can distinguish a real OS
+    /// suspend (focus lost during the gap) from a main-thread freeze
+    /// (focus retained, game just didn't progress).
+    /// </summary>
+    public void OnBeginTick(long beginStamp, long tickIndex, long tickStartUnixMs, Baseline baseline,
+        IReadOnlyList<double>? perModSmoothedMs, bool hadFocusThisTick)
     {
         _ticksSeen++;
+        // Track focus-retention across the current gap. If any tick in the
+        // gap reported focus lost, the flag stays false until we reset it
+        // on a successful (non-stall) tick.
+        if (!hadFocusThisTick) _focusHeldAcrossGap = false;
 
         // First-tick path: no previous sample to compare against. Capture the
         // baseline snapshot and bail.
@@ -265,8 +283,11 @@ public sealed class StallDetector
 
         if (tickPeriodMs < baselineMs * ThresholdMultiplier)
         {
-            // No stall. Slide the baseline sample forward and exit.
+            // No stall. Slide the baseline sample forward and reset the
+            // gap-focus tracker so the next stall starts with a clean
+            // "focus held throughout" assumption.
             CaptureBaseline(beginStamp);
+            _focusHeldAcrossGap = hadFocusThisTick;
             return;
         }
 
@@ -313,7 +334,7 @@ public sealed class StallDetector
             Gen2Collections = g2,
             HeapSizeBeforeBytes = _prevHeapBytes,
             HeapSizeAfterBytes = heapNow,
-            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta, recentInLast5s, baselineMs),
+            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta, recentInLast5s, baselineMs, _focusHeldAcrossGap),
             Severity = ClassifySeverity(tickPeriodMs, baselineMs),
             Warming = _ticksSeen <= WarmupTicks,
         };
@@ -321,6 +342,8 @@ public sealed class StallDetector
         _events.Push(in ev);
 
         CaptureBaseline(beginStamp);
+        // Reset gap-focus tracker for the next stall's accumulation window.
+        _focusHeldAcrossGap = hadFocusThisTick;
     }
 
     /// <summary>
@@ -399,29 +422,52 @@ public sealed class StallDetector
     /// </summary>
     public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
         int recentStallsInLast5s)
-        => ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s, baselineMs: 16.67d);
+        => ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s, baselineMs: 16.67d, focusHeldAcrossGap: true);
 
-    /// <summary>
-    /// Cluster-shape + baseline-aware classifier. All thresholds are
-    /// multiples of <paramref name="baselineMs"/> so a 30 fps player and
-    /// a 120 fps player both get correct buckets without retuning constants.
-    /// </summary>
     public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
         int recentStallsInLast5s, double baselineMs)
+        => ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s, baselineMs, focusHeldAcrossGap: true);
+
+    /// <summary>
+    /// Cluster-shape + baseline-aware + focus-aware classifier. All
+    /// thresholds are multiples of <paramref name="baselineMs"/> so a
+    /// 30 fps player and a 120 fps player both get correct buckets
+    /// without retuning constants.
+    ///
+    /// <para>
+    /// <paramref name="focusHeldAcrossGap"/> is true if Main.hasFocus was
+    /// true for every tick in the stall window. A long CPU-starved stall
+    /// with focus held is a <see cref="StallCause.MainThreadFreeze"/>
+    /// (something inside the game blocked the main thread); the same
+    /// signature with focus lost is a real <see cref="StallCause.ProcessSuspended"/>
+    /// (OS gave focus to another app). This is what disambiguates a
+    /// frozen game from a real alt-tab.
+    /// </para>
+    /// </summary>
+    public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
+        int recentStallsInLast5s, double baselineMs, bool focusHeldAcrossGap)
     {
         // Defensive: a zero-wall stall is degenerate; report unknown.
         if (wallMs <= 0d) return StallCause.Unknown;
         if (baselineMs <= 0d) baselineMs = 16.67d;  // safety fallback to 60 fps
 
-        // First priority: an unambiguous OS suspension. Long wall, CPU
-        // barely advanced, lone event. GC counters can look high because
-        // the GC reading spanned the suspend window — but the process
-        // wasn't running, so any GC pause we "saw" is stale. Treat the
-        // CPU-vs-wall ratio as the deciding signal for this case.
         bool cpuStarved = cpuMs < wallMs * 0.2d;
         bool isLone = recentStallsInLast5s <= 2;
+
+        // First priority: a long, lone, CPU-starved gap.
+        //
+        // Two sub-cases, distinguished by whether the game kept input focus:
+        //   focus lost during the gap → ProcessSuspended (real OS suspend —
+        //     the player switched apps, the OS slept, etc).
+        //   focus retained throughout → MainThreadFreeze (the game thread
+        //     blocked on a lock / sync wait / render-thread stall, the OS
+        //     wasn't suspending us, but the game wasn't advancing either).
+        //
+        // The v0.4 playtest mis-narrated this: 1864ms stall, focus held the
+        // whole time (player wasn't alt-tabbed), classified as
+        // ProcessSuspended. v0.5 splits them.
         if (cpuStarved && isLone && wallMs >= baselineMs * LongSuspendMultiplier)
-            return StallCause.ProcessSuspended;
+            return focusHeldAcrossGap ? StallCause.MainThreadFreeze : StallCause.ProcessSuspended;
 
         // GC pause is at least half the stall — the heap was the bottleneck.
         // Gen2 deciding factor between Major/Minor; Gen2 is the slow one.
@@ -435,11 +481,9 @@ public sealed class StallDetector
         if (recentStallsInLast5s >= 5 && wallMs < baselineMs * UiOverlayClusterMaxMultiplier)
             return StallCause.UiOverlayBlocking;
 
-        // Lone CPU-starved event below the long-suspend bar — still
-        // suspended, just shorter (cmd-tab for half a baseline-relative
-        // window).
+        // Shorter lone CPU-starved events: same focus split.
         if (cpuStarved && isLone)
-            return StallCause.ProcessSuspended;
+            return focusHeldAcrossGap ? StallCause.MainThreadFreeze : StallCause.ProcessSuspended;
 
         // Wall and CPU both advanced, GC didn't. Some code path took the
         // time — most often a draw-thread hook doing sync I/O or hitting

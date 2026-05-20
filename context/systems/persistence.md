@@ -98,8 +98,14 @@ Documented exhaustively in `notes/litedb-migration-plan.md` §3. Headline collec
 | `insights` | One surfaced insight | Schema placeholder for M4+ |
 | `metadata` | Single row (`_id="metadata"`) | DB-level open count, version history |
 | `stallClusters` | One coalesced stall cluster | The "one freeze the player perceived" rollup over consecutive `stallEvents`. Carries dominant cause + dominant contributor. |
-| `playerDeaths` | One local-player death event | Position, HP at death, active bosses, human-readable summary. |
+| `playerDeaths` | One local-player death event | Position, HP at death, active bosses, killer from last `damageTakenEvents` row, human-readable summary. |
 | `worldSnapshots` | One every ~30s of in-world time | Player position/HP/mana, primary biome, hardmode, game mode, time-of-day, entity counts, primary boss. The "what was happening at minute N" reconstruction table. |
+| `damageTakenEvents` | One per `Player.OnHurt` edge | `PlayerDeathReason`-encoded source (npc/projectile/other/custom), damage raw + dealt, HP before/after, active buffs. Killer attribution lives here. |
+| `damageDealtEvents` | One per `OnHitNPC` / `OnHitNPCWithItem` / `OnHitNPCWithProj` | Path (melee / item / projectile), weapon id, projectile id, NPC type hit, damage, crit flag, loadout fingerprint. The "is it the sword or the projectile" answer. |
+| `npcSpawnEvents` | One per `GlobalNPC.OnSpawn` | NPC type, owning mod (dynamic), source category (`IEntitySource` subclass name), position, boss flag. Universal — every spawning mod surfaces identically. |
+| `itemCreatedEvents` | One per `GlobalItem.OnCreated` | Item type, owning mod, context category (`ItemCreationContext` subclass). Captures recipe-craft, init-spawn, debug-spawn alike. |
+| `loadoutSnapshots` | On change (+ periodic 30s anchor) | Held item + every occupied equipment slot (armor / accessory / vanity / dye / modSlot) with item type. Stable fingerprint string used as join key for damage-dealt + cost-correlation insights. |
+| `buffEvents` | One per buff add/remove edge | Buff type, owning mod, edge (on/off). The Dead Cells Mechanics "buff after damage" pattern surfaces as paired on/off rows. |
 
 Every row carries a `_schema: int` field so a future per-collection schema bump can be detected at read time without forcing a whole-DB migration.
 

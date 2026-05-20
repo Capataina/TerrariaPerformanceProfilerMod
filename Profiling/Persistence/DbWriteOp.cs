@@ -29,6 +29,12 @@ public enum DbOpKind : byte
     StallCluster,
     PlayerDeath,
     WorldSnapshot,
+    DamageTaken,
+    DamageDealt,
+    NpcSpawn,
+    ItemCreated,
+    LoadoutSnapshot,
+    BuffEvent,
 }
 
 /// <summary>
@@ -113,4 +119,22 @@ public readonly struct DbWriteOp
 
     public static DbWriteOp WorldSnapshot(WorldSnapshotRow row)
         => new DbWriteOp(DbOpKind.WorldSnapshot, row.SessionId, row);
+
+    public static DbWriteOp DamageTaken(DamageTakenRow row)
+        => new DbWriteOp(DbOpKind.DamageTaken, row.SessionId, row);
+
+    public static DbWriteOp DamageDealt(DamageDealtRow row)
+        => new DbWriteOp(DbOpKind.DamageDealt, row.SessionId, row);
+
+    public static DbWriteOp NpcSpawn(NpcSpawnRow row)
+        => new DbWriteOp(DbOpKind.NpcSpawn, row.SessionId, row);
+
+    public static DbWriteOp ItemCreated(ItemCreatedRow row)
+        => new DbWriteOp(DbOpKind.ItemCreated, row.SessionId, row);
+
+    public static DbWriteOp LoadoutSnapshot(LoadoutSnapshotRow row)
+        => new DbWriteOp(DbOpKind.LoadoutSnapshot, row.SessionId, row);
+
+    public static DbWriteOp BuffEvent(BuffEventRow row)
+        => new DbWriteOp(DbOpKind.BuffEvent, row.SessionId, row);
 }

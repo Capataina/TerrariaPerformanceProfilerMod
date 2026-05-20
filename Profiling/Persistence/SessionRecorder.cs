@@ -149,6 +149,42 @@ public sealed class SessionRecorder
         _db.Writer.Enqueue(DbWriteOp.WorldSnapshot(row));
     }
 
+    public void OnDamageTaken(DamageTakenRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.DamageTaken(row));
+    }
+
+    public void OnDamageDealt(DamageDealtRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.DamageDealt(row));
+    }
+
+    public void OnNpcSpawn(NpcSpawnRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.NpcSpawn(row));
+    }
+
+    public void OnItemCreated(ItemCreatedRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.ItemCreated(row));
+    }
+
+    public void OnLoadoutSnapshot(LoadoutSnapshotRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.LoadoutSnapshot(row));
+    }
+
+    public void OnBuffEvent(BuffEventRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.BuffEvent(row));
+    }
+
     /// <summary>Transitions worth narrating to client.log (vs the high-frequency biome-bit ones).</summary>
     private static bool IsHeadline(string type)
         => type == "bossStart" || type == "bossEnd" || type == "bossSwap"

@@ -2,6 +2,31 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — Interaction-tracking arsenal + v0.5 (data-stack expansion)
+
+Caner's framing: the profiler shifts from *event logger* (records discrete things and attributes to the busiest mod's hooks) to *interaction tracker* (records game-state windows so cost can be correlated with what the player was doing, wearing, fighting, getting hit by). The presentation/storage stack is a downstream concern; capture is a one-way door. `context/notes/philosophy.md` is the durable note for this posture. Invariant 5 (no mod-specific code) was added to `CLAUDE.md` to enforce the universality side of the shift.
+
+**Phase A — MainThreadFreeze vs ProcessSuspended.** `Main.hasFocus` is now snapshotted per-tick and threaded through `StallDetector.OnBeginTick` as `hadFocusThisTick`. Across a stall window the detector tracks `_focusHeldAcrossGap`; the classifier uses it to disambiguate a real OS suspend (focus lost) from a main-thread freeze (focus held, CPU went idle anyway). New `StallCause.MainThreadFreeze` cause. Fixes the v0.4 misdiagnosis where the player never alt-tabbed but the log said "ProcessSuspended" because the per-event signals (low CPU, no GC) were identical.
+
+**Phase B — Damage-taken tracker + death-cause attribution.** New `damageTakenEvents` collection populated by a `ModPlayer.OnHurt` override on a new `InteractionPlayer`. Captures `PlayerDeathReason` via the universal struct: SourceProjectileType / SourceNPCIndex / SourceOtherIndex / SourceCustomReason map into `(SourceKind, SourceId, SourceName)` columns. `PlayerDeathDetector` now reads the most recent damage-taken row at the death edge — the killer is whatever last hurt the player. The mother-slime case becomes self-narrating.
+
+**Phase C — NPC + item spawn trackers.** New `npcSpawnEvents` (`GlobalNPC.OnSpawn`) and `itemCreatedEvents` (`GlobalItem.OnCreated`) collections. Both encode the source via the `IEntitySource` / `ItemCreationContext` subclass name (with the prefix/suffix stripped) — the universal vanilla surface every spawning mod uses. CheatSheet shows up as `DebugCommand`; recipe crafts show up as `Recipe`; boss-summon items as `BossSpawn`. Owning mod resolved dynamically from the NPC/item type's owning mod, never hardcoded.
+
+**Phase D — Loadout snapshot tracker.** New `loadoutSnapshots` collection. Hooks `ModPlayer.PostUpdateEquips`; diffs every occupied slot (armor / accessory / vanity / dye / modSlot — modAccessorySlot picked up generically by iterating the slot array, not by mod name) against the previous tick. Emits on change. Periodic 30s anchor written even when unchanged so cost-correlation queries can always find at least one snapshot per time window. Stable fingerprint string used as the join key.
+
+**Phase E — Damage-dealt tracker.** New `damageDealtEvents` collection. Three rows per hit type: `OnHitNPC` (melee path), `OnHitNPCWithItem` (weapon path, carries weapon id), `OnHitNPCWithProj` (projectile path, carries projectile id). Each row carries the current loadout fingerprint. The "is it the sword, the projectile, or the accessory" question answerable from a single damage event by joining loadout state to weapon / projectile id.
+
+**Phase F — Buff lifecycle tracker.** New `buffEvents` collection. Hooks `ModPlayer.PostUpdateBuffs`; diffs the buff array against last tick. Emits per buff-on / buff-off edge. Owning mod resolved via `BuffLoader.GetBuff(type)?.Mod`. The Dead Cells Mechanics pattern — buff fires only after damage taken, hooks light up while it's active — becomes capturable as the off→on→off triple.
+
+**Phase G — Three new insight detectors.** New `PatternKey`s: `LoadoutCorrelatedCost`, `EventConditionalCost`, `LoadoutCombinationCost`.
+- `LoadoutCorrelatedCostDetector`: when loadout changes, computes mean tick-aggregate AvgFrameMs in the 30s before vs the 30s after the change. Fires if the post window is ≥ 1.5× pre AND ≥ 2× baseline.
+- `EventConditionalCostDetector`: for each recent off→on→off buff triple, computes mean cost in the buff-active window. Fires if window-mean is ≥ 3× baseline. The Dead Cells case lights up as "frame cost averaged 28ms while 'RecentlyHit' was active (3.2× baseline)".
+- `LoadoutCombinationCostDetector`: synergy claim — gated on cross-session loadout aggregation. Pattern key reserved, UI shows it under gated detectors until persistence-driven analysis lands.
+
+**Tests:** 54/54 passing. New `MainThreadFreeze` tests cover focus-held + focus-lost branches; existing tests updated to pass `focusHeldAcrossGap` explicitly. Classifier signature: `ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s, baselineMs, focusHeldAcrossGap)`. Back-compat overloads preserved.
+
+**Bumped build.txt 0.4 → 0.5.** Six new collections, three new insight detectors, one new stall cause, new philosophy + invariant note. Clearly a minor bump.
+
 ## 2026-05-20 — Context-transition dynamic-vs-hardcoded audit
 
 Caner asked whether ContextTransitionWatcher adapts to modded content or whether new mods need code changes here. Audit result:
