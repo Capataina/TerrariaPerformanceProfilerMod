@@ -91,25 +91,9 @@ public sealed class NewContributorDetector : IInsightDetector
     }
 }
 
-/// <summary>
-/// GC_PAUSE_CULPRIT — attributes a GC pause to the mod that allocated the
-/// most in the K=60 ticks before. Gated on the sibling spikes-and-
-/// allocations plan providing per-tick per-mod allocation deltas.
-/// </summary>
-public sealed class GcPauseCulpritDetector : IInsightDetector
-{
-    public PatternKey Pattern => PatternKey.GcPauseCulprit;
-    public Audience DefaultAudience => Audience.Modder;
-    public bool IsGated => true;
-    public string? GatedOn => "spikes-and-allocations";
-
-    public bool IsAvailable(MetricCollector collector) => false;
-
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
-    {
-        // TODO: requires per-tick per-mod allocation deltas. See plan §4.5.
-    }
-}
+// GC_PAUSE_CULPRIT moved to its own file (Detectors/GcPauseCulpritDetector.cs)
+// when it was un-gated. The detector is now active; see that file for the
+// implementation.
 
 /// <summary>
 /// HOOK_FREQUENCY_TAIL — for a hook with mean calls/tick &gt;= 50, the p99

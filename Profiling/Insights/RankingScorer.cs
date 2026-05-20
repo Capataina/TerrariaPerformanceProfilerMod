@@ -78,6 +78,9 @@ public static class RankingScorer
         PatternKey.HotHookDominance       => true,
         PatternKey.AllocationBurst        => true,
         PatternKey.PeakContributorToSpike => true,
+        // GcPauseCulprit's RatioOrDelta is the share of allocations the top
+        // contributor held in the K=60 ticks before a GC stall fired.
+        PatternKey.GcPauseCulprit         => true,
         _                                 => false,
     };
 
