@@ -34,6 +34,14 @@ public sealed class AllocationBurstDetector : IInsightDetector
     public bool IsAvailable(MetricCollector collector) =>
         collector.TracksAllocations && collector.PerModCategoryAverageBytes != null;
 
+    /// <summary>
+    /// Field-cached per-pass scratch buffer. v0.5 allocated a fresh
+    /// <c>double[modCount]</c> on every Evaluate (1 Hz cadence). v0.6
+    /// reuses the field; per insights-engine §1.3 + cross-allocations
+    /// §6.6 zeta1.
+    /// </summary>
+    private double[] _perModBytesScratch = System.Array.Empty<double>();
+
     public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
     {
         IReadOnlyList<double>? categoryBytes = collector.PerModCategoryAverageBytes;
@@ -43,7 +51,10 @@ public sealed class AllocationBurstDetector : IInsightDetector
         int catCount = PerModAttribution.CategoryCount;
 
         double sessionTotal = 0d;
-        double[] perModBytes = new double[modNames.Length];
+        if (_perModBytesScratch.Length < modNames.Length)
+            _perModBytesScratch = new double[modNames.Length];
+        double[] perModBytes = _perModBytesScratch;
+        System.Array.Clear(perModBytes, 0, modNames.Length);
         for (int modId = 0; modId < modNames.Length; modId++)
         {
             double sum = 0d;

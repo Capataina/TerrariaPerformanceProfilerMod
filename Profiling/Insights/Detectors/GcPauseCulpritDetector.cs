@@ -57,6 +57,13 @@ public sealed class GcPauseCulpritDetector : IInsightDetector
     public bool IsAvailable(MetricCollector collector)
         => collector.TracksAllocations && collector.Stalls.Count > 0;
 
+    /// <summary>
+    /// Field-cached per-pass scratch buffer. v0.5 allocated a fresh
+    /// <c>double[modCount]</c> on every Evaluate (1 Hz cadence). v0.6
+    /// reuses the field; per insights-engine §1.6 + cross-allocations §6.6 zeta1.
+    /// </summary>
+    private double[] _modBytesScratch = System.Array.Empty<double>();
+
     public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
     {
         if (!collector.TracksAllocations) return;
@@ -67,7 +74,8 @@ public sealed class GcPauseCulpritDetector : IInsightDetector
         if (modCount == 0) return;
 
         // Reusable scratch buffer — sized by mod count, used per-stall.
-        double[] modBytes = new double[modCount];
+        if (_modBytesScratch.Length < modCount) _modBytesScratch = new double[modCount];
+        double[] modBytes = _modBytesScratch;
 
         for (int i = 0; i < stalls.Count; i++)
         {
