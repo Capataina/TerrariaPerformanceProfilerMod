@@ -2,6 +2,34 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — UI overhaul + v0.2
+
+Eight commits landed the complete UI overhaul plus the SelfHealth cadence-guard bug fix and the v0.2 version bump.
+
+**Two-mode overlay sizing.** Default mode is 1120 px wide (the "stand-in-the-base-and-read-it" view, full charts, larger typography). Compact mode is 720 px (the "walk-around-during-a-boss" HUD view, denser, closer to the pre-overhaul size). Resize handle at bottom-right lets the user override either default; ModConfig.PanelWidthOverride persists across sessions. Min/max bounds `[640, 1600]`. The original plan-draft had default at 880 px; Caner's feedback flipped the framing — default is the at-rest mode, not the moderate middle.
+
+**No rounded corners.** Considered as part of the overhaul; rejected after Caner's "I thought it was as easy as a CSS value" call. Procedural rounded-rect drawing requires per-corner pixel math and the visual win didn't justify the cost. Visual hierarchy comes from surface tiers (Background → Panel → SurfaceElevated) and the 5-stop heat ramp instead. Decision date 2026-05-20 logged in `context/notes/ui-overhaul-plan.md` §12.
+
+**Donut chart via `GraphicsDevice.DrawUserPrimitives`.** Third iteration; the first two failed. Attempt #1 (rotated thin rectangles via `SpriteBatch.Draw`) painted screen-spanning cyan diagonals across the Terraria game world — a runtime artifact the math didn't predict. Attempt #2 (stacked horizontal bar with two-band fill) was safe but flat and didn't read as a chart. Attempt #3 wraps `sb.End()` / `DrawUserPrimitives(TriangleList, ...)` / `sb.Begin(..., Main.UIScaleMatrix)` around a cached `BasicEffect` + reusable `VertexPositionColor[]` buffer. Triangles directly, no SpriteBatch geometry abuse. ~720 triangles per donut at 2° angular resolution. Two concentric rings per slice: outer 75% in identity colour (which mod), inner 25% in dominant-axis tint (cpu/alloc/spike). Scales to any N — angular space is constant whether the modlist has 2 mods or 200. Memory captured at `~/.claude/projects/<this-cwd>/memory/spritebatch-rotation-trap.md` so the next session doesn't hit the same rake.
+
+**ImpactSkyline kept as alternate component.** The three-axis city skyline (vertical bars, each split into cpu/alloc/spike segments) was the runner-up to the donut. Doesn't scale past ~15 bars (each bar gets too thin to read labels). Kept at `UI/Overlay/Components/ImpactSkyline.cs` for future surfaces that want top-N detail rather than total-population share — biggest-spenders deep-dives, side-panels triggered by donut-slice clicks, etc.
+
+**Six tabs:** SUMMARY (was OVERVIEW, multi-dimensional impact view) · TREE · LAG (was SPIKES, unified spikes + stalls feed with timeline strip) · EVENTS · INSIGHTS (card-per-record layout) · SELF (new, profiler's own diagnostics with install-delta projection across bigger modlist sizes). TabRegistry has SelfTab appended at index 5.
+
+**Component library** under `UI/Overlay/Components/`: `ProfilerCard`, `HeatBar`, `Sparkline`, `DonutChart`, `Pill`, `StatBlock`, `SeverityBadge`, `TimelineStrip`, `ImpactSkyline`. Plus `OverlayMode` enum (Default/Compact) and `OverlayLayoutCurrent` static accessors that resolve every dual-mode constant in one place.
+
+**Layout constants are mode-aware.** Old constants in `OverlayLayout` stay alongside `*V2` and `*Compact` variants; `OverlayLayoutCurrent.X` resolves to the right value for `OverlayState.Mode`. Tabs read from `OverlayLayoutCurrent.ChromeHeight` for their content-top Y (was `OverlayLayout.RowsTopOffset` constant 194 px). Old constant still in place for backward compatibility but no longer the source of truth.
+
+**ModConfig as the persistence surface.** First `ModConfig` for the mod: `ProfilerConfig.cs` with `DefaultMode`, `DefaultTabIndex`, `PanelWidthOverride` properties. `OnChanged()` pushes mode + default tab into `OverlayState` so menu changes take effect without re-opening the overlay. `ProfilerOverlay.OnInitialize` reads the config to apply persisted preferences on overlay-open.
+
+**SelfHealth cadence-guard bug.** Sentinel value `long.MinValue` for `_lastRefreshTickIndex` caused signed-overflow on the first `Refresh()` call (`currentTickIndex - long.MinValue` wraps negative; `negative < 60` is true; guard returns early; `Refresh` never fires). Replaced with explicit `_hasEverRefreshed` bool. The 562 MB install delta + 56 KB/hook numbers visible on screen now actually come from a live refresh path, not stale zeros. Headline finding: 562 MB on an 18-mod modlist projects to ~1.5 GB at kitchen-sink (40-mod) scale. Memory-burn mitigation is the next major sub-project after LiteDB.
+
+**Mod versioning discipline.** `build.txt` bumped 0.1 → 0.2. Today's scope (StallDetector, Baseline service, ProfilerSelfHealth, schema v5, full UI overhaul, ModConfig, donut via DrawUserPrimitives, audit fixes) is a clear minor bump. CLAUDE.md gains a "Mod versioning" subsection under Version Control with rules of thumb: patch for pure bug fixes; minor for new features / new tabs / new detectors / new schema versions / significant UI work; major for first Workshop release or breaking JSON schema. End-of-session check is an explicit obligation now.
+
+**TREE + EVENTS visual polish deferred.** Both tabs continue to use their existing layouts inside the new chrome with the larger panel width. They render correctly but leave whitespace on the right edge at 1120 px. Plan §11 acknowledges this as a future polish pass — not a blocker for the v0.2 ship.
+
+**Next-up:** LiteDB migration (cross-session persistence; unblocks `SustainedCostShift`, `NewContributor`, `LifetimeData` evidence scope), then dedicated perf research on the 56 KB/hook footprint (Mono.Cecil retained state is the suspected dominant cost).
+
 ## 2026-05-20 — Post-audit implementation pass
 
 Three commits (`77a99d2`, `aa914ce`, `14fac59`) landed the audit's certain findings and all six potential issues.
