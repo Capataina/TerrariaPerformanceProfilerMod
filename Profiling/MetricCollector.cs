@@ -85,9 +85,10 @@ public sealed class MetricCollector
     // so a spike drill-down can read "what did Mod X look like at THAT tick"
     // straight from the moment of the spike, before smoothing carried it away.
     // The detector consumes this ring at every tick and emits SpikeWindow
-    // records when the frame time crosses the (median × 2) threshold.
+    // records when the frame time crosses the (median × N) threshold.
     private readonly PerTickAttributionRing _perTickRing;
     private readonly SpikeDetector _spikeDetector;
+    private readonly Baseline _baseline = new Baseline();
     private const int CategorySnapshotTicks = 120; // 2 s @ 60 tps
 
     /// <summary>Creates a collector whose history holds <paramref name="historyCapacity"/> ticks.</summary>
@@ -230,6 +231,15 @@ public sealed class MetricCollector
     public IReadOnlyList<SpikeWindow> Spikes => _spikeDetector.Windows;
 
     /// <summary>
+    /// Shared baseline (median frame time, median tick period, allocation
+    /// rate, calibration state) recomputed once per <see cref="EndTick"/>.
+    /// Every detector reads from this instead of carrying its own absolute
+    /// floor — the threshold that's a "spike" depends on the user's actual
+    /// hardware, not on the developer's assumptions.
+    /// </summary>
+    public Baseline Baseline => _baseline;
+
+    /// <summary>
     /// Force-close any spike window that's still open. Called by
     /// <c>ProfilerSystem.OnWorldUnload</c> before the final session report is
     /// written so an in-progress spike that ended with the world exit is still
@@ -342,6 +352,17 @@ public sealed class MetricCollector
             _backendTotalSmoothedMs1 += PerModSmoothing * (total1 - _backendTotalSmoothedMs1);
         }
 
+        // Recompute the shared baseline from the just-updated history. Every
+        // detector that follows reads its threshold from here instead of
+        // carrying a hardcoded ms floor. Allocation total for the tick is the
+        // sum of the per-mod-per-category bytes we just harvested.
+        double allocBytesThisTick = 0d;
+        if (_tracksAllocations && _perModRawBytes != null)
+        {
+            for (int i = 0; i < _perModRawBytes.Length; i++) allocBytesThisTick += _perModRawBytes[i];
+        }
+        _baseline.Recompute(_history, _tracksAllocations, allocBytesThisTick);
+
         // Push this tick's raw per-mod-per-category row into the history ring,
         // then run the spike detector. Order matters: the detector reads from
         // the ring when capturing a worst-tick snapshot, so the ring must be
@@ -349,7 +370,7 @@ public sealed class MetricCollector
         // state -- the detector only allocates the SpikeWindow's per-mod arrays
         // on an actual new spike, which is a rare event.
         _perTickRing.Push(frame.TickIndex, _perModRawMs, _tracksAllocations ? _perModRawBytes : null);
-        _spikeDetector.OnTick(frame, _history, _perTickRing);
+        _spikeDetector.OnTick(frame, _baseline, _perTickRing);
 
         _sampleSlot++;
         if (_sampleSlot == _historyCapacity)

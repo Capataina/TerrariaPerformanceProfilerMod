@@ -28,8 +28,24 @@ namespace PerformanceProfiler.Profiling.Insights.Detectors;
 /// </summary>
 public sealed class FreeRemovalCandidateDetector : IInsightDetector
 {
-    /// <summary>A mod is "cheap" if its smoothed session cost is at or below this many ms/tick.</summary>
-    public const double EpsilonMsPerTick = 0.10;
+    /// <summary>
+    /// A mod counts as "cheap" if its smoothed session cost is at or below
+    /// this fraction of the user's median frame time. Relative, not absolute:
+    /// 5% of a 16 ms baseline ≈ 0.8 ms/tick; 5% of a 40 ms baseline (a 25 fps
+    /// player) ≈ 2 ms/tick. Both ratios mean the same thing in player-felt
+    /// terms — the mod barely registers against everything else they're
+    /// running — even though the absolute thresholds differ by 2.5×.
+    /// </summary>
+    public const double EpsilonFractionOfBaselineFrame = 0.05;
+
+    /// <summary>
+    /// Pre-calibration fallback floor (ms/tick). Used only when the
+    /// <see cref="Baseline"/> service hasn't reached <see cref="Baseline.MinCalibrationTicks"/>
+    /// yet, so detector behaviour is sensible during the first second of a
+    /// session before the relative threshold can be trusted. Calibrated
+    /// sessions ignore this entirely.
+    /// </summary>
+    public const double UncalibratedFallbackMsPerTick = 0.10;
 
     /// <summary>Minimum session length before the detector emits anything (plan §5.6).</summary>
     public const long MinSessionTicks = 60L * 60L * 30L;
@@ -51,6 +67,14 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
         string[] modNames = HookInterceptor.ProfiledModNames;
         int catCount = PerModAttribution.CategoryCount;
 
+        // Relative epsilon: a mod is "cheap" if it's below 5% of the user's
+        // session median frame time. Falls back to a small absolute floor only
+        // during the calibration window so we don't compare against a
+        // wildly-inaccurate median.
+        double epsilonMsPerTick = collector.Baseline.IsCalibrated
+            ? collector.Baseline.FrameMsMedian * EpsilonFractionOfBaselineFrame
+            : UncalibratedFallbackMsPerTick;
+
         for (int modId = 0; modId < modNames.Length; modId++)
         {
             double modTotal = 0d;
@@ -59,7 +83,7 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
                 int cell = modId * catCount + c;
                 if (cell < categoryMs.Count) modTotal += categoryMs[cell];
             }
-            if (modTotal > EpsilonMsPerTick) continue;
+            if (modTotal > epsilonMsPerTick) continue;
 
             emit.Add(new InsightRecord
             {
@@ -67,7 +91,7 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
                 Subject = SubjectRef.ForMod(modId),
                 Magnitude = new Magnitude
                 {
-                    BaselineMs = EpsilonMsPerTick,
+                    BaselineMs = epsilonMsPerTick,
                     ObservedMs = modTotal,
                     RatioOrDelta = 0d,
                     AllocBytes = 0,

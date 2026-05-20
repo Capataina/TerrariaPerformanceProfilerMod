@@ -45,8 +45,20 @@
 
   <ItemGroup>
     <!-- Pure-logic source files lifted in from the mod project. Each entry's
-         file must have zero Terraria.ModLoader dependencies (verified per add). -->
+         file must have zero Terraria.ModLoader dependencies (verified per add).
+         The Events bitsets / flags / invasion / boss / mode files are dragged
+         in because TickFrame carries an EventContext field; they're all pure
+         data types themselves. -->
     <Compile Include="..\Profiling\RingBuffer.cs" Link="Source\RingBuffer.cs" />
+    <Compile Include="..\Profiling\PerModSample.cs" Link="Source\PerModSample.cs" />
+    <Compile Include="..\Profiling\TickFrame.cs" Link="Source\TickFrame.cs" />
+    <Compile Include="..\Profiling\Baseline.cs" Link="Source\Baseline.cs" />
+    <Compile Include="..\Profiling\Events\BiomeBitset.cs" Link="Source\Events\BiomeBitset.cs" />
+    <Compile Include="..\Profiling\Events\WeatherFlags.cs" Link="Source\Events\WeatherFlags.cs" />
+    <Compile Include="..\Profiling\Events\InvasionId.cs" Link="Source\Events\InvasionId.cs" />
+    <Compile Include="..\Profiling\Events\GameMode.cs" Link="Source\Events\GameMode.cs" />
+    <Compile Include="..\Profiling\Events\BossSlotArray.cs" Link="Source\Events\BossSlotArray.cs" />
+    <Compile Include="..\Profiling\Events\EventContext.cs" Link="Source\Events\EventContext.cs" />
     <Compile Include="..\Profiling\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
     <Compile Include="..\Profiling\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />

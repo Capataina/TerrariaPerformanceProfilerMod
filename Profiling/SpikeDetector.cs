@@ -65,25 +65,25 @@ public struct SpikeWindow
 /// <summary>
 /// Robust median-based spike detector. Operates on the live
 /// <see cref="RingBuffer{T}"/> of <see cref="TickFrame"/>s the collector
-/// already keeps. Pure logic; no tModLoader dependency. Unit-testable.
+/// already keeps, reading its baseline from the shared <see cref="Baseline"/>
+/// service. Pure logic; no tModLoader dependency. Unit-testable.
+///
+/// <para>
+/// <b>Pure-relative threshold.</b> A spike is a frame whose duration is at
+/// least <see cref="ThresholdMultiplier"/> times the user's session median.
+/// No absolute millisecond floor. A 120 fps player whose baseline is 8 ms
+/// gets flagged at ≥16 ms; a 25 fps player whose baseline is 40 ms gets
+/// flagged at ≥80 ms. Both are real outliers in their respective sessions;
+/// neither is hidden by a one-size-fits-no-one floor like the previous
+/// 5 ms constant.
+/// </para>
 ///
 /// <para>
 /// <b>Why median, not mean.</b> Tick-time distributions in modded Terraria are
 /// heavy-tailed and bimodal — quiet ticks at 1-2 ms, occasional GC pauses at
-/// 20-40 ms. A mean-based baseline (or EMA) walks toward the pauses and the
-/// "spike threshold = 2× mean" silently inflates until real spikes hide
-/// underneath. Median ignores the top half by construction. The plan §5
-/// documents the alternatives considered (EMA, MAD threshold, raw stddev) with
-/// rationale for the chosen scheme.
-/// </para>
-///
-/// <para>
-/// <b>Two-stage triggering.</b> An exact median over 1800 ticks is O(N) per
-/// call. We don't pay that per tick. Stage 1 is a cheap EMA pre-check: if the
-/// frame is even close to the EMA's 2× threshold, we move to stage 2 which
-/// computes the exact median over the history ring and only opens a spike
-/// window if the frame still passes. False positives at stage 1 are filtered
-/// at stage 2; we only pay the exact-median cost on candidate ticks.
+/// 20-40 ms. A mean-based baseline walks toward the pauses and the threshold
+/// silently inflates until real spikes hide underneath. Median ignores the
+/// top half by construction.
 /// </para>
 ///
 /// <para>
@@ -106,33 +106,18 @@ public sealed class SpikeDetector
     /// <summary>Number of ticks at session start where spikes are badged "warming" (JIT).</summary>
     public const int WarmupTicks = 600;
 
-    /// <summary>Default relative threshold (frame must beat this multiple of the baseline).</summary>
+    /// <summary>Default relative threshold (frame must beat this multiple of the baseline median).</summary>
     public const double DefaultThresholdMultiplier = 2.0;
-
-    /// <summary>Default absolute floor (frame must also beat this many ms).</summary>
-    public const double DefaultAbsoluteFloorMs = 5.0;
 
     private readonly RingBuffer<SpikeWindow> _windows = new RingBuffer<SpikeWindow>(50);
     private readonly SpikeWindowsView _windowsView;
     private readonly int _modCount;
     private readonly bool _tracksAllocations;
 
-    // EMA used only for the cheap pre-check before paying for the exact median.
-    private double _emaFrameMs;
-    private const double EmaAlpha = 0.05;
-
     private int _ticksSeen;
     private SpikeWindow _openWindow;
     private bool _windowOpen;
     private int _consecutiveSubThreshold;
-
-    // Scratch arrays reused across exact-median calls to avoid per-spike allocation
-    // for the histogram. The bucket size is 0.5 ms across 0..256 ms; anything
-    // above 256 ms gets clamped to the top bucket (a 256 ms tick is already so
-    // extreme that the exact value doesn't matter for the median).
-    private const int HistogramBuckets = 512;
-    private const double HistogramBucketMs = 0.5;
-    private readonly int[] _histogramScratch = new int[HistogramBuckets];
 
     public SpikeDetector(int modCount, bool tracksAllocations)
     {
@@ -143,9 +128,6 @@ public sealed class SpikeDetector
 
     /// <summary>Relative threshold; configurable later via ModConfig.</summary>
     public double ThresholdMultiplier { get; set; } = DefaultThresholdMultiplier;
-
-    /// <summary>Absolute floor; configurable later via ModConfig.</summary>
-    public double AbsoluteFloorMs { get; set; } = DefaultAbsoluteFloorMs;
 
     /// <summary>
     /// The captured spike windows in chronological order, oldest first. The
@@ -158,38 +140,34 @@ public sealed class SpikeDetector
     public int Count => _windows.Count;
 
     /// <summary>
-    /// Drive the detector with the just-committed tick. Reads from the collector's
-    /// history (for the median baseline) and per-tick ring (for the per-mod snapshot
-    /// at the worst-tick).
+    /// Drive the detector with the just-committed tick. Reads its baseline
+    /// from the shared <see cref="Baseline"/> snapshot the collector recomputed
+    /// at this same EndTick, and the per-tick ring for the worst-tick snapshot.
     /// </summary>
-    public void OnTick(TickFrame frame, RingBuffer<TickFrame> history, PerTickAttributionRing perTickRing)
+    public void OnTick(TickFrame frame, Baseline baseline, PerTickAttributionRing perTickRing)
     {
         _ticksSeen++;
-        double frameMs = frame.FrameTimeMs;
-        _emaFrameMs += EmaAlpha * (frameMs - _emaFrameMs);
 
-        // Stage 1: cheap pre-check. The EMA can drift up under sustained spikes,
-        // which is actually what we want for the pre-check — when many recent
-        // frames were 30 ms, a 30 ms frame is not a spike here. The exact median
-        // in stage 2 catches the long-tail cases EMA misses.
-        bool emaCandidate = frameMs >= _emaFrameMs * ThresholdMultiplier
-                         && frameMs >= AbsoluteFloorMs;
-
-        if (!emaCandidate)
+        // During the calibration window the median is unreliable. Surface
+        // candidate spikes only after Baseline has enough samples to be trusted
+        // — the warmup also matches SpikeDetector's "warming" badge so the UI
+        // can hedge appropriately.
+        if (!baseline.IsCalibrated)
         {
             HandleSubThreshold();
             return;
         }
 
-        // Stage 2: exact median over the retained history. Pay the cost only on
-        // candidates. The histogram approach is O(N) one-pass — at 1800 ticks
-        // that's a sub-millisecond cost, far below the per-tick budget.
-        double median = ExactMedian(history);
-        double mad = ExactMad(history, median);
+        double frameMs = frame.FrameTimeMs;
+        double median = baseline.FrameMsMedian;
+        double mad = baseline.FrameMsMad;
 
-        // Recompute the candidate test against the exact baseline.
-        bool spike = frameMs >= median * ThresholdMultiplier
-                  && frameMs >= AbsoluteFloorMs;
+        // Pure-relative trigger. No absolute floor — a "5 ms minimum" hides
+        // real spikes on 120 fps players (8 ms baseline → 16 ms threshold;
+        // anything above 5 ms used to qualify even when nothing was wrong)
+        // and floods 25 fps players with bogus spikes (40 ms baseline → 80 ms
+        // threshold; ordinary 50 ms jitter used to qualify).
+        bool spike = frameMs >= median * ThresholdMultiplier;
 
         if (!spike)
         {
@@ -271,76 +249,6 @@ public sealed class SpikeDetector
         ring.CopyLatestCategorySnapshot(
             window.PerModCatMs.AsSpan(),
             window.PerModCatBytes != null ? window.PerModCatBytes.AsSpan() : Span<float>.Empty);
-    }
-
-    /// <summary>
-    /// Bucketed median over the frame-time history. O(N) one-pass; bucket
-    /// width = 0.5 ms. A frame above 256 ms clamps to the top bucket (its exact
-    /// value doesn't change the median anyway). N is bounded by the history
-    /// ring capacity (1800 by default).
-    /// </summary>
-    private double ExactMedian(RingBuffer<TickFrame> history)
-    {
-        int n = history.Count;
-        if (n == 0) return 0d;
-        Array.Clear(_histogramScratch, 0, _histogramScratch.Length);
-
-        for (int i = 0; i < n; i++)
-        {
-            double ms = history[i].FrameTimeMs;
-            int bucket = (int)(ms / HistogramBucketMs);
-            if (bucket < 0) bucket = 0;
-            if (bucket >= HistogramBuckets) bucket = HistogramBuckets - 1;
-            _histogramScratch[bucket]++;
-        }
-
-        int target = n / 2;
-        int running = 0;
-        for (int b = 0; b < HistogramBuckets; b++)
-        {
-            running += _histogramScratch[b];
-            if (running > target)
-            {
-                // Mid-bucket as the estimate. Half-bucket of error (0.25 ms)
-                // is far below the spike-threshold granularity (5 ms floor),
-                // so this is sufficient.
-                return (b + 0.5d) * HistogramBucketMs;
-            }
-        }
-        return (HistogramBuckets - 0.5d) * HistogramBucketMs;
-    }
-
-    /// <summary>
-    /// Median Absolute Deviation against the given median, by the same bucketing
-    /// trick. Used as a robust-scale sidecar metric on each spike record.
-    /// </summary>
-    private double ExactMad(RingBuffer<TickFrame> history, double median)
-    {
-        int n = history.Count;
-        if (n == 0) return 0d;
-        Array.Clear(_histogramScratch, 0, _histogramScratch.Length);
-
-        for (int i = 0; i < n; i++)
-        {
-            double dev = history[i].FrameTimeMs - median;
-            if (dev < 0d) dev = -dev;
-            int bucket = (int)(dev / HistogramBucketMs);
-            if (bucket < 0) bucket = 0;
-            if (bucket >= HistogramBuckets) bucket = HistogramBuckets - 1;
-            _histogramScratch[bucket]++;
-        }
-
-        int target = n / 2;
-        int running = 0;
-        for (int b = 0; b < HistogramBuckets; b++)
-        {
-            running += _histogramScratch[b];
-            if (running > target)
-            {
-                return (b + 0.5d) * HistogramBucketMs;
-            }
-        }
-        return (HistogramBuckets - 0.5d) * HistogramBucketMs;
     }
 
     /// <summary>
