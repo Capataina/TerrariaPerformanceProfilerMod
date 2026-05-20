@@ -43,14 +43,21 @@ These guide every individual decision below. If a proposed UI element doesn't sa
 
 ### 3.1 Panel sizing
 
+The overlay supports two presentation modes, switched at runtime via a header toggle:
+
+- **Default mode (1120 px wide)** — the "look at it while standing in your base" view. Big text, full charts, generous spacing. Designed for inspection sessions, not active play. The text grows with the panel: H1 at 1.0× scale (up from 0.82× pre-overhaul), H2 at 0.86×, row text at 0.78×. Bars are 14 px tall on mods.
+
+- **Compact mode (720 px wide)** — the "turn it on and walk around with it" view. Roughly today's overlay size, denser typography, smaller charts. Used during boss fights or active combat where the overlay needs to coexist with gameplay.
+
 ```
-Current:   PanelWidth = 640f   (fixed)
-Proposed:  PanelWidth defaults to 880f, user-resizable in [720, 1400]
-           Height: tab-determined, capped at screen.Height - 80
-           Width persists in ModConfig (added in this work)
+Default:   PanelWidth = 1120f   (at-rest inspection)
+Compact:   PanelWidth = 720f    (active gameplay)
+Resize:    [640, 1600]           (user can override either default via corner drag)
+Height:    tab-determined, capped at screen.Height - 80
+Persist:   mode + width per-user in ModConfig (Phase 7)
 ```
 
-Corner-drag handle in the bottom-right; tracks like the existing drag-header. Minimum width chosen so the SUMMARY tab's donut + ranking can both fit comfortably; maximum chosen so even ultra-wide users don't lose track of the panel.
+Corner-drag handle in the bottom-right; tracks like the existing drag-header. Min/max chosen so even ultra-wide users keep the panel manageable. The mode toggle is a header pill (next to LIVE/PAUSED); flipping it snaps to that mode's default size unless the user has manually resized within the current session.
 
 ### 3.2 Chrome anatomy
 
@@ -416,6 +423,7 @@ Deliberate omissions, listed so they don't get sneaked in:
 | 2026-05-20 | Rounded corners? | **No.** Sharp corners; visual hierarchy comes from surface tiers + heat ramp + tiered typography. Texture-asset and procedural-polygon approaches both rejected as cost-not-worth-it. |
 | 2026-05-20 | Pin-default-tab scope | Global. One preference across all modlists. |
 | 2026-05-20 | Compact mode behaviour | Keep cards just smaller, modern style stays. Cheaper revert-to-flat path discarded. |
+| 2026-05-20 | Default mode sizing | Default is **bigger than the original 880 px proposal — 1120 px wide**. The framing flipped: default = "look at it while standing in the base" (generous, info-rich), compact = "walk around with it during boss fights" (HUD-style, 720 px). Default isn't the "moderate middle"; it's the "spend time with it" mode. |
 | 2026-05-20 | SELF tab visibility | Always visible. PROFILER HEALTH in the chrome is the glance, SELF tab is the detail. |
 | 2026-05-20 | OVERVIEW → SUMMARY rename | Yes. |
 | 2026-05-20 | SUMMARY hidden-low filter default | Off. Show every mod always; filter pill exists, defaults off. |

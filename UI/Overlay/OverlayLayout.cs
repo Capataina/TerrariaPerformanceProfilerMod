@@ -81,29 +81,60 @@ internal static class OverlayLayout
     // so the self-footprint line we added in the relativity batch has room
     // to breathe.
 
-    /// <summary>Default panel width post-overhaul. Stored once here; the chrome reads it at construction.</summary>
-    public const float PanelWidthDefault = 880f;
+    // The overlay supports two presentation modes, switched at runtime:
+    //
+    //   * DEFAULT — the "look at it while standing in your base" view. Big,
+    //     comfortable to read, full visualisations (donut, sparklines).
+    //     Designed for inspection sessions, not active play.
+    //
+    //   * COMPACT — the "turn it on and walk around with it" view. Roughly
+    //     the size of the pre-overhaul overlay; usable during a boss fight
+    //     or busy combat without occupying half the screen.
+    //
+    // Constants below are tagged Default vs Compact where they differ.
+    // Compact mode mostly reuses the existing (pre-overhaul) constants.
+
+    /// <summary>Default-mode panel width. The "at rest" view: generous, info-rich.</summary>
+    public const float PanelWidthDefault = 1120f;
+
+    /// <summary>Compact-mode panel width. The "walking around" HUD view.</summary>
+    public const float PanelWidthCompact = 720f;
 
     /// <summary>Minimum panel width after Phase 7's resize handle ships.</summary>
-    public const float PanelWidthMin = 720f;
+    public const float PanelWidthMin = 640f;
 
     /// <summary>Maximum panel width; chosen so even ultra-wide users keep the panel manageable.</summary>
-    public const float PanelWidthMax = 1400f;
+    public const float PanelWidthMax = 1600f;
 
-    /// <summary>Header strip height for the new chrome. Larger than the current 28 px to give the title room and improve readability.</summary>
-    public const float HeaderHeightV2 = 32f;
+    /// <summary>Header strip height for the default mode.</summary>
+    public const float HeaderHeightV2 = 36f;
 
-    /// <summary>Tab strip height for the new chrome.</summary>
-    public const float TabStripHeightV2 = 28f;
+    /// <summary>Header strip height for compact mode (matches today's 28 px).</summary>
+    public const float HeaderHeightCompact = 28f;
 
-    /// <summary>Width of each tab pill in the new strip. Sized to fit "INSIGHTS" / "SUMMARY" comfortably at the new typography scale.</summary>
-    public const float TabWidthV2 = 102f;
+    /// <summary>Tab strip height for the default mode.</summary>
+    public const float TabStripHeightV2 = 32f;
 
-    /// <summary>Gap between adjacent tab pills.</summary>
+    /// <summary>Tab strip height for compact mode.</summary>
+    public const float TabStripHeightCompact = 24f;
+
+    /// <summary>Width of each tab pill in the default mode strip.</summary>
+    public const float TabWidthV2 = 112f;
+
+    /// <summary>Width of each tab pill in compact mode.</summary>
+    public const float TabWidthCompact = 88f;
+
+    /// <summary>Gap between adjacent tab pills (default).</summary>
     public const float TabGapV2 = 6f;
 
-    /// <summary>Height of a single raised stat card. Carries one label + value at the new H2 scale.</summary>
-    public const float StatCardHeight = 48f;
+    /// <summary>Gap between adjacent tab pills (compact).</summary>
+    public const float TabGapCompact = 4f;
+
+    /// <summary>Height of a single raised stat card in default mode. Carries one label + value at the H2 scale.</summary>
+    public const float StatCardHeight = 56f;
+
+    /// <summary>Height of a stat card in compact mode.</summary>
+    public const float StatCardHeightCompact = 40f;
 
     /// <summary>Horizontal gap between adjacent stat cards.</summary>
     public const float StatCardGap = 6f;
@@ -114,36 +145,69 @@ internal static class OverlayLayout
     /// <summary>Outer vertical padding inside the panel.</summary>
     public const float PanelPaddingY = 8f;
 
-    /// <summary>Height of the PROFILER HEALTH card in the new chrome.</summary>
-    public const float ProfilerHealthCardHeight = 56f;
+    /// <summary>Height of the PROFILER HEALTH card in default-mode chrome.</summary>
+    public const float ProfilerHealthCardHeight = 64f;
+
+    /// <summary>Height of the PROFILER HEALTH card in compact mode.</summary>
+    public const float ProfilerHealthCardHeightCompact = 44f;
 
     /// <summary>Vertical gap between the chrome regions (header → tabs → stats → health).</summary>
     public const float ChromeRegionGap = 6f;
 
-    /// <summary>Row heights at the new scale tier.</summary>
-    public const float RowHeightV2 = 22f;
-    public const float SubRowHeightV2 = 20f;
-    public const float HookRowHeightV2 = 18f;
+    /// <summary>Row heights for default mode — generous for at-rest inspection.</summary>
+    public const float RowHeightV2 = 26f;
+    public const float SubRowHeightV2 = 22f;
+    public const float HookRowHeightV2 = 20f;
 
-    /// <summary>Bar heights for the new HeatBar component.</summary>
-    public const int BarH_ModV2 = 12;
-    public const int BarH_CatV2 = 10;
-    public const int BarH_HookV2 = 8;
+    /// <summary>Row heights for compact mode (close to today's values).</summary>
+    public const float RowHeightCompact = 20f;
+    public const float SubRowHeightCompact = 18f;
+    public const float HookRowHeightCompact = 16f;
+
+    /// <summary>Bar heights for HeatBar component in default mode.</summary>
+    public const int BarH_ModV2 = 14;
+    public const int BarH_CatV2 = 12;
+    public const int BarH_HookV2 = 10;
+
+    /// <summary>Bar heights in compact mode.</summary>
+    public const int BarH_ModCompact = 10;
+    public const int BarH_CatCompact = 8;
+    public const int BarH_HookCompact = 6;
 
     /// <summary>Card title strip height; sits on top of the card body.</summary>
-    public const float CardTitleStripHeight = 18f;
+    public const float CardTitleStripHeight = 20f;
+
+    /// <summary>Card title strip height in compact mode.</summary>
+    public const float CardTitleStripHeightCompact = 16f;
 
     // ---- Typography scale tiers (see plan §6) --------------------------------
+    //
+    // Default-mode scales are bumped further than the original plan-draft —
+    // the panel grew from 880 to 1120 so the text can grow with it. Compact
+    // mode reverts to the pre-overhaul scales so the dense at-play view
+    // doesn't waste vertical space.
 
-    /// <summary>H1: panel title, tab headers.</summary>
-    public const float TextScaleH1 = 0.92f;
+    /// <summary>H1 (default): panel title, tab headers.</summary>
+    public const float TextScaleH1 = 1.00f;
 
-    /// <summary>H2: section titles, stat block values.</summary>
-    public const float TextScaleH2 = 0.78f;
+    /// <summary>H1 (compact).</summary>
+    public const float TextScaleH1Compact = 0.82f;
 
-    /// <summary>Row: primary row text (mod name, hook name).</summary>
-    public const float TextScaleRow = 0.72f;
+    /// <summary>H2 (default): section titles, stat block values.</summary>
+    public const float TextScaleH2 = 0.86f;
 
-    /// <summary>Body: secondary row text (annotations, units, captions).</summary>
-    public const float TextScaleBody = 0.62f;
+    /// <summary>H2 (compact).</summary>
+    public const float TextScaleH2Compact = 0.72f;
+
+    /// <summary>Row (default): primary row text (mod name, hook name).</summary>
+    public const float TextScaleRow = 0.78f;
+
+    /// <summary>Row (compact).</summary>
+    public const float TextScaleRowCompact = 0.66f;
+
+    /// <summary>Body (default): secondary row text (annotations, units, captions).</summary>
+    public const float TextScaleBody = 0.66f;
+
+    /// <summary>Body (compact).</summary>
+    public const float TextScaleBodyCompact = 0.55f;
 }
