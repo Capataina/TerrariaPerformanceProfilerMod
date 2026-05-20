@@ -98,6 +98,12 @@ public sealed class ProfilerDatabase : IDisposable
 
         RecoverIfNeeded();
 
+        // v0.6 Phase δ3: apply short BSON field names to every record before
+        // the first read or write happens. Centralised in BsonShortNames.cs
+        // rather than scattered as [BsonField] attributes across 24 record
+        // files (cross-storage-ram §4.1 + persistence §5.1).
+        BsonShortNames.Apply(BsonMapper.Global);
+
         string connStr = $"Filename={Path.Combine(_root, PersistenceFileNames.Db)};Upgrade=true;Connection=direct";
         _db = new LiteDatabase(connStr);
         _db.Pragma("UTC_DATE", false);
