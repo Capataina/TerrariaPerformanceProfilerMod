@@ -39,6 +39,7 @@ internal static class TabRegistry
     {
         new OverviewTab(),     // Renders as "SUMMARY" (multi-dimensional impact view).
         new TreeTab(),
+        new TimelineTab(),     // v0.7: per-segment retrospective scrollback.
         new SpikesTab(),       // Renders as "LAG" (spikes + stalls unified feed).
         new EventsTab(),
         new InsightsTab(),

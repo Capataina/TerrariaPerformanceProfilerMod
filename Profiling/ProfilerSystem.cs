@@ -8,6 +8,7 @@ using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Profiling.Insights;
 using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Profiling.Segments;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -65,6 +66,24 @@ public sealed class ProfilerSystem : ModSystem
     /// the next.
     /// </summary>
     internal EventAggregator? Events { get; private set; }
+
+    /// <summary>
+    /// Per-tick segment detector — opens/closes Biome/Weather/Boss/etc segments
+    /// against the same <see cref="EventContext"/> stream the
+    /// <see cref="EventAggregator"/> reads, plus the side-channel spike/stall/death
+    /// events that get folded into every currently-open segment.
+    /// </summary>
+    internal SegmentDetector? Segments { get; private set; }
+
+    /// <summary>Live in-memory ring of closed segments + DB writer enqueue. Lives as long as the recorder.</summary>
+    internal SegmentStore? SegmentStore { get; private set; }
+
+    // Counters used to detect new spike / stall / death events arriving this
+    // tick. Diffed against the live collector / death detector each tick to
+    // decide whether to call SegmentDetector.OnSpike / OnStall / OnDeath.
+    private int _lastSpikeCount;
+    private int _lastStallCount;
+    private bool _wasDeadLastTick;
 
     /// <summary>
     /// Installs the per-mod timing detours once, after every mod's content is
@@ -209,6 +228,17 @@ public sealed class ProfilerSystem : ModSystem
         _contextTagger = new ContextTagger();
         _contextTagger.Reset();
         Events = new EventAggregator();
+
+        // Segment engine. Lives even when the recorder doesn't — closed
+        // segments still flow through the live in-memory ring for the
+        // Timeline tab; only the DB write enqueue degrades to a no-op.
+        var sid = _recorder?.SessionId ?? LiteDB.ObjectId.Empty;
+        SegmentStore = new SegmentStore(PerformanceProfiler.Database, msg => Mod.Logger.Warn(msg));
+        Segments = new SegmentDetector(sid, SegmentStore);
+        _lastSpikeCount = 0;
+        _lastStallCount = 0;
+        _wasDeadLastTick = false;
+
         Mod.Logger.Info($"Profiler armed: {HistoryCapacity}-tick rolling history allocated.");
     }
 
@@ -287,6 +317,15 @@ public sealed class ProfilerSystem : ModSystem
         }
         _preSaveEndKickedOff = false;
 
+        // Flush any still-open segments as "ended at world unload" so they
+        // make it to the Timeline and DB before we drop the detector.
+        if (Segments != null)
+        {
+            long tickIndex = (long)Main.GameUpdateCount;
+            long unixMs = Time.UnixMsNow();
+            Segments.CloseAllOnShutdown(tickIndex, unixMs);
+        }
+
         _recorder = null;
         _transitionWatcher = null;
         _snapshotter = null;
@@ -294,6 +333,8 @@ public sealed class ProfilerSystem : ModSystem
         Collector = null;
         _contextTagger = null;
         Events = null;
+        Segments = null;
+        SegmentStore = null;
         // Insights engine carries per-session detector state; clear it so the
         // next world starts with an empty live + history set rather than
         // inheriting the previous session's records.
@@ -404,6 +445,40 @@ public sealed class ProfilerSystem : ModSystem
             if (_recorder != null && _deathDetector != null)
             {
                 _deathDetector.OnTick(_recorder, in tagger.Current);
+            }
+
+            // Segment engine — runs against the same EventContext.
+            SegmentDetector? segs = Segments;
+            if (segs != null)
+            {
+                long unixMs = Time.UnixMsNow();
+                segs.OnTick(tickIndex, unixMs, in tagger.Current, frameMs, collector.PerModCategoryRawMs);
+
+                // Diff spike + stall counts to detect new arrivals this tick.
+                int spikesNow = collector.Spikes.Count;
+                if (spikesNow > _lastSpikeCount)
+                {
+                    int delta = spikesNow - _lastSpikeCount;
+                    for (int i = 0; i < delta; i++) segs.OnSpike();
+                }
+                _lastSpikeCount = spikesNow;
+
+                int stallsNow = collector.Stalls.Count;
+                if (stallsNow > _lastStallCount)
+                {
+                    int delta = stallsNow - _lastStallCount;
+                    for (int i = 0; i < delta; i++) segs.OnStall();
+                }
+                _lastStallCount = stallsNow;
+
+                // Local-player death edge. Direct read (cheap) — keeps the
+                // segment engine independent of PlayerDeathDetector's lifecycle.
+                bool deadNow = Main.LocalPlayer != null && Main.LocalPlayer.dead;
+                if (deadNow && !_wasDeadLastTick)
+                {
+                    segs.OnDeath(tickIndex, unixMs);
+                }
+                _wasDeadLastTick = deadNow;
             }
         }
     }

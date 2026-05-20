@@ -35,6 +35,7 @@ public enum DbOpKind : byte
     ItemCreated,
     LoadoutSnapshot,
     BuffEvent,
+    Segment,
 }
 
 /// <summary>
@@ -137,4 +138,7 @@ public readonly struct DbWriteOp
 
     public static DbWriteOp BuffEvent(BuffEventRow row)
         => new DbWriteOp(DbOpKind.BuffEvent, row.SessionId, row);
+
+    public static DbWriteOp Segment(SegmentRow row)
+        => new DbWriteOp(DbOpKind.Segment, row.SessionId, row);
 }

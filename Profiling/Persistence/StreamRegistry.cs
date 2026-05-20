@@ -79,6 +79,7 @@ public sealed class StreamRegistry
             new ItemCreatedStream(),
             new LoadoutSnapshotStream(),
             new BuffEventStream(),
+            new SegmentStream(),
         });
     }
 }

@@ -211,6 +211,27 @@ internal static class BsonShortNames
             .Field(x => x.To, "to")
             .Field(x => x.TickFrameMs, "tfm");
 
+        mapper.Entity<SegmentRow>()
+            .Field(x => x.SessionId, "s")
+            .Field(x => x.Family, "fa")
+            .Field(x => x.Key, "k")
+            .Field(x => x.Name, "n")
+            .Field(x => x.StartTick, "st")
+            .Field(x => x.EndTick, "et")
+            .Field(x => x.StartUnixMs, "su")
+            .Field(x => x.EndUnixMs, "eu")
+            .Field(x => x.DurationMs, "d")
+            .Field(x => x.Ticks, "tc")
+            .Field(x => x.TotalFrameMs, "tf")
+            .Field(x => x.SpikeCount, "sp")
+            .Field(x => x.StallCount, "sl")
+            .Field(x => x.DeathCount, "dh")
+            .Field(x => x.BossKillCount, "bk")
+            .Field(x => x.Promoted, "pr")
+            .Field(x => x.PromotionReason, "pn")
+            .Field(x => x.ModIds, "mi")
+            .Field(x => x.ModMs, "mm");
+
         // Tick aggregates / session row / modlist row / world row / metadata /
         // mod row keep their existing shape — they're low-volume (one per
         // session or one per ~1 Hz/min). The savings concentrate on the

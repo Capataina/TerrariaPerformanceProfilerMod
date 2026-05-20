@@ -203,6 +203,14 @@ public sealed class MetricCollector
     public IReadOnlyList<double> PerModCategoryMs => _perModSmoothedMs;
 
     /// <summary>
+    /// Unsmoothed per-mod/category ms for the most-recently-closed tick. Same
+    /// <c>[modId * CategoryCount + categoryId]</c> layout. Read-only view onto
+    /// the live buffer — never store the reference past the current frame; the
+    /// next <c>EndTick</c> overwrites the contents.
+    /// </summary>
+    public IReadOnlyList<double> PerModCategoryRawMs => _perModRawMs;
+
+    /// <summary>
     /// Rolling 30-second per-mod/category average in milliseconds. This is the
     /// stable view for inspecting lag-spike contribution without row churn.
     /// </summary>

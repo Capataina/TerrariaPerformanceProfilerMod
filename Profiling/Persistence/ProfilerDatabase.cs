@@ -79,6 +79,7 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<ItemCreatedRow>          ItemCreations         => _db.GetCollection<ItemCreatedRow>("itemCreatedEvents");
     public ILiteCollection<LoadoutSnapshotRow>      LoadoutSnapshots      => _db.GetCollection<LoadoutSnapshotRow>("loadoutSnapshots");
     public ILiteCollection<BuffEventRow>            BuffEvents            => _db.GetCollection<BuffEventRow>("buffEvents");
+    public ILiteCollection<SegmentRow>              Segments              => _db.GetCollection<SegmentRow>("segments");
 
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
         : this(root, StreamRegistry.Default(), log, profilerVersion) { }
