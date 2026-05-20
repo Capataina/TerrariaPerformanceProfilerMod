@@ -1,5 +1,10 @@
 # Aggregated Overview Tab — Implementation Plan
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** OverviewTab + ModImpactScorer shipped in 693847f and a376f6a. Truncation caches and per-frame allocation fixes landed in audit round aa914ce. Multi-tab framework refactor in 037f8d5. Canonical reality: systems/overlay.md.
+>
+> Read the system files for current reality; this plan is the design brief that shipped, kept for the rationale.
+
+
 > Scope: introduce a multi-tab F9 overlay and make a new **Overview** tab the default landing surface. The Overview is the *aggregated* view: every loaded mod ranked by a single composite "performance impact" score that fuses CPU cost, spike contribution, and allocation pressure. Tab 1 = `OVERVIEW`, tab 2 = `TREE` (the existing btop-style per-mod tree), tab 3 = `EVENTS` (see `events-tab-plan.md`), tab 4 = `SPIKES` (see `spikes-and-allocations-plan.md` — does not exist yet; this plan designs against its expected outputs). Honours all four Project Invariants. Targets tModLoader 1.4.4 on .NET 8.
 >
 > The plan is sized and shaped to mirror `context/ILHook-migration-plan.md`: an evidence ledger, a viability verdict, a scoring methodology survey with a justified recommendation, step-by-step implementation sequencing, an honest risk register, an honest gaps section, and a testing strategy. The reader should be able to implement everything below without doing further external research.

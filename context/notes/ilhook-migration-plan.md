@@ -1,5 +1,10 @@
 # ILHook Migration Plan
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** ILHookInterceptor + ProbeStack + closed-generic inheritance pass + JIT shared-body filter all shipped in 3eccf89, d2da531, 83dfa49, 7da4058, 5725572. Default backend since b52f8b6. Coverage tri-state install outcomes + HookCategoryRouter + HookCoverageView landed in audit round 77a99d2. Outer-catch Uninstall hardening in same round. Canonical reality: systems/hook-instrumentation.md.
+>
+> Read the system files for current reality; this plan is the design brief that shipped, kept for the rationale.
+
+
 > Tracks the path from the current delegate-pair system to ILHook-based
 > instrumentation, through a parallel coexistence phase that validates accuracy
 > before any cutover.

@@ -1,105 +1,146 @@
-# Performance Profiler — tModLoader Integration Map
+# Integration Map
 
-> Per-component plug-in points, milestone feasibility, and the workaround for every gap.
-> Companion to `_Overview.md`; the per-slice `tmodloader-*.md` files hold the full member tables.
+> Cross-component map: which of our subsystems plugs into which tModLoader API, and what depends on what inside the mod itself. The per-API surface lives in `../tmodloader/*.md`; the per-subsystem implementation reality lives in `../systems/*.md`. This file is the connective tissue between the two.
 
----
+## Status of the post-implementation pass
 
-## Milestone feasibility on the public API
+As of 2026-05-20 every README milestone through M2 (Tree + Standard mode) is implemented. M3 (Persistence + retrospective) has its session-log half landed and atomic; the lifetime-data half is `notes/litedb-migration-plan.md`'s territory. M4 (Insights engine) is the four-live-six-gated state described in `systems/insights-engine.md`.
 
-Can the README's milestones be built on tModLoader's public API alone? Verdict per milestone:
+The previous tier model (Tier 1 buildable today, Tier 2 needs game, Tier 3 metadata confirmation, Tier 4 spike) is no longer informative; the spike happened, the gaps are resolved. The current model is "what's live, what's gated, what's deferred":
 
-| Milestone | Scope | Verdict | Where the difficulty lives |
-|---|---|---|---|
-| **M0 — Feasibility spikes** | 0.A detour install cost @ 94 mods · 0.B JSON-lines write perf + crash safety · 0.C engagement-hook coverage | **Buildable on the API.** M0 is the probe phase by design. | 0.B/0.C are clean public API. 0.A installs detours through the public `MonoModHooks` API onto loader methods resolved by reflection — no source needed to *measure install cost*. |
-| **M1 — Lite-mode MVP** | ILHook per-loader timing · per-mod CPU aggregate · single overlay panel (top-10 + 30 s rolling) · F9 toggle · gate < 1 % overhead | **Buildable on the API — but this is the hard milestone.** | Everything *around* the Hook Interceptor (Ring Buffer, aggregation, overlay shell, F9) is clean public API. The Hook Interceptor's ILHook timing is the project's real engineering risk: it needs the IL shape of tModLoader's internal `*Loader` dispatch loop. That shape is reachable **without a clone** — `MonoModHooks.Modify` hands the manipulator an `ILContext` (the live IL), and `MonoModHooks.DumpIL` writes it to `Logs/ILDumps/`. So we *observe* the IL through the API itself. A clone would make that IL easier to read as C#, but is a convenience, not a blocker. |
-| **M2 — Tree + Standard mode** | foldable tree UI · Hot Path capture · per-mod icons · colour-gradient bars · per-`(GlobalType, hookMethod)` detours | **Buildable on the API.** | The widget tree is the public `UIElement` model; the distinctive visuals are custom `DrawSelf` drawing (standard FNA). Standard-mode per-`(GlobalType, hookMethod)` detours resolve other mods' `Global*` subclasses by reflecting their assemblies through the **public** `AssemblyManager.GetLoadableTypes`, then `MonoModHooks.Add` each. |
-| M3 — Persistence + retrospective | JSON-lines storage · encounter detection · retrospective cards | Buildable. One reflection workaround: the writable data directory (`Main.SavePath`). |
-| M4 — Insights engine | heuristic attribution rules · NL insight generation | Buildable — pure logic, no tModLoader API at all. |
-| M5 — Public Workshop release | description, GIF, tutorial, repo | Not a code-API question. |
+| Status | Items |
+|--------|-------|
+| **Live** | Hook instrumentation (both backends), metric collection, spike detection, allocation tracking, events-and-context, insights engine (4 detectors), overlay (5 tabs), session logging, test harness |
+| **Gated** | Six insight detectors (`events`-gated: ContextCorrelatedSpike, ContextConditionalCost, GcPauseCulprit, HookFrequencyTail; `litedb`-gated: SustainedCostShift, NewContributor) |
+| **Deferred** | `SessionLogWriter` split + schema snapshot test (audit deferral); player settings UI (sketched); LiteDB lifetime persistence; HTML report sibling; `PreSaveAndQuit` clean-close badge |
 
-**Answer to "can we do M0, M1, M2 on the APIs": yes — all three.** M0 is exactly the right place to try the API and find any wall. M1 is buildable but is where the genuine difficulty concentrates (the Hook Interceptor IL work) — and the most likely moment we *choose* to clone for readability. M2 is buildable on the public widget API plus reflection over the public `GetLoadableTypes`.
+## Per-component integration
 
-**The likely "wall" is one specific thing:** writing the Lite-mode IL manipulator that wraps tModLoader's per-mod dispatch `foreach`. We can see that loop's IL via `DumpIL` at runtime, but reading 200 lines of raw CIL is slower than reading the equivalent C#. *That* is the point where cloning tModLoader (checked out to the installed commit) pays for itself. It is a Milestone 1 decision, not a Milestone 0 one.
+Each row names one of our subsystems, the tModLoader surface it plugs into, and the file pair that owns the canonical description.
 
----
+| Subsystem | Plugs into | Canonical home | Per-API reference |
+|-----------|-----------|----------------|-------------------|
+| Hook instrumentation (delegate) | `MonoModHooks.Add(MethodBase, Delegate)` | `systems/hook-instrumentation.md` | `tmodloader/monomod-detours.md` |
+| Hook instrumentation (IL) | `new MonoMod.RuntimeDetour.ILHook(MethodBase, ILContext.Manipulator, applyByDefault: true)` + `Mono.Cecil.Cil` IL editing | `systems/hook-instrumentation.md` | `tmodloader/monomod-detours.md` |
+| Mod enumeration | `ModLoader.Mods` (foreach), `AssemblyManager.GetLoadableTypes(Mod.Code)` | `systems/hook-instrumentation.md` (Install path) | `tmodloader/mod-identity.md` |
+| Per-mod attribution | `MethodBase.DeclaringType.Assembly` ↔ `Mod.Code` (our own reflection) | `systems/metric-collection.md` | `tmodloader/mod-identity.md` |
+| Per-tick lifecycle | `ModSystem.PreUpdateEntities` / `PostUpdateEverything` | `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
+| World lifecycle | `ModSystem.OnWorldLoad` / `OnWorldUnload` | `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
+| Content set-up | `Mod.PostSetupContent` (install + populate + initialise) | `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
+| ILHook teardown | `Mod.Unload` (explicit, before assembly unload) | `systems/mod-lifecycle.md` (calls `ILHookInterceptor.Uninstall`) | `tmodloader/monomod-detours.md` |
+| F9 keybind | `KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", Keys.F9)`, `ModKeybind.JustPressed`, `ModPlayer.ProcessTriggers` | `systems/overlay.md` (mount) | `tmodloader/ui-system.md` |
+| Overlay mount | `ModSystem.ModifyInterfaceLayers` → `LegacyGameInterfaceLayer` | `systems/overlay.md` | `tmodloader/ui-system.md` |
+| UI update pump | `ModSystem.UpdateUI(GameTime)` → mod-owned `UserInterface.Update` | `systems/overlay.md` | `tmodloader/ui-system.md` |
+| Input suppression | `Player.mouseInterface = true` while hovering panel | `systems/overlay.md` | `tmodloader/ui-system.md` |
+| Boss / event / biome context | `Player.Zone*` fields, `ModBiome.IsBiomeActive`, `NPC.boss`, `NPC.realLife`, `Main.bloodMoon` / `eclipse` / `pumpkinMoon` / `snowMoon` / `invasionType`, `Main.dayTime` | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
+| Modded biome enumeration | `BiomeRegistry.Populate()` over `ModContent.GetContent<ModBiome>()` plus reflection over `typeof(Player)`'s `Zone*` fields | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
+| Optional SubworldLibrary probe | reflection over `SubworldLibrary.SubworldSystem.Current` | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
+| Frame stats | `Main.GameUpdateCount`, `Main.npc[]` / `projectile[]` / `dust[]` (count `.active`), `GC.GetAllocatedBytesForCurrentThread()`, `Stopwatch.GetTimestamp()` | `systems/metric-collection.md` | `tmodloader/engagement-surfaces.md` (entity arrays), `tmodloader/lifecycle-and-loop.md` (Main.GameUpdateCount) |
+| Session JSON path | `Environment.SpecialFolder.ApplicationData` → `Terraria/tModLoader/PerformanceProfiler/sessions/` (resolved via `SessionDirectory()`); `Main.SavePath` reflection probe is the preferred resolution where available | `systems/session-logging.md` | `tmodloader/lifecycle-and-loop.md` |
+| Agent surface | `Mod.Logger.Info` / `Warn` / `Error` writing to `client.log` | every subsystem at lifecycle boundaries | `tmodloader/monomod-detours.md` (also names Logger) |
 
-## Component integration detail
+## Hot-path dependency chain
 
-Ordered by build tier (see `_Overview.md` for the tier model). `[public-API]` = documented & directly callable · `[doc-gap]` = public but undocumented, confirm the name from DLL metadata · `[reflection]` = non-public, reach via guarded reflection + abort-clean.
+The single most important chain to keep in mind: one hook timing observation, end to end.
 
-### Tier 1 — buildable today, no game, unit-testable
+```
+Main.Update
+   │
+   ▼
+ModSystem.PreUpdateEntities  ── ProfilerSystem ──▶ Collector.BeginTick
+   │                                                  GC.GetAllocatedBytesForCurrentThread
+   │                                                  Stopwatch.GetTimestamp
+   │                                                  PerModAttribution.SnapshotForTick
+   ▼
+tModLoader's *Loader.HookList<T>.Enumerate iterates each mod's overrides:
+   │
+   │  ┌────────────────────────────────────────────────────────────────────┐
+   │  │ patched method runs                                                 │
+   │  │                                                                     │
+   │  │   [delegate path]                                                   │
+   │  │     HookProbe.Time*(orig, args):                                    │
+   │  │        long start = Stopwatch.GetTimestamp();                       │
+   │  │        try { orig(self, args); }                                    │
+   │  │        finally {                                                    │
+   │  │            PerModAttribution.Add(modId, cat, hook, delta)           │
+   │  │        }                                                            │
+   │  │                                                                     │
+   │  │   [ILHook path]                                                     │
+   │  │     emitted prologue: ldc.i4 hookId                                 │
+   │  │                       (call GC.GetAllocatedBytesForCurrentThread)?  │
+   │  │                       call ProbeStack.Enter[CpuAlloc]               │
+   │  │     original body inside try region                                 │
+   │  │     emitted finally: call ProbeStack.Leave[CpuAlloc]                │
+   │  │                          → PerModAttribution.Add(..., delta)         │
+   │  └────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+ModSystem.PostUpdateEverything ── ProfilerSystem ──▶ Collector.EndTick
+   │                                                    _ring.Push(TickFrame)
+   │                                                    SpikeDetector.Observe(frame)
+   │                                                    PerModAttribution.CloseTick
+   │                                                    (Parallel mode: divergence delta)
+   │                                                  _sessionLog?.Tick(collector)
+   │                                                    timeline cadence: every 3600 ticks
+   │                                                    AtomicWrite → temp + File.Replace
+   │                                                    catch SessionLogFailureException → self-disable
+   │                                                  _contextTagger.Snapshot(tickIndex)
+   │                                                  Events.Accumulate(tagger.Current, frameMs)
+   ▼
+Overlay (next frame's UpdateUI tick):
+   tab.Tick(collector)   // 1 Hz cadence inside each tab
+   tab.Draw(sb, area, collector)
+   Player.mouseInterface = true while hovering
+```
 
-#### Component 3 — Ring Buffer
-Pure data structure. Fixed-size circular buffer of `TickFrame` structs, allocated once, never grown.
-- Lifecycle owner: `ModSystem.OnWorldLoad` (allocate) / `OnWorldUnload` (free) — `[public-API]`, a clean symmetric pair.
-- The buffer itself is plain C# — write and test it now against synthetic `TickFrame`s.
-- **No gap.**
+A broken link anywhere in that chain has a different failure mode:
 
-#### Component 2 — Per-Tick Metric Collector
-Pure logic that consumes the Hook Interceptor's timing events.
-- Timing: `System.Diagnostics.Stopwatch.GetTimestamp()` — `[public-API]`, .NET BCL. Use the static `long` reads, never `new Stopwatch()` (Invariant 2).
-- Allocation tracking: `GC.GetAllocatedBytesForCurrentThread()`, `GC.GetTotalPauseDuration()` (.NET 8) — `[public-API]`, BCL.
-- `PerModSample[]` pre-allocated, indexed by mod ID.
-- Frame boundary: open in `ModSystem.PreUpdateEntities`, commit in `PostUpdateEverything` — `[public-API]`. **Skip partial frames** (where `PreUpdateEntities` did not fire) — count them as "no tick sampled", not a 0 ms tick.
-- **No gap.** The component's *logic* is fully buildable and unit-testable now; its real-world *data* depends on Component 1.
+| Broken link | Failure |
+|-------------|---------|
+| `ModSystem.PreUpdateEntities` not firing (partial frame) | `Collector.TickOpen` stays false; `EndTick` skips; no ghost zero-ms tick (correct) |
+| Mod's override throws inside `orig(...)` | `try/finally` credits time-up-to-throw; exception propagates unchanged (Invariant 1) |
+| `MonoModHooks.Add` throws at install | counted via `InstallFailures`; not measured but also not crashed |
+| ILHook manipulator throws | per-method catch in `InstrumentTypeOverrides`; counted via `_failures`; rest of install continues |
+| `ILHookInterceptor.Install` outer catch fires | `Uninstall()` disposes everything; `Installed = false`; Logger.Warn |
+| Session log IO error | `SessionLogFailureException` → catch in `PostUpdateEverything` → `_sessionLog = null` for the rest of the world; metric collection continues |
+| `Mod.Unload` skipped (tModLoader bug) | ILHook references our types after assembly unload → next-tick crash; no defence today beyond tModLoader correctness |
+| `ModLoader.Mods` empty or wrong | `Install` enumerates zero mods; nothing measured; coverage shows 0/0 |
 
-#### Component 8 — Insights Engine
-Pure post-session rule logic over already-collected data. No tModLoader API at all. Fully buildable and unit-testable now against synthetic sessions.
+## Cross-cutting concerns
 
-#### Component 7 — Persistent Store (schema + serialisation half)
-- JSON-lines schema, per-row `schema` field, serialisation via `System.Text.Json` — `[public-API]`, BCL. Buildable and testable now.
-- Modlist-fingerprint hashing — pure logic, buildable now.
-- *The directory acquisition is Tier 3 — see below.*
+### Invariant 1 (read-only) enforcement points
 
-### Tier 2 — documented public API, needs the game to exercise
+| Risk surface | Enforcement |
+|--------------|-------------|
+| Hook delegate probes | `try/finally` (never `try/catch`); mod-thrown exception propagates unchanged. Convention #3. |
+| ILHook manipulator | `ApplyTimingWrap` inserts only — never removes existing IL or alters locals that flow into game logic. Reviewed per-emission. |
+| Engagement-style hooks (none today) | If `GlobalItem.UseItem` / `Shoot` / `CanUseItem` are ever added to the instrumentation surface, their probes must return the upstream value unchanged. |
+| `Player.mouseInterface = true` | The one write in the codebase; vanilla-sanctioned UI convention; suppresses player's own click being double-counted. |
 
-#### Lifecycle wiring
-- `ModSystem.OnWorldLoad` / `OnWorldUnload` — ring-buffer alloc/free + detour install/teardown. `[public-API]`
-- `ModSystem.PreSaveAndQuit` — clean-session-close signal; finalise + flush here. `[public-API]`
-- `Mod.PostSetupContent` — build the `Assembly → ModId` map + modlist fingerprint here. `[public-API]`
-- Per-tick sequence: `UpdateUI` → `PreUpdateEntities` → … → `PostUpdateEverything`. Full table in `tmodloader-lifecycle-and-loop.md`.
+### Invariant 2 (overhead budget) enforcement points
 
-#### Component 6 — UI Renderer (the overlay shell)
-- F9 keybind: `KeybindLoader.RegisterKeybind` → `ModKeybind.JustPressed`, polled in `ModPlayer.ProcessTriggers`. `[public-API]`
-- Draw over live gameplay: insert a layer in `ModSystem.ModifyInterfaceLayers`; drive updates from `ModSystem.UpdateUI`. `[public-API]`
-- Widget tree: the `Terraria.UI.UIElement` model (`Append`, `DrawSelf`, `LeftMouseDown`, `StyleDimension`). `[public-API]`
-- Input suppression: set `Player.mouseInterface = true` when the cursor is over a panel. `[public-API]`
-- **Avoid `IngameFancyUI`** — it is modal and locks the player out of gameplay, contradicting "Esc dismisses mid-fight, no modal traps".
-- *Gaps: the custom-drawing substrate — Tier 3 below.*
+| Hot-path | Enforcement |
+|----------|-------------|
+| Per-detour entry/leave | `Stopwatch.GetTimestamp()` static reads; no `new Stopwatch()`; convention #5 |
+| Per-mod accumulators | Pre-allocated `T[]` indexed by ModId; no `List<T>`; convention #6 |
+| Per-tick logging | `Mod.Logger` only at lifecycle boundaries; never per tick; convention #4 |
+| Overlay tab refresh | 1 Hz Tick; truncation caches; convention #8 |
+| Insight store `Top` | `TopInto` with reusable scratch buffers; allocation-free past warmup |
+| `_windowsView` | Cached at `SpikeDetector` construction; no per-read allocation |
+| Backend divergence log | `ConsumeDivergenceLogTrigger` consumed-and-reset; no per-tick spam |
 
-#### Components 4 & 5 — Context Tagger + Encounter Detector
-- Engagement hooks (all `[public-API]`): `GlobalNPC.OnKill` / `OnHitByProjectile`, `GlobalItem.UseItem` / `OnConsumeItem` / `OnConsumeAmmo` / `Shoot`, `ModPlayer.OnHitNPCWithItem` / `OnHitNPCWithProj`.
-- Modded biomes: `ModBiome.OnEnter` / `OnLeave` / `OnInBiome`. `[public-API]`
-- Boss/event triggers: `GlobalNPC.OnSpawn` + `NPC.boss`; `Main.bloodMoon` / `eclipse` / `invasionType`. `[public-API]`
-- Win/died/fled outcome is our own derived logic over these hooks — not an API gap.
-- ⚠ `GlobalNPC.OnKill` / `OnSpawn` are single-player/server only — fine for v1 (single-player); multiplayer needs a poll fallback (`NPC.AnyNPCs`). Recorded for the 0.C spike.
-- ⚠ Return-value hooks (`UseItem`, `Shoot`) must return the upstream value unchanged — forcing `true`/`false` would breach Invariant 1.
+### Invariant 4 (abort-clean) enforcement points
 
-### Tier 3 — one-time metadata-name confirmation, or a guarded-reflection workaround
+| Surface | Behaviour |
+|---------|-----------|
+| `HookInterceptor.Install` outer catch | `Installed = false`; `Logger.Warn`; no partial instrumentation surfaced |
+| `ILHookInterceptor.Install` outer catch | Same plus `Uninstall()` to dispose any hooks that already landed |
+| Per-method ILHook manipulator failure | Caught in `InstrumentTypeOverrides`; `_failures++`; one sampled `Logger.Warn`; rest of install continues |
+| `SessionLogWriter.Create` IO failure | `_sessionLog = null` for the world; `Logger.Warn` once; metric collection continues |
+| `SessionLogWriter.Tick` IO failure | `SessionLogFailureException` → catch → `_sessionLog = null` for the rest of the world |
+| `SubworldProbe.Initialise` reflection failure | `Available = false`; `CurrentId()` returns sentinel; no crash |
+| `BiomeRegistry.Populate` reflection failure | `ModBiomeBindingOk = false`; `Logger.Info` reports the state |
 
-| Need | Component | Gap type | Workaround |
-|---|---|---|---|
-| Vanilla `Zone*` field names (`ZoneSnow`, `ZoneCorrupt`, …) | 4 | `[doc-gap]` | Confirm names from `tModLoader.dll` metadata (IDE view or a reflection dump), then plain direct field reads. No runtime reflection needed once names are known. |
-| `Main.dust` array, `Projectile.active` / `NPC.active` flags, array-length constants | 2, 4 | `[doc-gap]` | Same — confirm names from metadata, then direct reads. |
-| UI draw substrate — `LegacyGameInterfaceLayer` ctor, `FontAssets`, the magic-pixel texture, `MeasureString` | 6 | `[doc-gap]` | Standard FNA drawing inside `UIElement.DrawSelf`; confirm exact handles from metadata + `ExampleMod`. Terraria ships **no monospace font** — the overlay's monospace look needs fixed-advance glyph layout, a real implementation-time task. |
-| Writable data directory for the JSON-lines store | 7 | `[reflection]` | `Main.SavePath` via guarded reflection; **fall back** to the platform path (`%AppData%`/`Application Support` → `Terraria/tModLoader/`) if the field is absent. Abort-clean either way. |
-| Loaded-mod enumeration for the `Assembly→ModId` map + fingerprint | 1, 2, 7 | `[reflection]` | `ModLoader.Mods` (historically a public `Mod[]`) via reflection if not directly visible; guarded, resolved once at `PostSetupContent`. If it fails, disable instrumentation and report (Invariant 4). |
-| Per-mod author/homepage for the retrospective card | — | `[reflection]` | `build.txt` inside the `.tmod` via `Mod.File`; until confirmed, the card degrades gracefully (omit the `by <author>` line — never fabricate it, Invariant 3). |
+## The 2026-05-19 design-wording correction (still valid)
 
-### Tier 4 — the genuine spike (Milestone 0.A → Milestone 1)
-
-#### Component 1 — Hook Interceptor (cross-mod attribution)
-The one irreducible hard problem. The README's Lite mode = "ILHook the `*Loader.<HookName>` body, time the per-mod dispatch `foreach`".
-- Detour primitive: `MonoModHooks.Modify(MethodBase, ILContext.Manipulator)` — `[public-API]`, accepts *any* `MethodBase`, public or internal.
-- Targets: the internal `*Loader` dispatch methods + `HookList`. `ItemLoader`'s dispatch is documented; `SystemLoader`/`NPCLoader`/`PlayerLoader`/`ProjectileLoader` and all of `HookList` are not. `[reflection]`
-- Per-mod identity at the call site: `MethodBase.DeclaringType.Assembly` matched against each `Mod.Code` — `[public-API]`, our own reflection (not a tModLoader ownership table — design wording to correct).
-- **Workaround for the IL-shape unknown:** ILHook a loader method via `MonoModHooks.Modify`, and in the manipulator dump the `ILContext` with `MonoModHooks.DumpIL` (writes to `Logs/ILDumps/`). This *observes the real dispatch IL at runtime through the public API* — no clone, no decompiler. Write the timing manipulator against the observed shape.
-- **Abort-clean (Invariant 4):** resolve every internal target by guarded reflection; verify the IL shape before injecting; on any mismatch, disable instrumentation, set mode `Off`, report on both surfaces. The internal targets are perf-tuned and *will* drift across tModLoader updates — this is the designed failure path, not an edge case.
-- This is where, if anywhere, cloning tModLoader (at the installed commit) becomes worth it — to read the dispatch loop as C# instead of CIL. A Milestone 1 call.
-
----
-
-## The one design-wording correction
-
-The README/design say per-mod attribution "comes for free because tModLoader tracks per-assembly detour ownership through `MonoModHooks`." The public API does not expose any such ownership table. Attribution is genuinely free — but via the profiler's own `MethodBase.DeclaringType.Assembly → Mod.Code` reflection. Same outcome; correct the wording when the README/design is next touched.
+The README and the design pitch say per-mod attribution "comes for free because tModLoader tracks per-assembly detour ownership through `MonoModHooks`." The public tModLoader API does not expose any such ownership table. Attribution **is** genuinely free, but via the profiler's own `MethodBase.DeclaringType.Assembly → Mod.Code` reflection — the dictionary built once at `PostSetupContent` and probed at each detour callsite. Same outcome; correct the wording when the README/design is next touched.

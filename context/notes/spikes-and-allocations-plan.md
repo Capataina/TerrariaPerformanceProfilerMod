@@ -1,5 +1,10 @@
 # Spikes + Allocations Plan — From smoothed averages to per-tick attribution
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** SpikeDetector, PerTickAttributionRing, SpikesTab, per-mod allocation tracking (EnterCpuAlloc/LeaveCpuAlloc IL emission), MEM/BOTH overlay pill all shipped in 08dd5eb, 45baf02, f32d33d. FlushSpikes at world unload landed in audit round 77a99d2. Canonical reality: systems/spike-detection.md and systems/allocation-tracking.md.
+>
+> Read the system files for current reality; this plan is the design brief that shipped, kept for the rationale.
+
+
 > Scope: extend the ILHook backend with **per-mod allocation tracking** and surface a **spike feed** that exposes the discrete moments where tick time exceeded a rolling baseline. Both features share the same underlying change — raw per-tick per-mod attribution retained in a ring buffer rather than smoothed away on each `EndTick`. Targets tModLoader 1.4.4 on .NET 8, MonoMod.RuntimeDetour 25.3.2, Mono.Cecil 0.11.6. Honours all four Project Invariants.
 
 ---

@@ -1,5 +1,8 @@
 # ILHook Migration Plan — From hand-written delegate pairs to signature-agnostic coverage
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** The IL backend (`ILHookInterceptor`) is the default since `b52f8b6`. Closed-generic inheritance pass landed in `7da4058`; the JIT shared-body crash fix in `5725572`. The 2026-05-20 audit's hook-instrumentation findings are all marked done in `context/plans/code-health-audit/index.md`. Canonical reality: `context/systems/hook-instrumentation.md`. This file is kept as the research record that shaped the implementation.
+>
+
 > Scope: replace `HookInterceptor.TryHookSupportedOverride` and every `HookProbe.Time*` overload with a single ILHook-based instrumentation path that times any tModLoader hook override regardless of signature, lifting coverage from ~71.6 % (7 314 / 10 220 overrides on an 18-mod modlist) to ~100 %. Honours all four Project Invariants. Targets tModLoader 1.4.4 on .NET 8, MonoMod.RuntimeDetour 25.3.2, Mono.Cecil 0.11.6.
 
 ---

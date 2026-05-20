@@ -121,3 +121,64 @@ So: nothing in the UI Renderer is *blocked*, but the component is mis-described 
 6. **Heatmap render cost at 60 Hz** — open until the Milestone 1 spike measures 640 per-cell `SpriteBatch.Draw` calls vs a pre-rendered `RenderTarget2D`. Not an API gap; an Invariant-2 measurement gap.
 7. **Double-click detection** — no documented double-click member on `UIElement` (`LeftMouseDown` is single). "Double-click to drill into a hook" needs mod-side click-timing. Confirm whether a `UIElement.OnLeftDoubleClick`-style member exists in 1.4.4 source. **NEEDS DECOMPILER VERIFICATION.**
 8. **Steam-controller input** — the README claims `UIElement` gets controller input "for free." `UIElement`'s documented members show only mouse events (`MouseOver`, `LeftMouseDown`); controller navigation is handled by vanilla `UILinkPointNavigator`, **absent from this XML**. Confirm whether mod `UIElement`s auto-participate in controller navigation or must register link points. **NEEDS DECOMPILER VERIFICATION.**
+
+---
+
+## How we plug in (post-implementation status, 2026-05-20)
+
+The 2026-05-19 analysis verdict was "the overlay shell is public-API; the overlay paint is custom DrawSelf against vanilla drawing types this XML does not document." That is exactly what was built.
+
+### The shell
+
+`ProfilerOverlaySystem : ModSystem` (`UI/ProfilerOverlaySystem.cs`) owns the mount:
+
+- `PostSetupContent` → `KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", Keys.F9)` → stored as `ToggleKeybind`.
+- `ModifyInterfaceLayers(List<GameInterfaceLayer> layers)` → inserts a `LegacyGameInterfaceLayer` whose draw delegate calls `OverlayPanel.Draw`.
+- `UpdateUI(GameTime)` → drives the mod-owned `UserInterface.Update` while `OverlayState.Visible` is true.
+- `ToggleVisibility()` → flips `OverlayState.Visible`.
+
+`ProfilerPlayer.ProcessTriggers` polls the F9 keybind and calls `ToggleVisibility()`. Local client only (per `ProcessTriggers`' tModLoader documentation).
+
+### The paint
+
+`OverlayPanel.Draw(SpriteBatch, MetricCollector?, IOverlayTab)` (`UI/Overlay/OverlayPanel.cs`) owns the chrome and dispatches the active tab. The chrome draws:
+
+- Background and rounded panel via `OverlayDraw.Rect` (filled rectangles on the magic-pixel texture).
+- Header strip (mod name, frame-time NOW vs 30s avg pill, LIVE/PAUSED, CPU/MEM/BOTH metric pill).
+- Tab strip — iterates `TabRegistry.Visible(collector)` and renders each tab's `Label`.
+- Stats line (entity counts, alloc bytes/s, hook count).
+- PROFILER HEALTH bar — fed by `HookCoverageView.MeasuredHooks() / TotalHooks()`.
+
+Then the active tab's `Draw(sb, area, collector)` renders its content area below `OverlayLayout.DividerOffset`.
+
+### IOverlayTab contract
+
+`UI/Overlay/IOverlayTab.cs` defines a six-member contract: `Label`, `IsAvailable`, `Tick`, `MeasurePanelHeight`, `Draw`, `HandleClick`, `HandleScroll`. Each tab is a singleton instance in `TabRegistry.Tabs`; the order in the list is the order in the tab strip.
+
+`TabRegistry.Visible(collector)` enforces `IsAvailable` — a tab returning false hides from the strip and receives no input dispatch. The audit (`plans/code-health-audit/overlay-ui.md`) found that pre-fix the chrome ignored `IsAvailable`; the post-fix routes all chrome paths through `Visible` / `ResolveActive`.
+
+### Esc dismissal
+
+Today F9 toggles visibility. Esc is not specially handled; tModLoader's vanilla pause-menu handling consumes it. The 2026-05-19 analysis's "Esc-to-dismiss without pause" concern remains open but is low-priority — the player can dismiss with F9.
+
+### Drawing primitives
+
+`OverlayDraw` (`UI/Overlay/OverlayDraw.cs`) wraps the vanilla drawing surface:
+
+- `OverlayDraw.Rect(sb, x, y, w, h, color)` — uses `TextureAssets.MagicPixel.Value` (resolved at first call).
+- `OverlayDraw.Text(...)` family — uses `FontAssets.MouseText.Value` (Terraria's primary UI font).
+- `OverlayDraw.Truncate(text, maxWidth, font)` — fits a string to a pixel budget via `font.MeasureString`.
+
+The "monospace style" of the overlay is layout-by-column-width, not a true monospace font (Terraria ships none). Numeric columns are measured once and rows align to the widest cell.
+
+### Truncation caches
+
+Per the audit fix in commit `aa914ce`: `OverviewTab._truncatedNames` (`Dictionary<int, string>` keyed by ModId) and `InsightsTab._rankedBodies` (`List<string>` parallel to `_ranked`) cache truncated row labels at the 1 Hz Tick cadence. No per-frame `OverlayDraw.Truncate` allocations on those paths.
+
+### Input suppression
+
+`Player.mouseInterface = true` is set while the cursor is over the overlay panel (`OverlayPanel.Draw`'s hover branch). Vanilla-sanctioned UI convention; suppresses the player's own click being interpreted as gameplay.
+
+### Canonical home
+
+`systems/overlay.md` carries the implementation reality including the five tabs, the 1 Hz refresh discipline, and the truncation caches.

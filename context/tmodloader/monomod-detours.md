@@ -135,3 +135,78 @@ The Hook Interceptor is **buildable on documented public API for installation an
 - **Enumerable of loaded mods.** No `ModLoader.Mods`-style public enumerable appears in the XML. The profiler can enumerate via known names + `TryGetMod`, but a clean "all loaded mods" accessor — needed for the modlist fingerprint — may exist only internally. **NEEDS DECOMPILER VERIFICATION** (or confirm whether `ModLoader.Mods` exists undocumented).
 - **Running tML's `BuildInfo.stableVersion` at runtime.** `BuildInfo` is documented with two fields; confirm `stableVersion` is a *static* field readable at runtime (not just a build-time constant invisible after compilation) so the install-time version gate is actually evaluable. The summary ("at the time this build was created") suggests it is baked per-build and readable — but **NEEDS DECOMPILER VERIFICATION** of accessibility/staticness.
 - **`MonoMod.RuntimeDetour` direct types** (`Hook`, `ILHook`, `Detour`, `NativeDetour`) are supplied by `monomod.runtimedetour 25.3.2` / `monomod.core 1.3.2`, not the tML XML. They are not to be used directly (Invariant: always go through `MonoModHooks`), but their public surface — should the profiler need to *hold* the objects `Add`/`Modify` return — comes from the MonoMod library docs, not this file's source.
+
+---
+
+## How `ILHookInterceptor` actually wires (post-implementation status, 2026-05-20)
+
+The 2026-05-19 analysis (above) flagged "`MonoModHooks.Add / Modify` return types" as a `NEEDS DECOMPILER VERIFICATION` gap because the XML carried no `<returns>` documentation. The 2026-05-20 implementation **resolves the gap by sidestepping `MonoModHooks.Modify` entirely**.
+
+### The wiring
+
+`ILHookInterceptor.InstallTimingHook` (`Profiling/ILHookInterceptor.cs:435-442`):
+
+```csharp
+private static ILHook InstallTimingHook(MethodInfo target, int hookId)
+{
+    ILContext.Manipulator manipulator = il => ApplyTimingWrap(il, hookId);
+    // applyByDefault: true matches MonoModHooks.Modify semantics
+    return new ILHook(target, manipulator, applyByDefault: true);
+}
+```
+
+Direct construction of `MonoMod.RuntimeDetour.ILHook` rather than going through `MonoModHooks.Modify` because (as documented inline at `ILHookInterceptor.cs:36-41`):
+
+> *We construct `ILHook` directly rather than going through `MonoModHooks.Modify` because the tModLoader API returns `void` from `Modify` — we'd never get the `ILHook` back to `ILHook.Dispose` on unload. Direct construction is the supported public API in MonoMod.RuntimeDetour 25.3.2 and gives deterministic teardown.*
+
+So the resolution of the 2026-05-19 gap is **not** "the return type is X"; it is "the return type is void, which is the wrong shape for our lifetime, so we use the underlying `ILHook` ctor directly."
+
+### Direct dependencies (NuGet)
+
+The ILHook backend takes direct references to:
+
+- `Mono.Cecil` (and `Mono.Cecil.Cil`) — for `MethodBody`, `Instruction`, `OpCodes`, `VariableDefinition`, `ExceptionHandler`, `ExceptionHandlerType`.
+- `MonoMod.Cil` — for `ILContext`, `ILContext.Manipulator`, `ILCursor`, `MoveType`.
+- `MonoMod.RuntimeDetour` — for `ILHook` itself.
+
+All three are transitively available via tModLoader's own dependencies (tModLoader ships `monomod.runtimedetour 25.3.2` and `monomod.core 1.3.2`), so no extra package references are needed.
+
+### The manipulator pattern
+
+`ApplyTimingWrap(ILContext il, int hookId)` (`Profiling/ILHookInterceptor.cs:449-568`):
+
+1. Decide whether the method returns a value (`body.Method.ReturnType.MetadataType != MetadataType.Void`).
+2. If non-void, allocate a `VariableDefinition` for the return value and set `body.InitLocals = true`.
+3. Anchor the original first instruction (`firstOriginal = body.Instructions[0]`). Cecil keeps instruction references by identity, so existing branches remain valid.
+4. Choose the leave/enter call targets based on `HookBackend.AllocationTracking`:
+   - CPU only: `_enterMethod` (`ProbeStack.Enter`) + `_leaveMethod` (`ProbeStack.Leave`).
+   - CPU+alloc: `_enterCpuAllocMethod` (`ProbeStack.EnterCpuAlloc`) + `_leaveCpuAllocMethod` (`ProbeStack.LeaveCpuAlloc`). The prologue gains a `call GC.GetAllocatedBytesForCurrentThread()` between the `ldc.i4 hookId` and the `EnterCpuAlloc` call.
+5. Build the tail anchors: `handlerStart` (the `call Leave[CpuAlloc]`), `endFinally`, `afterHandler` (either `ldloc retLocal` or `ret`), and (for non-void) a final `ret`.
+6. Rewrite every existing `ret`:
+   - **Non-void:** `ret` → `stloc retLocal`; insert `leave afterHandler` immediately after.
+   - **Void:** `ret` → `leave afterHandler`.
+7. Emit the prologue before `firstOriginal` via `ILCursor.Goto(firstOriginal, MoveType.Before)`.
+8. Append the tail (`handlerStart`, `endFinally`, `afterHandler`, optional final `ret`).
+9. Register a new outer `ExceptionHandler(Finally)` covering `firstOriginal → handlerStart`. Existing inner handlers stay legally nested.
+
+### Lifecycle
+
+Constructed `ILHook` instances are stored in a static `List<ILHook> _installedHooks` (`Profiling/ILHookInterceptor.cs:79`). `Mod.Unload` calls `ILHookInterceptor.Uninstall()` (`PerformanceProfiler.cs:33-36`), which iterates the list and calls `.Dispose()` on each. Disposal exceptions are swallowed per-hook because we cannot let one bad hook strand the rest of the teardown — the worst case is a stale IL patch on a method whose mod is unloading anyway.
+
+`HookInterceptor` (delegate backend) does **not** need explicit teardown. `MonoModHooks.Add` detours are tracked per-assembly by tModLoader and auto-removed when our mod unloads.
+
+### Per-method failure handling
+
+Per-method ILHook construction is wrapped in `try/catch (Exception)` inside `InstrumentTypeOverrides` (`Profiling/ILHookInterceptor.cs:370-394`). On failure:
+
+- `_failures++`.
+- One sampled `Logger.Warn` per Install run (only the first failure is logged; subsequent ones are silent to avoid spam).
+- The rest of the install loop continues.
+
+Per-mod failures (a `GetLoadableTypes` throw, etc.) are caught one level up and counted as that mod being skipped.
+
+The **outer** catch around the entire Install — for a failure between two methods — calls `Uninstall()` to dispose every hook that already landed (`Profiling/ILHookInterceptor.cs:166-182`). Invariant 4 abort-clean: never proceed against internals that no longer match; never leave instrumentation in a partial state.
+
+### Canonical home
+
+`systems/hook-instrumentation.md` carries the implementation reality, including the closed-generic inheritance pass and the JIT shared-body trap mitigation. `systems/allocation-tracking.md` carries the CPU+alloc emission variant.

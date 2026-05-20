@@ -1,5 +1,10 @@
 # Events / Encounters Tab — Implementation Plan
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** Events tab (a+b) commits 18d19de + 1062866; merged into main as bb95091. EventAggregator, ContextTagger, BiomeRegistry, BossSampler, SubworldProbe, EventsTab all shipped. The per-tick transition stream the gated ContextCorrelatedSpike/ContextConditionalCost detectors need is still pending (see systems/events-and-context.md and systems/insights-engine.md).
+>
+> Read the system files for current reality; this plan is the design brief that shipped, kept for the rationale.
+
+
 > Scope: add a top-level **Events** tab to the F9 profiler overlay that correlates per-tick CPU cost with concurrent game state — biomes, weather, world events, invasions, active bosses, subworlds. The goal is to answer questions of the form *"is my average tick worse in the Jungle?"*, *"is Blood Moon worse than a regular night?"*, *"which boss fight is the most expensive?"* without imposing a hardcoded list of vanilla state. Honours all four Project Invariants. Targets tModLoader 1.4.4 on .NET 8.
 
 The plan is sized and shaped to mirror `context/ILHook-migration-plan.md`: an evidence ledger, a viability verdict, a model, a step-by-step implementation sequence, an honest risk register, and a testing strategy. Anything an implementer would otherwise have to research again has been pinned in §0.

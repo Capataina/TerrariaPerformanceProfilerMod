@@ -1,0 +1,201 @@
+# Metric Collection
+
+*Maturity: working · Stability: stable — the per-tick frame engine has been steady since M1; recent changes are additive (alloc columns, backend divergence).*
+
+## Scope / Purpose
+
+Metric collection is the per-tick frame engine. It opens a tick at `PreUpdateEntities`, accumulates per-mod CPU and allocation deltas through whichever backend(s) the hook-instrumentation subsystem has installed, and closes the tick at `PostUpdateEverything` by sealing a `TickFrame` into the ring buffer.
+
+This is the layer everything downstream reads from: the overlay tabs query `MetricCollector.History` and the per-mod accumulators; the spike detector consumes raw per-tick samples; the session log writer rolls up totals; the insights engine reads aggregated state.
+
+## Boundaries / Ownership
+
+Files: `Profiling/MetricCollector.cs`, `PerModAttribution.cs`, `PerModSample.cs`, `PerTickAttributionRing.cs`, `RingBuffer.cs`, `TickFrame.cs`.
+
+Owns:
+
+- The `RingBuffer<TickFrame>` (30-second rolling history at 60 Hz = 1800 frames).
+- The `PerModAttribution` accumulator (per `(modId, categoryId, hookId)` ticks + optional alloc bytes).
+- Per-tick allocation column reads via `GC.GetAllocatedBytesForCurrentThread()`.
+- `BackendTotalMs0` / `BackendTotalMs1` and `BackendDivergence` for Parallel-mode comparison.
+- The `BeginTick` / `EndTick` lifecycle paired with `ProfilerSystem`.
+
+Does not own:
+
+- The detour wrap itself — see `systems/hook-instrumentation.md`.
+- Spike detection over the raw history — see `systems/spike-detection.md`.
+- Tag/context snapshotting — see `systems/events-and-context.md`.
+
+## Current Implemented Reality
+
+### `TickFrame`
+
+Per-tick observation struct (`Profiling/TickFrame.cs`):
+
+- `TickIndex` (`long`) — `Main.GameUpdateCount` at close-of-tick.
+- `FrameTimeMs` (`double`) — wall-time of the tick measured by the collector's own `Stopwatch`.
+- `AllocBytes` (`long`) — `GC.GetAllocatedBytesForCurrentThread()` delta across the tick.
+- `NpcCount`, `ProjectileCount`, `DustCount` (`int` each) — entity counts at close-of-tick.
+- `Context` (`EventContext`) — the `ContextTagger.Snapshot` for the tick (biome/boss/weather/invasion). Optional; zeroed if no tagger is alive.
+- Per-mod totals are **not** in `TickFrame`. They live on `PerModAttribution` and are queried by ModId; the ring buffer carries only the frame-level scalars.
+
+### `PerModAttribution`
+
+The wide accumulator. Conceptually a 3D `(modId, categoryId, hookId)` grid plus per-backend slots when Parallel mode runs. The shape is set at `PostSetupContent`:
+
+```
+PerModAttribution.Configure(modCount, backendCount, allocTracking)
+```
+
+- `modCount` — number of mods (from `HookInterceptor.ProfiledMods`).
+- `backendCount` — 1 in single-mode, 2 in Parallel.
+- `allocTracking` — whether to allocate parallel alloc-byte columns.
+
+Both backends call:
+
+```
+PerModAttribution.Add(modId, categoryId, hookId, deltaTicks)
+PerModAttribution.AddAlloc(modId, categoryId, hookId, deltaBytes)  // alloc path only
+```
+
+Hookid registration is via `RegisterHook` (single-backend mode) or `RegisterOrReuseHook` (Parallel mode). The Parallel-mode reuse ensures both backends write to the same row for the same `(modId, categoryId, displayName)` tuple — divergence comparisons would be meaningless otherwise.
+
+### `BeginTick` / `EndTick`
+
+```
+BeginTick():
+    if _tickOpen: return  // guard against double-open
+    _tickStartTs = Stopwatch.GetTimestamp()
+    _tickEntryAllocBytes = GC.GetAllocatedBytesForCurrentThread()
+    PerModAttribution.SnapshotForTick()  // copy current row state into a per-tick scratch
+    _tickOpen = true
+
+EndTick(tickIndex, npcCount, projectileCount, dustCount):
+    if !_tickOpen: return  // partial frame: PreUpdateEntities did not fire
+    long exitTs = Stopwatch.GetTimestamp()
+    long exitAlloc = GC.GetAllocatedBytesForCurrentThread()
+    TickFrame frame = new TickFrame {
+        TickIndex      = tickIndex,
+        FrameTimeMs    = TicksToMs(exitTs - _tickStartTs),
+        AllocBytes     = exitAlloc - _tickEntryAllocBytes,
+        NpcCount       = npcCount,
+        ProjectileCount= projectileCount,
+        DustCount      = dustCount,
+        // Context is stamped separately by ContextTagger.Snapshot
+    }
+    _ring.Push(frame)
+    _spikeDetector.Observe(frame)
+    PerModAttribution.CloseTick()  // compute per-mod deltas for this tick
+    if HookBackend.Mode == Parallel:
+        _backendTotalMs0 += PerModAttribution.LastTickBackendMs(0)
+        _backendTotalMs1 += PerModAttribution.LastTickBackendMs(1)
+        if abs divergence > threshold: _divergenceLogTrigger = true
+    _tickOpen = false
+```
+
+### `BackendDivergence`
+
+Parallel-mode metric (`MetricCollector.cs:167`). Computed as a relative delta between the two backends' running totals:
+
+```
+BackendDivergence = (BackendTotalMs1 - BackendTotalMs0) / max(BackendTotalMs0, 1)
+```
+
+`ConsumeDivergenceLogTrigger()` returns true and resets the trigger once. The `[backend-compare]` log line is emitted from `ProfilerSystem.PostUpdateEverything` only when triggered, to avoid spamming `client.log`.
+
+### `FlushSpikes`
+
+`MetricCollector.FlushSpikes()` delegates to `_spikeDetector.Flush()` (`MetricCollector.cs:239`). Called from `ProfilerSystem.OnWorldUnload` **before** the final session JSON write so an in-progress spike window lands in the report.
+
+### Ring buffer
+
+`RingBuffer<T>` is a generic fixed-capacity circular buffer (`Profiling/RingBuffer.cs`). Capacity = `30 * 60 = 1800` frames (30 seconds at 60 Hz, hard-coded in `ProfilerSystem.HistoryCapacity`). Pinned by `Tests/RingBufferTests.cs`.
+
+`Push(item)` writes to the next slot and advances `Newest`/`Count`. Wrap-around is the steady state after the first 1800 frames. Access patterns:
+
+- `History.Newest` — most recent frame.
+- `History.Count` — number of valid entries (caps at capacity).
+- `History[i]` — indexer with the convention that `[0]` is the oldest, `[Count-1]` is the newest.
+
+### `PerTickAttributionRing`
+
+A separate 50-window ring (`Profiling/PerTickAttributionRing.cs`) that retains per-tick per-mod CPU samples for spike attribution. The 30-second `RingBuffer<TickFrame>` carries frame-level scalars only; the spike detector needs per-tick per-mod attribution to answer "which mod was responsible for that 60ms spike?" The 50-window ring is the answer.
+
+## Key Interfaces / Data Flow
+
+```
+PostSetupContent:
+   PerModAttribution.Configure(modCount, backendCount, allocTracking)
+
+per tick:
+   ProfilerSystem.PreUpdateEntities → Collector.BeginTick()
+       _tickStartTs = Stopwatch.GetTimestamp()
+       _tickEntryAllocBytes = GC.GetAllocatedBytesForCurrentThread()
+       PerModAttribution.SnapshotForTick()
+
+   [for each hook dispatched by tModLoader]:
+       HookProbe.Time*(orig, args) or ILHook prologue/finally:
+           PerModAttribution.Add(modId, categoryId, hookId, deltaTicks)
+           PerModAttribution.AddAlloc(...) // alloc path only
+
+   ProfilerSystem.PostUpdateEverything → Collector.EndTick(tickIndex, counts)
+       _ring.Push(new TickFrame { ... })
+       _spikeDetector.Observe(frame)
+       PerModAttribution.CloseTick()
+
+readers (any tab, session log, insights detectors):
+   collector.History → TickFrame[]
+   collector.PerModSamples (cached aggregates)
+   collector.SpikeDetector.Windows
+   collector.BackendDivergence (Parallel mode only)
+
+OnWorldUnload:
+   collector.FlushSpikes()  // before final SessionLogWriter.End()
+```
+
+## Implemented Outputs / Artifacts
+
+| Surface | Source |
+|---------|--------|
+| Overlay frame-time / GC / entity-count chrome lines | `MetricCollector.History.Newest` |
+| OverviewTab leaderboard rows | `MetricCollector` per-mod totals |
+| TreeTab per-`(mod, category, hookId)` rows | `PerModAttribution` |
+| SpikesTab windows + per-mod attribution | `SpikeDetector.Windows` + `PerTickAttributionRing` |
+| EventsTab dimension buckets | `EventAggregator` reading `TickFrame.Context` |
+| Session JSON `modSummary` block | per-mod totals |
+| InsightsEngine input | every detector's `Evaluate(collector, …)` reads through this layer |
+
+## Known Issues / Active Risks
+
+- **`DustCount` iterates `Main.dust` (~6000 slots) every tick.** Acceptable for M1 (a few thousand bool checks, microseconds). If a later overhead measurement flags it, switch to Lite-mode sampling cadence rather than scanning every tick (a comment in `ProfilerSystem.cs:246-250` carries this note).
+- **`PerModAttribution.Configure` is called once at `PostSetupContent`** and never re-called. A `Mods → Reload` would reset everything via `Mod.Unload` → next session's `PostSetupContent`. If the modlist changes mid-process some other way (impossible today, but the codebase is not defensive about it), the accumulator shape would not match `HookInterceptor.ProfiledMods` and writes would misalign.
+- **`SnapshotForTick` and `CloseTick` are paired but not asserted.** A bug that called `Add` without a matching `BeginTick` would silently mis-attribute. Today the only callers are the two interceptor backends, both correct.
+- **Backend divergence threshold is process-constant.** No overlay surface, no settings UI, no logging cadence control. Today the audit is satisfied; if Parallel mode becomes a player-visible feature, this needs revisiting.
+
+## Partial / In Progress
+
+Nothing in progress. The subsystem is the load-bearing baseline that every audit round took as given.
+
+## Planned / Missing / Likely Changes
+
+- **Dust-count sampling cadence.** Conditional on future overhead measurement.
+- **Per-tick allocation tracking expansion.** Currently `EnterCpuAlloc/LeaveCpuAlloc` measures per-detour alloc bytes; per-tick alloc is also captured in `TickFrame.AllocBytes`. The two paths are independent. A future per-mod-per-tick alloc-delta history would feed the gated `GcPauseCulpritDetector`.
+
+## Durable Notes / Discarded Approaches
+
+- **`Stopwatch.GetTimestamp()` always**, never `new Stopwatch()`. Documented in `notes/conventions.md §5`. The class would allocate per call; the static `long` read does not.
+- **`PerModSample[]` is pre-allocated.** No `List<PerModSample>` on the hot path. The convention is in `notes/conventions.md §6`.
+- **Ring buffer wrap-around is the steady state.** Tests/`RingBufferTests.cs` pins the wrap semantics; a regression in wrap would break Spike detection and the overlay's 30-second window.
+
+## Obsolete / No Longer Relevant
+
+- **Two-arg `PerModAttribution.Add(modId, categoryId, ticks)`.** Removed in commit `77a99d2` (audit potential-issue #4). The per-hook attribution model needs hookId, so the two-arg overload was dead.
+
+## Cross-references
+
+- `systems/hook-instrumentation.md` — the layer that calls `PerModAttribution.Add`.
+- `systems/spike-detection.md` — consumes `TickFrame` stream and `PerTickAttributionRing`.
+- `systems/allocation-tracking.md` — the `EnterCpuAlloc`/`LeaveCpuAlloc` path that writes alloc columns.
+- `systems/events-and-context.md` — `ContextTagger.Snapshot` stamps `TickFrame.Context`.
+- `tmodloader/lifecycle-and-loop.md` — `PreUpdateEntities` / `PostUpdateEverything` as the tick boundaries.
+- `Tests/RingBufferTests.cs` — pins ring-buffer wrap-around.

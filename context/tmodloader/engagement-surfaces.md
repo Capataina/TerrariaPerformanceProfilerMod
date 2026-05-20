@@ -147,3 +147,50 @@ The `TickFrame` struct needs `frameTimeMs`, `gcTimeMs`, `projectileCount`, `npcC
 7. **Multiplayer engagement** — `GlobalNPC.OnKill` and `GlobalNPC.OnSpawn` are single-player/server-only. v1 is single-player so this is not a blocker, but the v2 multiplayer path needs a client-visible substitute (`HitEffect`, `OnHitByProjectile` for owned projectiles, or poll-driven death detection). Open design question, recorded for the Milestone 0.C spike.
 8. **`GC.GetTotalPauseDuration()` semantics** — confirm this .NET 8 API reports a monotonic cumulative pause time suitable for per-tick differencing, and that it is not Server-GC-mode dependent in tModLoader's runtime configuration. Verify against the .NET 8 BCL, not tModLoader.
 9. **Hook return-value default** — for `GlobalItem.UseItem`/`Shoot`/`CanUseItem`, confirm the exact value a pure-observer override must return to be a true no-op in tModLoader's chained-hook dispatch (XML says "returns true by default" for `Shoot`; verify `UseItem`/`CanUseItem` and whether returning the parameter-passed value is the correct passthrough). Read-only correctness depends on this.
+
+---
+
+## How we plug in (post-implementation status, 2026-05-20)
+
+The 2026-05-19 analysis identified seven open `NEEDS DECOMPILER VERIFICATION` items, most of them about undocumented-but-public vanilla fields (`Zone*`, `Main.dust`, `Projectile.active`, `NPC.active`). The 2026-05-20 implementation **resolves them via reflection at population time** rather than hard-coding field names.
+
+### Context tagging
+
+The `Profiling/Events/` subsystem (canonical home: `systems/events-and-context.md`) snapshots per-tick game state into `EventContext` values that travel inside every `TickFrame.Context`.
+
+The snapshot reads:
+
+| Surface | How we resolve | Reference |
+|---------|---------------|-----------|
+| Vanilla biome zones (`ZoneJungle`, `ZoneSnow`, `ZoneCorrupt`, ...) | `BiomeRegistry.Populate` reflects over `typeof(Terraria.Player)`'s `bool ZoneX` fields at `PostSetupContent`. Missing fields are simply absent — abort-clean per Invariant 4. | `Profiling/Events/BiomeRegistry.cs` |
+| Modded biomes | `BiomeRegistry.Populate` enumerates modded biomes via tModLoader content reflection. Per-biome `IsBiomeActive(Main.LocalPlayer)` probe stored. | `Profiling/Events/BiomeRegistry.cs` |
+| Active boss | `BossSampler.Current()` iterates `Main.npc[]`, filters `npc.active && npc.boss`, deduplicates segmented bosses via `NPC.realLife`. | `Profiling/Events/BossSampler.cs` |
+| Event flags (`Main.bloodMoon`, `Main.eclipse`, `Main.pumpkinMoon`, `Main.snowMoon`, `Main.invasionType`) | Direct field reads each tick. | `Profiling/Events/ContextTagger.cs` |
+| Subworld | `SubworldProbe.CurrentId()` reflects over `SubworldLibrary.SubworldSystem.Current`. Optional; `Available = false` if SubworldLibrary is missing. | `Profiling/Events/SubworldProbe.cs` |
+
+`Main.GameUpdateCount` and the entity arrays (`Main.npc`, `Main.projectile`, `Main.dust`) are accessed directly via `CountActive(...)` helpers in `ProfilerSystem`. The "name effectively certain" `NPC.active` / `Projectile.active` / `Dust.active` of the 2026-05-19 analysis are confirmed working since M1.
+
+### Frame statistics
+
+Resolution of the 2026-05-19 analysis's three frame-stat gaps:
+
+| Need | Resolution |
+|------|-----------|
+| `frameTimeMs` | `MetricCollector` owns its own `Stopwatch.GetTimestamp()` reads at `BeginTick` and `EndTick`. No dependency on undocumented vanilla fields. |
+| `gcTimeMs` | `GC.GetAllocatedBytesForCurrentThread()` is read at `BeginTick` and `EndTick`; `TickFrame.AllocBytes = exit - entry`. GC pause time is not currently captured. |
+| `dustCount` | `CountActive(Main.dust)` iterates the ~6000-slot array. Acceptable for M1 (a few microseconds per tick); flagged for future optimisation if overhead measurement ever requires it. |
+
+### Engagement hooks (deferred)
+
+The 2026-05-19 analysis described `GlobalNPC.OnKill` / `OnHitByPlayer` / `OnHitByProjectile`, `GlobalItem.UseItem` / `Shoot` / `OnConsumeItem`, `ModBiome.OnEnter` / `OnLeave` / `OnInBiome` as the event-driven engagement taps.
+
+**None of these are currently instrumented as engagement events.** The mod's current scope is per-tick CPU + allocation attribution; engagement counting (`npcsKilled`, `itemsUsed`, `weaponsFired`) is a separate feature surface that has not been built. The hooks would be instrumented through the same `HookInterceptor` / `ILHookInterceptor` mechanism, but the *counting* (vs *timing*) layer is missing.
+
+When this work resumes:
+
+- `GlobalNPC.OnKill` / `OnSpawn` are single-player/server only. v1 is single-player; multiplayer falls back to poll-driven `NPC.AnyNPCs` per the 2026-05-19 analysis.
+- Return-value hooks (`UseItem`, `Shoot`, `CanUseItem`) must return the upstream value unchanged. Convention #3 (try/finally) covers timing; engagement counting must not mutate return values either.
+
+### Canonical home
+
+`systems/events-and-context.md` carries the implementation reality including `ContextTagger.Snapshot`, `EventAggregator.Accumulate`, `BiomeRegistry`, `BossSampler`, and the optional `SubworldProbe`.

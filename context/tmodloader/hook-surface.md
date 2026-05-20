@@ -182,3 +182,49 @@ Two viable strategies, and which one the profiler can build determines feasibili
 6. **Multiple `Draw` calls per frame.** `PlayerDrawLayer.Draw` "will be called multiple times a frame if a player afterimage is being drawn." The Metric Collector must not assume one draw-hook call per frame; the afterimage multiplier needs runtime measurement (relevant to the README's afterimage-cost example).
 
 7. **`GlobalItem.UpdateInfoAccessory` XML defect.** The XML entry for `GlobalItem.UpdateInfoAccessory` carries the *summary text of `UpdateInventory`* (an upstream doc copy-paste bug). The hook exists and is per-tick per info-accessory; its real semantics should be confirmed from `ItemLoader` / `ExampleMod`, not from the mismatched summary.
+
+---
+
+## How we plug in (post-implementation status, 2026-05-20)
+
+The 2026-05-19 verdict on this slice was "the Hook Interceptor is fundamentally an internals-dependent component; the public API supplies the detour primitive and the hook contract, but not the dispatch-loop targets that make per-mod attribution possible." The 2026-05-20 implementation took a different route that **resolves the verdict**: instead of detouring the internal `*Loader.<HookName>` dispatch bodies, we detour each mod's `Mod*` / `Global*` override on its own type.
+
+### What we actually do
+
+Both backends share the same Install loop:
+
+1. Enumerate `ModLoader.Mods` (public, see `tmodloader/mod-identity.md`'s post-implementation note).
+2. For each mod, walk its types via `AssemblyManager.GetLoadableTypes(Mod.Code)` (`[public-API]`).
+3. For each non-abstract type, resolve the category via `HookCategoryRouter.ResolveCategory(type)` — returns one of the seven categories (Systems / Players / Npcs / Projectiles / Items / World / Buffs) or -1.
+4. For each method on that type where `method.GetBaseDefinition() != method` (i.e. an actual override of a tModLoader virtual), install a detour.
+
+The detour primitive depends on the backend:
+
+- **Delegate backend (`HookInterceptor`)** — matches the method's signature against a hand-written set of ~30 delegate-pair shapes and installs a `MonoModHooks.Add` On-hook. Coverage ~71.6% on a real modlist (a real `7314 / 10220` measurement on an 18-mod stack).
+- **IL backend (`ILHookInterceptor`)** — uses `new MonoMod.RuntimeDetour.ILHook(target, manipulator, applyByDefault: true)` with a signature-agnostic manipulator that wraps the body in `try { ProbeStack.Enter(hookId); /* body via retLocal */ } finally { ProbeStack.Leave(); }`. Coverage ~100%.
+
+### Why we don't ILHook the internal `*Loader` dispatch
+
+The 2026-05-19 analysis (above) called the internal dispatch the load-bearing target. We chose the alternative — detouring each `Mod*`/`Global*` override on its own type — for three reasons:
+
+1. **No internals dependency for the timing IL.** The `Mod*`/`Global*` method bodies are user-mod code; their signatures are the public hook contract documented in `tModLoader.xml`. The IL we wrap is the mod's own body, not tModLoader's dispatch loop. Invariant 4 is satisfied without IL-shape verification of internal targets.
+2. **One detour per override, not per dispatch.** The per-iteration foreach-body approach the 2026-05-19 analysis described would have given lower per-tick overhead (one detour per loader-method, not per override) but at the cost of fragility on tModLoader updates. We chose explicit-per-override coverage instead.
+3. **Per-mod identity is direct.** Every detoured method has `MethodBase.DeclaringType.Assembly == Mod.Code`, so attribution is one dictionary lookup at install time, zero per-tick reflection.
+
+### Coverage tri-state (delegate backend only)
+
+`HookInterceptor.TryHookSupportedOverride` (`Profiling/HookInterceptor.cs:386-394`) returns three outcomes:
+
+| Outcome | Counter advanced | Semantics |
+|---------|------------------|-----------|
+| `Installed` | measured++ + total++ | Detour installed |
+| `UnsupportedSignature` | total++ + histogram | Signature not in the supported set — coverage debt |
+| `InstallFailed` | total++ + `InstallFailures++` | MonoMod runtime error |
+
+`HookCoverageVersion = 3` (`Profiling/HookInterceptor.cs:221`) is bumped any time the accounting changes shape; the session-log identity hash folds it in so old reports prune automatically.
+
+The IL backend has its own counters (`_measuredHookCounts` / `_totalHookCounts`) that mirror the delegate path's; the active backend's counters are surfaced via `HookCoverageView` to the overlay PROFILER HEALTH strip, the TreeTab badge, and the session JSON `coverage` block.
+
+### Canonical home
+
+`systems/hook-instrumentation.md` carries the implementation reality, including the closed-generic inheritance pass, the JIT shared-body trap mitigation, and the abort-clean install behaviour.

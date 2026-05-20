@@ -1,5 +1,10 @@
 # Insights Engine — Implementation Plan
 
+> **Status (2026-05-20): SHIPPED — preserved as historical research record.** Engine, store, scorer, renderer, four live detectors (HotHookDominance, AllocationBurst, FreeRemovalCandidate, PeakContributorToSpike) and six gated detector stubs shipped in e6a1020 and refined through audit rounds aa914ce/14fac59. Real p-value computations for live detectors and emit paths for gated detectors remain pending (see systems/insights-engine.md).
+>
+> Read the system files for current reality; this plan is the design brief that shipped, kept for the rationale.
+
+
 > Scope: build the **Insights Engine**, a subsystem that turns the profiler's three data streams — per-tick `TickContext` (biome / weather / boss / invasion / subworld), per-spike attribution records, and per-mod CPU + allocation samples — into structured `InsightRecord`s and renders them as natural-language statements aimed at both players and mod authors. Honours all four Project Invariants. Targets tModLoader 1.4.4 on .NET 8. Sized and shaped to mirror `context/ILHook-migration-plan.md` and the sibling `context/notes/events-tab-plan.md`: evidence ledger, viability verdict, model, catalog, statistical foundations, pipeline, ranking, NLG, UI, JSONL integration, step-by-step sequence, risk register, honest gaps, worked example, mock.
 
 The user's verbatim shape of the problem is:

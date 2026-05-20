@@ -93,3 +93,65 @@ The fingerprint is `hash(sorted (Name, Version) tuples of the enabled modlist)`.
 4. **`NEEDS DECOMPILER VERIFICATION` — non-mod assembly identity.** Confirm the assembly objects for vanilla `Terraria` code and for tModLoader's own loader code, so the "everything not in the map = tModLoader/vanilla" fallback bucket is correctly labelled rather than lumping loader overhead under a misleading name.
 5. **Design clarification (not a decompiler question) — enabled vs loaded set for the fingerprint.** The README says "enabled modlist"; the only enabled-set primitive (`_enabledMods`) is private and includes not-loaded mods. Recommendation in plug-in point 3: fingerprint the *loaded* set so fingerprint and attribution share one source loop. Confirm with the design pitch before Milestone 3 (Persistent Store) commits the schema.
 6. **`Mod.Code` lifetime.** Confirm the `Assembly` from `Mod.Code` is stable for the whole `world-load → save-and-exit` session and is not swapped on a `Mods → Reload`. The map is rebuilt every `OnWorldLoad`, so this is low-risk, but worth confirming the assembly is not recycled mid-session.
+
+---
+
+## How we plug in (post-implementation status, 2026-05-20)
+
+The 2026-05-19 analysis flagged "the loaded-mod enumeration" as the single blocker for plug-in points 1 and 3 (`Assembly → ModId` map and modlist fingerprint). The 2026-05-20 implementation **resolves it**: `ModLoader.Mods` is enumerable directly.
+
+### The enumeration
+
+`HookInterceptor.Install` (`Profiling/HookInterceptor.cs:295-304`) iterates `ModLoader.Mods` with a plain `foreach`:
+
+```csharp
+List<Mod> profiled = new List<Mod>();
+foreach (Mod mod in ModLoader.Mods)
+{
+    if (mod.Name != "ModLoader")   // skip synthetic
+    {
+        profiled.Add(mod);
+    }
+}
+```
+
+`ModLoader.Mods` is a public enumerable `IReadOnlyList<Mod>` (resolved against the tModLoader 1.4.4 metadata; not in the XML, but resolvable from the DLL and confirmed working since commit `b52f8b6`). The synthetic `ModLoader` pseudo-mod is filtered out. The profiler itself is included so its own hooks are measured like any other mod's.
+
+### The map shape
+
+After enumeration, the post-2026-05-19 update lives in `HookInterceptor`:
+
+```csharp
+ProfiledMods         = profiled                              // IReadOnlyList<Mod>
+ProfiledModNames     = new string[profiled.Count]            // by ModId
+ProfiledModVersions  = new string[profiled.Count]            // by ModId
+```
+
+Per-mod identity at the detour callsite is `MethodBase.DeclaringType.Assembly == profiledMods[i].Code`. The map is built **implicitly**: the `ILHookInterceptor` and `HookInterceptor` iterate `profiledMods` once and emit one hookId per `(modId, categoryId, methodInfo)`; `PerModAttribution.Hooks[hookId]` carries the `(modId, categoryId)` back at probe time. No `Dictionary<Assembly, ModId>` exists in the codebase — the per-`modId` array indexing replaces it.
+
+### Type enumeration
+
+`AssemblyManager.GetLoadableTypes(mod.Code)` is the documented-public method used at `HookInterceptor.cs:357` and `ILHookInterceptor.cs:222`. Both backends call it with the same guard:
+
+```csharp
+Type[] types;
+try { types = AssemblyManager.GetLoadableTypes(mod.Code); }
+catch (Exception ex) {
+    self.Logger.Warn($"... skipped {mod.Name}, could not read its types: {ex.Message}");
+    return;
+}
+```
+
+The fallback on a mod that uses `ExtendsFromModAttribute` weakly is to skip that mod with a warning and continue — Invariant 4 abort-clean at the per-mod granularity, not the whole-Install granularity.
+
+### `DisplayNameClean` is not yet used
+
+The 2026-05-19 analysis recommended `Mod.DisplayNameClean` for the player-facing card label. Today the overlay uses `Mod.Name` (the internal name). The card upgrade is a small future change tracked implicitly in the overlay polish backlog.
+
+### Author / homepage
+
+Still `[needs-internals]` per the 2026-05-19 analysis. Not surfaced anywhere in the UI today. The retrospective card concept (`notes/future-html-report.md`) would need it; until then, no work has gone into reading `build.txt` from `Mod.File`.
+
+### Canonical home
+
+`systems/hook-instrumentation.md` carries the Install path that does this enumeration; `systems/metric-collection.md` carries `PerModAttribution.Hooks` which holds the per-hookId identity.

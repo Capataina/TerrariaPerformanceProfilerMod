@@ -26,7 +26,16 @@ Files walked: 28 `.md` under `context/` at start of run; 12 of those moved via `
 | `context/notes/litedb-migration-plan.md` | up-to-date | Forward-looking; not started; still relevant. |
 | `context/notes/overview-tab-plan.md` | preserved | Shipped; status header added. |
 | `context/notes/spikes-and-allocations-plan.md` | preserved | Shipped; status header added. |
-| `context/plans/code-health-audit/*` (10 files) | preserved | Active audit + receipt log. All findings marked done/deferred in `index.md`. Kept as historical record — the two deferred items are still tracked. |
+| `context/plans/code-health-audit/index.md` | preserved | Active audit log with full implementation receipt for the 2026-05-20 pass. All 16 certain findings and 6 potential issues classified done / deferred / acknowledged. Two findings explicitly deferred (SessionLogWriter split + schema snapshot test). |
+| `context/plans/code-health-audit/PASS-1-CHECKPOINT.md` | preserved | Pass-1 checkpoint of the audit; historical record of the candidate list before deep-dive. |
+| `context/plans/code-health-audit/PASS-2-SYSTEMS-AUDITED.md` | preserved | Pass-2 checkpoint; verdicts on modularisation candidates. |
+| `context/plans/code-health-audit/build-and-tests.md` | preserved | Audit deep-dive for build / test infrastructure. The test-harness finding is now shipped (`Tests/`). |
+| `context/plans/code-health-audit/hook-instrumentation.md` | preserved | Audit deep-dive for hook instrumentation. All findings shipped in round 1 (`77a99d2`). |
+| `context/plans/code-health-audit/insights-engine.md` | preserved | Audit deep-dive for insights engine. All findings shipped in round 2 (`aa914ce`). |
+| `context/plans/code-health-audit/obligation-evidence-map.md` | preserved | Audit obligation tracking; passed evidence-map lint. |
+| `context/plans/code-health-audit/overlay-ui.md` | preserved | Audit deep-dive for overlay UI. All findings shipped in round 2 (`aa914ce`). |
+| `context/plans/code-health-audit/persistence-session-logging.md` | preserved | Audit deep-dive for session logging. Atomic writes + self-disable shipped in round 1; the file's own modularisation finding + schema snapshot test are the two deferred items. |
+| `context/plans/code-health-audit/potential-issues.md` | preserved | Audit's potential-issue sweep. All 6 issues resolved across rounds 1 and 2 (see `index.md`'s implementation receipt). |
 
 ## Coverage gap report (subsystems lacking a canonical home pre-run)
 
