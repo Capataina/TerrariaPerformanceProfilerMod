@@ -122,6 +122,20 @@ Commit each coherent unit of completed work with a message that explains what ch
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
 
+### Mod versioning
+
+`build.txt`'s `version =` field is the user-visible mod version that ships in the `.tmod` package. It is not maintenance-free: bump it when the work of a session genuinely advances the mod, not just on every commit.
+
+Rules of thumb:
+
+- **Patch bump (`0.1` → `0.1.1`)** — pure bug fixes, no new feature or schema change. A handful of those between minor bumps is normal.
+- **Minor bump (`0.1` → `0.2`)** — new feature, new tab, new detector, new persistence/schema version, significant UI work, or any change a returning user would describe as "look what got added". This is the most common bump; do it at the end of a session that landed real scope.
+- **Major bump (`0.x` → `1.0`)** — first public Workshop release, or a breaking change to the agent-readable session JSON / public mod-call API after that release.
+
+At the end of any session that landed meaningful scope: check `build.txt`, bump appropriately, commit the bump as part of the session-wrap commit, and call out the new version in the wrap-up message. The mod sitting at `0.1` after months of work is a sign the discipline has slipped.
+
+When unsure between patch and minor, prefer minor; the version is a signal of progress, and undervaluing it is worse than overvaluing it at this stage of the project.
+
 ---
 
 ## Communication Style
