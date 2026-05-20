@@ -381,8 +381,14 @@ public sealed class SessionRecorder
             }
 
             // Update cluster aggregates.
+            // v0.6 (stall-detection §5.L): EndUnixMs is the moment the stall
+            // ENDED, not the moment it started. Including the stall's own
+            // duration in the cluster span is what makes "span" mean "from
+            // first stall start to last stall end". v0.5 used start-only,
+            // understating cluster span by ~TickPeriodMs per stall (e.g.
+            // ~80 ms on a 40-stall cluster).
             _liveCluster.EndTick = s.EndTickIndex;
-            _liveCluster.EndUnixMs = s.StartTimestampUnixMs;
+            _liveCluster.EndUnixMs = s.StartTimestampUnixMs + (long)s.TickPeriodMs;
             _liveCluster.StallCount++;
             _liveCluster.TotalDurationMs += s.TickPeriodMs;
             if (s.TickPeriodMs > _liveCluster.WorstDurationMs)
