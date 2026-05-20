@@ -70,7 +70,7 @@ The "convert allocation rate to ms-equivalent" question is the single hardest pi
 | File | Status | What the Overview consumes from it |
 |---|---|---|
 | `context/notes/events-tab-plan.md` | **Exists** (verified at `context/notes/events-tab-plan.md`). Defines the tab strip as a 22 px row below the header, tabs left-to-right; the Events tab is the immediate sibling. | Tab-strip layout convention; we extend it with `OVERVIEW` as the leftmost (first) tab. The Events tab itself is independent. |
-| `context/notes/spikes-and-allocations-plan.md` | **Does not exist yet.** | Two new per-mod metric vectors: a *spike-contribution score* and a *per-mod allocation rate (bytes/tick, smoothed)*. The Overview defines the **shape** it needs, the spikes plan defines the production. |
+| `context/notes/spikes-and-allocations-plan.md` | **Exists.** | Two new per-mod metric vectors: a *spike-contribution score* and a *per-mod allocation rate (bytes/tick, smoothed)*. The Overview defines the **shape** it needs, the spikes plan defines the production. |
 
 The Overview tab is designed defensively: if the spikes/allocations data is unavailable when the Overview lands, the tab degrades to "CPU-only impact" with both other component bars greyed out and a footer note: `spike + allocation tracking — pending Milestone X`. The composite formula collapses gracefully — see §4.
 

@@ -39,8 +39,8 @@ The engine has to deliver that sentence from raw data without hardcoding "if bio
 | Plan | Path | Status (verified) | What this plan assumes of it |
 |---|---|---|---|
 | Events tab | `context/notes/events-tab-plan.md` | **Exists.** 1003 lines. | Provides `TickContext`, `ContextTagger`, `EventAggregator`, per-bucket aggregation, transition stream. Insights consume these as inputs. |
-| Spikes + allocations | `context/notes/spikes-and-allocations-plan.md` | **Missing.** | Insights consume two outputs by *shape*: (i) a `SpikeRecord` stream `(tick, frameMs, perModDeviationMs[])` and (ii) per-mod allocation deltas per tick `(tick, allocBytes[modId])`. This plan defines those shapes in §3.4 so the sibling plan, when written, has a fixed contract to honour. |
-| Overview tab | `context/notes/overview-tab-plan.md` | **Missing.** | Insights and Overview are siblings — both consume the same data; Overview *ranks*, Insights *narrate*. This plan keeps the engine renderer-agnostic so an Overview that wants ranked rows reads `InsightStore.Top(...)` directly. |
+| Spikes + allocations | `context/notes/spikes-and-allocations-plan.md` | **Exists.** | Insights consume two outputs by *shape*: (i) a `SpikeRecord` stream `(tick, frameMs, perModDeviationMs[])` and (ii) per-mod allocation deltas per tick `(tick, allocBytes[modId])`. This plan defines those shapes in §3.4 so the sibling plan has a fixed contract to honour. |
+| Overview tab | `context/notes/overview-tab-plan.md` | **Exists.** | Insights and Overview are siblings — both consume the same data; Overview *ranks*, Insights *narrate*. This plan keeps the engine renderer-agnostic so an Overview that wants ranked rows reads `InsightStore.Top(...)` directly. |
 
 ### One non-evidence finding worth stating
 
