@@ -1,5 +1,15 @@
 #nullable enable
 
+// v0.6.1: the EventContext fields below (Biomes / Weather / Mode /
+// VanillaInvasion / Bosses) are assigned by ContextSnapshotter and
+// EventAggregator at runtime. Those two writer files reference
+// Terraria.ModLoader types so the test project deliberately excludes
+// them — the test build then sees this struct's fields as "never
+// assigned, will always have default" (CS0649). The warning is a true
+// statement for the test build but a false positive for the runtime
+// build, so we suppress it locally here.
+#pragma warning disable CS0649
+
 namespace PerformanceProfiler.Profiling.Events;
 
 /// <summary>

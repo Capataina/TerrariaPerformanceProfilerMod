@@ -229,7 +229,8 @@ internal static class DonutChart
         for (int i = 0; i < slices.Count; i++)
         {
             h = (h ^ unchecked((uint)BitConverter.DoubleToInt64Bits(slices[i].Value))) * 1099511628211UL;
-            h = (h ^ slices[i].Color.PackedValue) * 1099511628211UL;
+            h = (h ^ slices[i].SliceColor.PackedValue) * 1099511628211UL;
+            h = (h ^ slices[i].DominantHue.PackedValue) * 1099511628211UL;
         }
         return h;
     }

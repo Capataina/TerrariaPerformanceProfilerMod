@@ -244,13 +244,15 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     private void KickOffSessionEndAsync()
     {
-        if (Collector == null || _recorder == null) return;
+        MetricCollector? collector = Collector;
+        SessionRecorder? recorder = _recorder;
+        if (collector == null || recorder == null) return;
 
-        Collector?.FlushSpikes();
+        collector.FlushSpikes();
 
-        var sessionId = _recorder.SessionId;
-        var capturedCollector = Collector;
-        var capturedRecorder = _recorder;
+        var sessionId = recorder.SessionId;
+        MetricCollector capturedCollector = collector;       // post-null-check local; satisfies the flow analyzer
+        SessionRecorder capturedRecorder = recorder;
         var capturedDb = PerformanceProfiler.Database;
         var capturedLogger = PerformanceProfiler.LoggerOrNull;
 

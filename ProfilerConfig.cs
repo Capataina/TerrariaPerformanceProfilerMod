@@ -21,6 +21,13 @@ namespace PerformanceProfiler;
 /// </para>
 ///
 /// <para>
+/// v0.6.1 removed the deprecated <c>[Label]/[Tooltip]</c> attributes; the
+/// equivalent labels live in <c>Localization/en-US_Mods.PerformanceProfiler.hjson</c>
+/// and tML auto-resolves them from the property names. Eliminates 5 CS0618
+/// warnings at build time.
+/// </para>
+///
+/// <para>
 /// The config is read on every overlay frame via
 /// <see cref="ModContent.GetInstance{T}"/>; tModLoader handles the
 /// persistence and the menu plumbing.
@@ -37,8 +44,6 @@ public sealed class ProfilerConfig : ModConfig
     /// reverts here on the next game launch.
     /// </summary>
     [DefaultValue(OverlayMode.Default)]
-    [Label("Default overlay mode")]
-    [Tooltip("Default = generous \"stand-in-base\" view (1120 px). Compact = tight HUD view for active combat (720 px).")]
     public OverlayMode DefaultMode { get; set; } = OverlayMode.Default;
 
     /// <summary>
@@ -48,8 +53,6 @@ public sealed class ProfilerConfig : ModConfig
     /// </summary>
     [DefaultValue(0)]
     [Range(0, 5)]
-    [Label("Default tab on open")]
-    [Tooltip("0=SUMMARY, 1=TREE, 2=LAG, 3=EVENTS, 4=INSIGHTS, 5=SELF.")]
     public int DefaultTabIndex { get; set; } = 0;
 
     /// <summary>
@@ -59,7 +62,6 @@ public sealed class ProfilerConfig : ModConfig
     /// </summary>
     [DefaultValue(0)]
     [Range(0, 1600)]
-    [Label("Panel width override (px, 0 = mode default)")]
     public int PanelWidthOverride { get; set; } = 0;
 
     /// <summary>
