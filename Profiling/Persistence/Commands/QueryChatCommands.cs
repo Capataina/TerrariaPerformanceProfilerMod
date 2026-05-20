@@ -19,7 +19,8 @@ public class ProfilerSummaryCommand : ModCommand
     public override string Usage => "/profiler-summary";
     public override string Description => "Print the current (or most recent) session's totals.";
 
-    public override void Action(CommandCaller caller, string input, string[] args)
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
     {
         var db = QueryCommandBase.GetDb(caller); if (db == null) return;
         var sid = QueryCommandBase.CurrentOrLatestSessionId(db);
@@ -49,7 +50,7 @@ public class ProfilerSummaryCommand : ModCommand
                 topMods.Select(m => $"{m.ModInternalName} {m.AvgMs:F2}ms/t ({m.TotalMs:F0}ms total)"));
             caller.Reply(line);
         }
-    }
+    });
 }
 
 /// <summary>
@@ -64,7 +65,8 @@ public class ProfilerStallsCommand : ModCommand
     public override string Usage => "/profiler-stalls [count]";
     public override string Description => "List recent stall clusters with attribution.";
 
-    public override void Action(CommandCaller caller, string input, string[] args)
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
     {
         var db = QueryCommandBase.GetDb(caller); if (db == null) return;
         int n = QueryCommandBase.ParseCountArg(args, 5);
@@ -82,7 +84,7 @@ public class ProfilerStallsCommand : ModCommand
                 $"  tick {c.StartTick}-{c.EndTick}  worst={c.WorstDurationMs:F0}ms  total={c.TotalDurationMs:F0}ms over {c.SpanMs:F0}ms  " +
                 $"{c.StallCount}× {c.DominantCause}  contributor: {c.DominantContributorName}");
         }
-    }
+    });
 }
 
 /// <summary>
@@ -96,7 +98,8 @@ public class ProfilerModsCommand : ModCommand
     public override string Usage => "/profiler-mods [count]";
     public override string Description => "Top mods by total CPU in the current session.";
 
-    public override void Action(CommandCaller caller, string input, string[] args)
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
     {
         var db = QueryCommandBase.GetDb(caller); if (db == null) return;
         int n = QueryCommandBase.ParseCountArg(args, 8);
@@ -111,7 +114,7 @@ public class ProfilerModsCommand : ModCommand
         {
             caller.Reply($"  {m.ModInternalName,-26} avg={m.AvgMs:F2}ms/t  peak={m.PeakMs:F1}ms  total={m.TotalMs:F0}ms");
         }
-    }
+    });
 }
 
 /// <summary>
@@ -125,7 +128,8 @@ public class ProfilerDeathsCommand : ModCommand
     public override string Usage => "/profiler-deaths";
     public override string Description => "List player deaths recorded in the current session.";
 
-    public override void Action(CommandCaller caller, string input, string[] args)
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
     {
         var db = QueryCommandBase.GetDb(caller); if (db == null) return;
         var sid = QueryCommandBase.CurrentOrLatestSessionId(db);
@@ -137,7 +141,7 @@ public class ProfilerDeathsCommand : ModCommand
         caller.Reply($"{deaths.Count} death(s) this session:");
         foreach (var d in deaths)
             caller.Reply($"  tick {d.Tick}  {d.Summary}");
-    }
+    });
 }
 
 /// <summary>
@@ -152,7 +156,8 @@ public class ProfilerTailCommand : ModCommand
     public override string Usage => "/profiler-tail [count]";
     public override string Description => "Recent events (stalls, spikes, transitions, deaths).";
 
-    public override void Action(CommandCaller caller, string input, string[] args)
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
     {
         var db = QueryCommandBase.GetDb(caller); if (db == null) return;
         int n = QueryCommandBase.ParseCountArg(args, 8);
@@ -192,5 +197,5 @@ public class ProfilerTailCommand : ModCommand
         caller.Reply($"Recent {lines.Count} events:");
         foreach (var (tick, text) in lines)
             caller.Reply($"  tick {tick,6}  {text}");
-    }
+    });
 }

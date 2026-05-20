@@ -62,4 +62,29 @@ internal static class QueryCommandBase
         if (args.Length > 0 && int.TryParse(args[0], out int n) && n > 0) return Math.Min(n, 50);
         return fallback;
     }
+
+    /// <summary>
+    /// Wrap a chat-command body so any unexpected throw is reported as a
+    /// clean caller.Reply line + a single Warn in client.log, instead of
+    /// tML's default "An error occurred running command X. See client.log
+    /// for details" wrapper which is intimidating to players. v0.6.1
+    /// hardening for the case where a v0.5 session row in the DB has
+    /// long-name BSON fields that the v0.6 short-name mapper can't read
+    /// — the query path silently returns empty/null and the chat command
+    /// then NullRefs trying to format it. Now the user sees "no data" or
+    /// a clear error instead.
+    /// </summary>
+    public static void SafeRun(CommandCaller caller, string commandName, Action body)
+    {
+        try
+        {
+            body();
+        }
+        catch (Exception ex)
+        {
+            caller.Reply($"/{commandName}: {ex.GetType().Name}: {ex.Message}");
+            PerformanceProfiler.LoggerOrNull?.Warn(
+                $"chat-command /{commandName} threw: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
 }
