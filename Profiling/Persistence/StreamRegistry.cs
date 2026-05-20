@@ -65,11 +65,14 @@ public sealed class StreamRegistry
             new SessionStream(),
             new SpikeStream(),
             new StallStream(),
+            new StallClusterStream(),
             new ContextTransitionStream(),
             new TickAggregateStream(),
             new PerSessionAggregateStream(),
             new ModlistStream(),
             new InsightStream(),
+            new PlayerDeathStream(),
+            new WorldSnapshotStream(),
         });
     }
 }

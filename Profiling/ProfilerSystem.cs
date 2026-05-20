@@ -38,6 +38,11 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     private SessionRecorder? _recorder;
     private ContextTransitionWatcher? _transitionWatcher;
+    private WorldSnapshotter? _snapshotter;
+    private PlayerDeathDetector? _deathDetector;
+
+    /// <summary>Live recorder's session id while a world is loaded; null otherwise. Read by chat commands to scope their queries.</summary>
+    public LiteDB.ObjectId? LiveRecorderSessionId => _recorder?.SessionId;
 
     /// <summary>
     /// Per-tick game-state snapshotter (biomes, bosses, weather, invasion,
@@ -167,6 +172,8 @@ public sealed class ProfilerSystem : ModSystem
         }
 
         _transitionWatcher = _recorder != null ? new ContextTransitionWatcher() : null;
+        _snapshotter = _recorder != null ? new WorldSnapshotter() : null;
+        _deathDetector = _recorder != null ? new PlayerDeathDetector() : null;
 
         _contextTagger = new ContextTagger();
         _contextTagger.Reset();
@@ -187,6 +194,7 @@ public sealed class ProfilerSystem : ModSystem
         {
             try
             {
+                var sessionId = _recorder.SessionId;
                 _recorder.End(Collector, endReason: "clean");
 
                 // Drain + checkpoint + truncate the journal here instead of
@@ -196,6 +204,14 @@ public sealed class ProfilerSystem : ModSystem
                 // session. World-unload is the strongest "this session
                 // ended cleanly" signal we have.
                 PerformanceProfiler.Database?.DrainAndTruncateJournalForSessionEnd();
+
+                // Session-end narration: writes a multi-line summary block
+                // to client.log so a future log-only inspection can read
+                // the story without opening the DB.
+                if (PerformanceProfiler.Database != null && PerformanceProfiler.LoggerOrNull != null)
+                {
+                    SessionSummaryLogger.Write(PerformanceProfiler.LoggerOrNull, PerformanceProfiler.Database, sessionId);
+                }
             }
             catch (Exception ex)
             {
@@ -205,6 +221,8 @@ public sealed class ProfilerSystem : ModSystem
 
         _recorder = null;
         _transitionWatcher = null;
+        _snapshotter = null;
+        _deathDetector = null;
         Collector = null;
         _contextTagger = null;
         Events = null;
@@ -294,6 +312,17 @@ public sealed class ProfilerSystem : ModSystem
             if (_recorder != null && _transitionWatcher != null)
             {
                 _transitionWatcher.OnSnapshot(in tagger.Current, frameMs, _recorder);
+            }
+            // Periodic state snapshots — every 30s of in-world time.
+            if (_recorder != null && _snapshotter != null)
+            {
+                _snapshotter.OnTick(_recorder, in tagger.Current,
+                    CountActive(Main.npc), CountActive(Main.projectile), CountActive(Main.dust));
+            }
+            // Player death edge detection.
+            if (_recorder != null && _deathDetector != null)
+            {
+                _deathDetector.OnTick(_recorder, in tagger.Current);
             }
         }
     }

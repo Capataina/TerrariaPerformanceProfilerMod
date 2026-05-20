@@ -70,6 +70,9 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<TickAggregateArchive>    TickAggregatesArchive => _db.GetCollection<TickAggregateArchive>("tickAggregatesArchive");
     public ILiteCollection<InsightRow>              Insights              => _db.GetCollection<InsightRow>("insights");
     public ILiteCollection<MetadataRow>             Metadata              => _db.GetCollection<MetadataRow>("metadata");
+    public ILiteCollection<StallClusterRow>         StallClusters         => _db.GetCollection<StallClusterRow>("stallClusters");
+    public ILiteCollection<PlayerDeathRow>          PlayerDeaths          => _db.GetCollection<PlayerDeathRow>("playerDeaths");
+    public ILiteCollection<WorldSnapshotRow>        WorldSnapshots        => _db.GetCollection<WorldSnapshotRow>("worldSnapshots");
 
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
         : this(root, StreamRegistry.Default(), log, profilerVersion) { }

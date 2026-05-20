@@ -2,6 +2,49 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — Tracker arsenal + v0.4 (evening session)
+
+Triggered by a real-world playtest where Caner's session lagged dramatically when he opened CheatSheet's NPC-spawn menu, but my profiler couldn't narrate what happened — I had to write an external C# inspector script to query the DB by hand, and even then misread the data twice before he corrected me ("it wasn't the BindingOfRarria spike, it was the spawn-menu cluster; it wasn't EoC dying, it was EoC killing me"). The lesson: data sitting in the DB without a narrator is data the user has to interpret manually, which defeats the entire point of the database. v0.4 fixes that.
+
+**Per-stall mod attribution.** `StallEvent` now carries top-5 contributors captured at stall time from the rolling 30s smoothed per-mod CPU. The CheatSheet stall cluster will now say "dominant contributor: CheatSheet" instead of leaving the user to figure out which mod caused the freeze. `StallDetector.OnBeginTick` gained an overload taking `IReadOnlyList<double>? perModSmoothedMs`; `MetricCollector` passes the smoothed array through.
+
+**Cluster-aware classifier.** New `StallCause.UiOverlayBlocking` covers sustained runs of medium-duration stalls (≥5 stalls in 5s, each <500ms) — the CheatSheet menu signature. The previous v0.3 classifier mislabelled every menu-stall as `ProcessSuspended` because the per-event signals (low CPU, no GC) are identical to a real cmd-tab. The cluster shape is the tell, and we now use it. New `StallCause.WorldLoad` for stalls during the world-load tick window. Priority chain documented in `ClassifyCause`: long+lone+cpu-starved → ProcessSuspended; GC-dominated → MajorGc/MinorGc; clustered+short → UiOverlayBlocking; short+lone+cpu-starved → ProcessSuspended (cmd-tab under 800ms); else → LongFrame.
+
+**Stall clustering.** New `StallClusterRow` aggregates consecutive `StallEventRow`s into a single "what the player perceived as one freeze" record — span, total duration, worst-event duration, dominant cause, dominant contributor. The CheatSheet playtest produced 47 individual stall events but only 1 cluster; the cluster row tells the story in one line. Implementation: `SessionRecorder` tracks a live cluster, flushes when no new stall arrives within 2s of the last event or at session end. Dominant cause = most-frequent across events; dominant contributor = mod with highest cumulative `RecentMs` across the cluster's per-event snapshots.
+
+**StallEventRow schema v2.** Persists the GC counts (Gen0/1/2), heap delta bytes, CPU time delta ms, severity, warming flag, cluster id, and top-5 contributors — all of which the StallDetector was already capturing but the writer was throwing away.
+
+**Context transitions, full expansion.** The `ContextTransitionWatcher` now tracks: every biome bit (not just the primary), every weather flag bit individually, vanilla invasion id, game mode, hardmode, sub-world key, time-of-day (Day/Night), boss start/end with outcome classification, and a "session-open" anchor transition. v0.3's watcher emitted 4 transitions for a 5-minute session; v0.4 will emit dozens, enough to reconstruct "the player walked through Forest → Underground → Hallow, it rained for 2 minutes, then Blood Moon, then Eye of Cthulhu". Boss outcome reads `LocalPlayer.dead` at the boss-gone edge to classify killed-player vs boss-gone (defeated or fled).
+
+**Player death events.** New `playerDeaths` collection with one row per false→true transition on `Main.LocalPlayer.dead`. Captures position (tile coords), HP at death, active boss NPC types, and a human-readable summary ("killed by Eye of Cthulhu in Forest at (3500, 240)"). `PlayerDeathDetector` runs on every tick from `ProfilerSystem`.
+
+**Periodic world snapshots.** New `worldSnapshots` collection, one row every 30s of in-world time. Captures player position, HP/mana, primary biome, hardmode, game mode, time-of-day band, entity counts (npc/proj/dust/item), primary active boss. Cheap (~60 rows per session) but transforms "what was the player doing at minute 7" into a single point query. `WorldSnapshotter` runs from `ProfilerSystem.PostUpdateEverything`.
+
+**Chat commands for in-game queries.** Five new `ModCommand`s so a player or agent can ask the DB questions without writing a C# inspector script:
+- `/profiler-summary` — current/latest session totals
+- `/profiler-stalls [N]` — top stall clusters by worst hitch
+- `/profiler-mods [N]` — top mods by total CPU
+- `/profiler-deaths` — deaths this session
+- `/profiler-tail [N]` — interleaved recent events
+
+`QueryCommandBase` resolves "current or latest session" via the live `ProfilerSystem.LiveRecorderSessionId` first, then falls back to the most recent `sessions` row.
+
+**Auto-log significant events to client.log.** The motivating problem was that I read `client.log` first when debugging, and the log had no profiler-side narration — I had to query the DB. Now:
+- Every stall ≥ 500ms writes an inline `Mod.Logger.Info` line with cause + top contributor.
+- Every spike ≥ 100ms (non-warming) writes an inline line with top contributor.
+- Every cluster-flush writes a one-liner summarising the run.
+- Every headline context transition (boss start/end, hardmode flip, invasion, subworld, session-open) writes a line.
+- Every player death writes a line.
+- At `OnWorldUnload`, `SessionSummaryLogger.Write` emits a multi-line `=== profiler session-summary ===` block with session id, totals, worst spike, worst cluster, top 3 mods. A future log-only inspection can grep for this block and see the whole story.
+
+`PerformanceProfiler.LoggerOrNull` static exposes `Mod.Logger` (`log4net.ILog`) to the persistence layer without a `Mod` singleton dependency.
+
+**Persistence layer extension shape proven.** Adding three new collections (`stallClusters`, `playerDeaths`, `worldSnapshots`) required: one record file + one stream file + one `DbWriteOp` factory each. The `ProfilerDatabase` facade got 3 new typed accessor lines; the `StreamRegistry.Default()` got 3 new lines. No edit to writer thread, journal, dispatch logic, or any other stream. The Checkpoint-C modular shape did exactly what it was designed to do.
+
+**Tests: 52/52 passing.** New `StallClassifierTests` cover lone-suspend, clustered UI-blocking, GC dominance, severity buckets, edge cases. Existing 51 still pass after the classifier reorder.
+
+**Bumped build.txt 0.3 → 0.4.** Three new collections, five new chat commands, a re-architected classifier, inline log narration, and the cluster aggregation are clearly a minor bump.
+
 ## 2026-05-20 — LiteDB persistence + v0.3 (afternoon session)
 
 The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) is gone. The new persistence layer is a single LiteDB file plus a redo log plus three rotating backups, all under `Profiling/Persistence/`. Implementation followed `context/notes/litedb-migration-plan.md` end to end; every decision below is the plan's recommendation accepted.

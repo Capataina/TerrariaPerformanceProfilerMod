@@ -57,6 +57,7 @@
          data types themselves. -->
     <Compile Include="..\Profiling\RingBuffer.cs" Link="Source\RingBuffer.cs" />
     <Compile Include="..\Profiling\PerModSample.cs" Link="Source\PerModSample.cs" />
+    <Compile Include="..\Profiling\PerModAttribution.cs" Link="Source\PerModAttribution.cs" />
     <Compile Include="..\Profiling\TickFrame.cs" Link="Source\TickFrame.cs" />
     <Compile Include="..\Profiling\Baseline.cs" Link="Source\Baseline.cs" />
     <Compile Include="..\Profiling\StallDetector.cs" Link="Source\StallDetector.cs" />
@@ -94,6 +95,10 @@
     <Compile Remove="..\Profiling\Persistence\SessionRecorder.cs" />
     <Compile Remove="..\Profiling\Persistence\TickDownsampler.cs" />
     <Compile Remove="..\Profiling\Persistence\ContextTransitionWatcher.cs" />
+    <Compile Remove="..\Profiling\Persistence\WorldSnapshotter.cs" />
+    <Compile Remove="..\Profiling\Persistence\PlayerDeathDetector.cs" />
+    <Compile Remove="..\Profiling\Persistence\SessionSummaryLogger.cs" />
+    <Compile Remove="..\Profiling\Persistence\Commands\*.cs" />
   </ItemGroup>
 
 </Project>

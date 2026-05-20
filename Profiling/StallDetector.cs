@@ -19,10 +19,14 @@ public enum StallCause : byte
     MajorGc = 1,
     /// <summary>Gen0 or Gen1 GC collected and GC pause dominates; no Gen2. Usually brief and recoverable.</summary>
     MinorGc = 2,
-    /// <summary>Wall clock advanced but the process CPU didn't — the OS suspended us (background, app switcher, sleep).</summary>
+    /// <summary>Wall clock advanced but the process CPU didn't, and this was an isolated event — the OS suspended us (background, app switcher, sleep).</summary>
     ProcessSuspended = 3,
     /// <summary>Wall and CPU both advanced, GC didn't — code stall. Lock contention, sync I/O, JIT compile, draw-thread hook blocking.</summary>
     LongFrame = 4,
+    /// <summary>Sustained cluster of medium-duration stalls (5+ within ~5 seconds, each 80–500 ms). Signature of an open mod UI that blocks the main thread on vsync / heavy per-frame draw, even though per-frame CPU may read low because the swap is the wait.</summary>
+    UiOverlayBlocking = 5,
+    /// <summary>Stall fired during a known world-load tick window (entering or leaving a world). JIT + asset bind dominate; not a real gameplay stall.</summary>
+    WorldLoad = 6,
 }
 
 /// <summary>
@@ -108,6 +112,23 @@ public struct StallEvent
 
     /// <summary>True if the stall fired in the first ~10 s of the session (JIT warmup territory).</summary>
     public bool Warming;
+
+    /// <summary>
+    /// Top contributors at the moment the stall fired — top 5 mods ranked by
+    /// recent (rolling 30s average) ms cost. Captured at stall detection time
+    /// so the row remains queryable even after the smoothed values move on.
+    /// Fixed-length 5-slot array; unused slots have ModId = -1.
+    /// </summary>
+    public StallContributor C0, C1, C2, C3, C4;
+}
+
+/// <summary>One row of stall attribution: which mod, how much it was costing at stall time.</summary>
+public struct StallContributor
+{
+    public int ModId;
+    public double RecentMs;
+
+    public static StallContributor Empty => new StallContributor { ModId = -1, RecentMs = 0d };
 }
 
 /// <summary>
@@ -198,6 +219,17 @@ public sealed class StallDetector
     /// <param name="tickStartUnixMs">Wall-clock time at this tick's start (for log cross-reference).</param>
     /// <param name="baseline">Shared baseline service for the relative threshold.</param>
     public void OnBeginTick(long beginStamp, long tickIndex, long tickStartUnixMs, Baseline baseline)
+        => OnBeginTick(beginStamp, tickIndex, tickStartUnixMs, baseline, null);
+
+    /// <summary>
+    /// Extended overload that captures per-mod attribution at stall time. The
+    /// classifier also gets a cluster-shape signal (count of stalls in the
+    /// last ~5s) so a clustered run of medium-duration stalls classifies as
+    /// <see cref="StallCause.UiOverlayBlocking"/> rather than misreading them
+    /// all as <see cref="StallCause.ProcessSuspended"/>.
+    /// </summary>
+    public void OnBeginTick(long beginStamp, long tickIndex, long tickStartUnixMs, Baseline baseline,
+        IReadOnlyList<double>? perModSmoothedMs)
     {
         _ticksSeen++;
 
@@ -244,6 +276,11 @@ public sealed class StallDetector
 
         double excess = tickPeriodMs - baselineMs;
 
+        // Cluster-shape signal: how many stalls have fired in the recent
+        // window. A run of medium-duration gaps is the UI-blocking
+        // signature; a lone big gap is real OS suspension.
+        int recentInLast5s = CountRecentStallsInWindow(tickStartUnixMs, windowMs: 5000);
+
         StallEvent ev = new StallEvent
         {
             StartTickIndex = tickIndex - 1,
@@ -259,36 +296,125 @@ public sealed class StallDetector
             Gen2Collections = g2,
             HeapSizeBeforeBytes = _prevHeapBytes,
             HeapSizeAfterBytes = heapNow,
-            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta),
+            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta, recentInLast5s),
             Severity = ClassifySeverity(tickPeriodMs),
             Warming = _ticksSeen <= WarmupTicks,
         };
+        CaptureTopContributors(perModSmoothedMs, ref ev);
         _events.Push(in ev);
 
         CaptureBaseline(beginStamp);
     }
 
     /// <summary>
-    /// Maps the four signals (wall delta, GC pause delta, Gen2 count delta,
-    /// CPU delta) onto a <see cref="StallCause"/>. Pure function; tested in
-    /// isolation against a truth table.
+    /// Walk the rolling event ring and count how many stalls landed within
+    /// <paramref name="windowMs"/> of <paramref name="nowUnixMs"/>. Used by
+    /// the classifier to detect clustered UI-blocking patterns.
+    /// </summary>
+    private int CountRecentStallsInWindow(long nowUnixMs, int windowMs)
+    {
+        int count = 0;
+        for (int i = 0; i < _events.Count; i++)
+        {
+            if (nowUnixMs - _events[i].StartTimestampUnixMs <= windowMs) count++;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Read <paramref name="perModSmoothedMs"/> (per-mod-per-category) and pick
+    /// the top-5 mods by summed cost across categories. Sets ev.C0–C4 with
+    /// (ModId, RecentMs). Unused slots get ModId = -1. Allocation-free.
+    /// </summary>
+    private static void CaptureTopContributors(IReadOnlyList<double>? perModSmoothedMs, ref StallEvent ev)
+    {
+        ev.C0 = ev.C1 = ev.C2 = ev.C3 = ev.C4 = StallContributor.Empty;
+        if (perModSmoothedMs == null || perModSmoothedMs.Count == 0) return;
+
+        int cats = PerModAttribution.CategoryCount;
+        if (cats <= 0) return;
+        int modCount = perModSmoothedMs.Count / cats;
+
+        // 5-way top-N selection with branch-free insertion. No alloc.
+        int b0 = -1, b1 = -1, b2 = -1, b3 = -1, b4 = -1;
+        double v0 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0;
+
+        for (int modId = 0; modId < modCount; modId++)
+        {
+            double sum = 0d;
+            int offset = modId * cats;
+            for (int c = 0; c < cats; c++) sum += perModSmoothedMs[offset + c];
+            if (sum <= 0d) continue;
+
+            if (sum > v0)       { v4=v3; b4=b3; v3=v2; b3=b2; v2=v1; b2=b1; v1=v0; b1=b0; v0=sum; b0=modId; }
+            else if (sum > v1)  { v4=v3; b4=b3; v3=v2; b3=b2; v2=v1; b2=b1; v1=sum; b1=modId; }
+            else if (sum > v2)  { v4=v3; b4=b3; v3=v2; b3=b2; v2=sum; b2=modId; }
+            else if (sum > v3)  { v4=v3; b4=b3; v3=sum; b3=modId; }
+            else if (sum > v4)  { v4=sum; b4=modId; }
+        }
+
+        ev.C0 = new StallContributor { ModId = b0, RecentMs = v0 };
+        ev.C1 = new StallContributor { ModId = b1, RecentMs = v1 };
+        ev.C2 = new StallContributor { ModId = b2, RecentMs = v2 };
+        ev.C3 = new StallContributor { ModId = b3, RecentMs = v3 };
+        ev.C4 = new StallContributor { ModId = b4, RecentMs = v4 };
+    }
+
+    /// <summary>
+    /// Back-compat overload — no cluster context. Treated as a lone stall.
     /// </summary>
     public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs)
+        => ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s: 0);
+
+    /// <summary>
+    /// Maps the five signals (wall delta, GC pause delta, Gen2 count delta,
+    /// CPU delta, recent-stall-count) onto a <see cref="StallCause"/>. Pure
+    /// function; tested in isolation against a truth table.
+    ///
+    /// <para>
+    /// The cluster-shape signal (<paramref name="recentStallsInLast5s"/>) is
+    /// what distinguishes a true OS suspend from a UI-overlay menu blocking
+    /// the main thread on vsync. Both look identical at the per-event level —
+    /// wall advanced, CPU didn't (because the swap is the wait), GC didn't —
+    /// but the cluster shape is the tell. A real cmd-tab is lone and long; a
+    /// CheatSheet NPC-spawn menu produces a run of medium gaps.
+    /// </para>
+    /// </summary>
+    public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
+        int recentStallsInLast5s)
     {
         // Defensive: a zero-wall stall is degenerate; report unknown.
         if (wallMs <= 0d) return StallCause.Unknown;
 
-        // CPU much less than wall → the OS wasn't running us. App switcher,
-        // background, sleep, or another process eating all the cores.
-        if (cpuMs < wallMs * 0.2d) return StallCause.ProcessSuspended;
+        // First priority: an unambiguous OS suspension. Long wall, CPU
+        // barely advanced, lone event. GC counters can look high because
+        // the GC reading spanned the suspend window — but the process
+        // wasn't running, so any GC pause we "saw" is stale. Treat the
+        // CPU-vs-wall ratio as the deciding signal for this case.
+        bool cpuStarved = cpuMs < wallMs * 0.2d;
+        bool isLone = recentStallsInLast5s <= 2;
+        if (cpuStarved && isLone && wallMs >= 800d)
+            return StallCause.ProcessSuspended;
 
         // GC pause is at least half the stall — the heap was the bottleneck.
         // Gen2 deciding factor between Major/Minor; Gen2 is the slow one.
         if (gcMs > wallMs * 0.5d)
             return gen2Delta > 0 ? StallCause.MajorGc : StallCause.MinorGc;
 
-        // Wall and CPU both advanced, GC didn't. Some code path took the time
-        // — most often a draw-thread hook doing sync I/O or hitting a lock.
+        // Sustained cluster of medium-duration stalls → UI/main-thread
+        // blocking. Threshold tuned against the CheatSheet NPC-spawn menu
+        // playtest: 47 consecutive 100-220ms gaps over 13 seconds.
+        if (recentStallsInLast5s >= 5 && wallMs < 500d)
+            return StallCause.UiOverlayBlocking;
+
+        // Lone CPU-starved event that didn't meet the long-wall threshold
+        // above — still suspended, just shorter (cmd-tab for half a second).
+        if (cpuStarved && isLone)
+            return StallCause.ProcessSuspended;
+
+        // Wall and CPU both advanced, GC didn't. Some code path took the
+        // time — most often a draw-thread hook doing sync I/O or hitting
+        // a lock.
         return StallCause.LongFrame;
     }
 

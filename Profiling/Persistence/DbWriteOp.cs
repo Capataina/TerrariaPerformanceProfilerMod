@@ -26,6 +26,9 @@ public enum DbOpKind : byte
     UpsertWorld,
     UpsertModlist,
     UpsertMod,
+    StallCluster,
+    PlayerDeath,
+    WorldSnapshot,
 }
 
 /// <summary>
@@ -101,4 +104,13 @@ public readonly struct DbWriteOp
 
     public static DbWriteOp UpsertMod(ModRow row)
         => new DbWriteOp(DbOpKind.UpsertMod, ObjectId.Empty, row);
+
+    public static DbWriteOp StallCluster(StallClusterRow row)
+        => new DbWriteOp(DbOpKind.StallCluster, row.SessionId, row);
+
+    public static DbWriteOp PlayerDeath(PlayerDeathRow row)
+        => new DbWriteOp(DbOpKind.PlayerDeath, row.SessionId, row);
+
+    public static DbWriteOp WorldSnapshot(WorldSnapshotRow row)
+        => new DbWriteOp(DbOpKind.WorldSnapshot, row.SessionId, row);
 }

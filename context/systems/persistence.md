@@ -97,6 +97,9 @@ Documented exhaustively in `notes/litedb-migration-plan.md` §3. Headline collec
 | `tickAggregatesArchive` | One per session | Whole-session summary, forever |
 | `insights` | One surfaced insight | Schema placeholder for M4+ |
 | `metadata` | Single row (`_id="metadata"`) | DB-level open count, version history |
+| `stallClusters` | One coalesced stall cluster | The "one freeze the player perceived" rollup over consecutive `stallEvents`. Carries dominant cause + dominant contributor. |
+| `playerDeaths` | One local-player death event | Position, HP at death, active bosses, human-readable summary. |
+| `worldSnapshots` | One every ~30s of in-world time | Player position/HP/mana, primary biome, hardmode, game mode, time-of-day, entity counts, primary boss. The "what was happening at minute N" reconstruction table. |
 
 Every row carries a `_schema: int` field so a future per-collection schema bump can be detected at read time without forcing a whole-DB migration.
 

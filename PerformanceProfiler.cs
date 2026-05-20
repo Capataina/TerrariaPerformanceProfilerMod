@@ -27,8 +27,18 @@ public class PerformanceProfiler : Mod
     /// </summary>
     public static ProfilerDatabase? Database { get; private set; }
 
+    /// <summary>
+    /// Cached log4net logger for the persistence/recorder layer so it can
+    /// write narration lines to <c>client.log</c> without taking a
+    /// dependency on the <c>Mod</c> singleton or having to chase
+    /// <c>ModContent.GetInstance</c>. Set in <see cref="Load"/>, cleared
+    /// in <see cref="Unload"/>. Null if the mod hasn't loaded yet.
+    /// </summary>
+    public static log4net.ILog? LoggerOrNull { get; private set; }
+
     public override void Load()
     {
+        LoggerOrNull = Logger;
         Logger.Info($"Performance Profiler loaded (backend: {HookBackend.Mode}).");
 
         // Open the DB on the main thread before any world loads. Failure to
@@ -78,6 +88,7 @@ public class PerformanceProfiler : Mod
             Logger.Warn($"Profiler DB dispose failed: {ex.GetType().Name}: {ex.Message}");
         }
         Database = null;
+        LoggerOrNull = null;
     }
 }
 

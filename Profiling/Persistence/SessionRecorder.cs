@@ -34,6 +34,22 @@ public sealed class SessionRecorder
     private double _maxFrameSeen;
     private double _gcSeen;
 
+    /// <summary>
+    /// Live cluster being built from consecutive stalls. <c>null</c> when no
+    /// cluster is currently open. Flushed when no new stall has arrived
+    /// within <see cref="ClusterIdleMs"/> of the cluster's last event.
+    /// </summary>
+    private StallClusterRow? _liveCluster;
+
+    /// <summary>Sum of TopContributor RecentMs across the cluster, keyed by ModId. Resolves "dominant contributor".</summary>
+    private readonly Dictionary<int, double> _clusterContribCost = new Dictionary<int, double>();
+
+    /// <summary>Count of each StallCause seen in the live cluster. Resolves "dominant cause".</summary>
+    private readonly Dictionary<string, int> _clusterCauseCounts = new Dictionary<string, int>();
+
+    /// <summary>Stall events with unix-ms gaps larger than this break the cluster (start a new one).</summary>
+    private const long ClusterIdleMs = 2000;
+
     public ObjectId SessionId => _sessionId;
     public DateTime StartedUtc => _startedUtc;
     public long TicksObserved => _ticksObserved;
@@ -107,7 +123,37 @@ public sealed class SessionRecorder
             TickFrameMs = tickFrameMs,
         };
         _db.Writer.Enqueue(DbWriteOp.ContextTransition(row));
+
+        if (PerformanceProfiler.LoggerOrNull != null && IsHeadline(type))
+        {
+            PerformanceProfiler.LoggerOrNull.Info($"context  tick={tick}  {type}: {from} -> {to}");
+        }
     }
+
+    /// <summary>Records a player death event. Called from <c>ContextTransitionWatcher</c> on the dead-edge.</summary>
+    public void OnPlayerDeath(PlayerDeathRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.PlayerDeath(row));
+        if (PerformanceProfiler.LoggerOrNull != null)
+        {
+            PerformanceProfiler.LoggerOrNull.Info(
+                $"player-death  tick={row.Tick}  at=({row.TileX:F0},{row.TileY:F0})  hp={row.LastHp}/{row.MaxHp}  boss={row.PrimaryBoss}");
+        }
+    }
+
+    /// <summary>Records a periodic world-state snapshot.</summary>
+    public void OnWorldSnapshot(WorldSnapshotRow row)
+    {
+        row.SessionId = _sessionId;
+        _db.Writer.Enqueue(DbWriteOp.WorldSnapshot(row));
+    }
+
+    /// <summary>Transitions worth narrating to client.log (vs the high-frequency biome-bit ones).</summary>
+    private static bool IsHeadline(string type)
+        => type == "bossStart" || type == "bossEnd" || type == "bossSwap"
+        || type == "hardmode"  || type == "invasion"
+        || type == "subworld"  || type == "session";
 
     /// <summary>
     /// World-unload path: build the per-session aggregates, archive row,
@@ -119,6 +165,7 @@ public sealed class SessionRecorder
         // Flush any final spike/stall windows that arrived after the last OnTick.
         DrainSpikes(collector);
         DrainStalls(collector);
+        FlushCluster();
 
         var modAggs = BuildModAggregates(collector);
         var hookAggs = BuildHookAggregates(collector);
@@ -162,15 +209,71 @@ public sealed class SessionRecorder
                 TopContributors = BuildSpikeTopContributors(w),
             };
             _db.Writer.Enqueue(DbWriteOp.Spike(row));
+
+            // Inline narration to client.log for spikes ≥ 100ms — what the
+            // player perceives as a hitch. Skip warming-window noise.
+            if (w.WorstFrameMs >= 100d && !w.Warming && PerformanceProfiler.LoggerOrNull != null)
+            {
+                string topName = row.TopContributors.Count > 0 ? row.TopContributors[0].Name : "(no attribution)";
+                double topMs = row.TopContributors.Count > 0 ? row.TopContributors[0].Ms : 0d;
+                PerformanceProfiler.LoggerOrNull.Info(
+                    $"spike  tick={w.WorstTick}  worst={w.WorstFrameMs:F0}ms  baseline={w.BaselineMs:F1}ms  top={topName} ({topMs:F1}ms)");
+            }
         }
     }
 
     private void DrainStalls(MetricCollector collector)
     {
         IReadOnlyList<StallEvent> stalls = collector.Stalls;
+        string[] modNames = HookInterceptor.ProfiledModNames;
         while (_stallCursor < stalls.Count)
         {
             StallEvent s = stalls[_stallCursor++];
+
+            // Decide whether this stall extends the open cluster or starts a
+            // new one. ClusterIdleMs (2s) is the gap that breaks runs apart.
+            if (_liveCluster != null && s.StartTimestampUnixMs - _liveCluster.EndUnixMs > ClusterIdleMs)
+            {
+                FlushCluster();
+            }
+
+            if (_liveCluster == null)
+            {
+                _liveCluster = new StallClusterRow
+                {
+                    SessionId = _sessionId,
+                    StartTick = s.StartTickIndex,
+                    StartUnixMs = s.StartTimestampUnixMs,
+                };
+                _clusterContribCost.Clear();
+                _clusterCauseCounts.Clear();
+            }
+
+            // Update cluster aggregates.
+            _liveCluster.EndTick = s.EndTickIndex;
+            _liveCluster.EndUnixMs = s.StartTimestampUnixMs;
+            _liveCluster.StallCount++;
+            _liveCluster.TotalDurationMs += s.TickPeriodMs;
+            if (s.TickPeriodMs > _liveCluster.WorstDurationMs)
+                _liveCluster.WorstDurationMs = s.TickPeriodMs;
+            _liveCluster.SpanMs = _liveCluster.EndUnixMs - _liveCluster.StartUnixMs;
+
+            string causeKey = s.Cause.ToString();
+            _clusterCauseCounts[causeKey] = (_clusterCauseCounts.TryGetValue(causeKey, out int cc) ? cc : 0) + 1;
+
+            AccumulateContribCost(s.C0);
+            AccumulateContribCost(s.C1);
+            AccumulateContribCost(s.C2);
+            AccumulateContribCost(s.C3);
+            AccumulateContribCost(s.C4);
+
+            var topContribs = new List<StallContributorEntry>(5);
+            AddContrib(topContribs, s.C0, modNames);
+            AddContrib(topContribs, s.C1, modNames);
+            AddContrib(topContribs, s.C2, modNames);
+            AddContrib(topContribs, s.C3, modNames);
+            AddContrib(topContribs, s.C4, modNames);
+
             var row = new StallEventRow
             {
                 SessionId = _sessionId,
@@ -179,9 +282,88 @@ public sealed class SessionRecorder
                 DurationMs = s.TickPeriodMs,
                 BaselineTickMs = s.BaselineMs,
                 Cause = s.Cause.ToString(),
+                Severity = s.Severity.ToString(),
+                GcPauseDurationMs = s.GcPauseDurationMs,
+                Gen0Collections = s.Gen0Collections,
+                Gen1Collections = s.Gen1Collections,
+                Gen2Collections = s.Gen2Collections,
+                HeapDeltaBytes = s.HeapSizeAfterBytes - s.HeapSizeBeforeBytes,
+                CpuTimeDeltaMs = s.ProcessCpuTimeDeltaMs,
+                Warming = s.Warming,
+                ClusterId = _liveCluster.Id,
+                TopContributors = topContribs,
             };
             _db.Writer.Enqueue(DbWriteOp.Stall(row));
+
+            // Inline narration to client.log so a log-only inspection later
+            // (the workflow we just had to do manually) doesn't need the DB.
+            // Threshold is 500ms = perceptible-to-the-player.
+            if (s.TickPeriodMs >= 500d && PerformanceProfiler.LoggerOrNull != null)
+            {
+                string top = topContribs.Count > 0 ? topContribs[0].Name : "(no attribution)";
+                PerformanceProfiler.LoggerOrNull.Info(
+                    $"stall  tick={s.StartTickIndex}  dur={s.TickPeriodMs:F0}ms  cause={causeKey}  top={top} ({(topContribs.Count > 0 ? topContribs[0].RecentMs : 0d):F2}ms recent)");
+            }
         }
+    }
+
+    /// <summary>Finalise the open cluster + emit it. Called on idle-gap and on session end.</summary>
+    internal void FlushCluster()
+    {
+        if (_liveCluster == null) return;
+        if (_liveCluster.StallCount <= 0) { _liveCluster = null; return; }
+
+        // Pick dominant cause = most-frequent across the cluster's events.
+        string domCause = "Unknown";
+        int domCauseCount = -1;
+        foreach (var kv in _clusterCauseCounts)
+        {
+            if (kv.Value > domCauseCount) { domCauseCount = kv.Value; domCause = kv.Key; }
+        }
+        _liveCluster.DominantCause = domCause;
+
+        // Pick dominant contributor = mod with the highest cumulative RecentMs
+        // across the cluster's per-event top-5 snapshots.
+        int domModId = -1;
+        double domVal = -1d;
+        foreach (var kv in _clusterContribCost)
+        {
+            if (kv.Value > domVal) { domVal = kv.Value; domModId = kv.Key; }
+        }
+        _liveCluster.DominantContributorModId = domModId;
+        string[] names = HookInterceptor.ProfiledModNames;
+        _liveCluster.DominantContributorName =
+            (domModId >= 0 && domModId < names.Length) ? names[domModId] : "(no attribution)";
+
+        _db.Writer.Enqueue(DbWriteOp.StallCluster(_liveCluster));
+
+        // Inline narration: every cluster is a "the player saw this freeze".
+        if (PerformanceProfiler.LoggerOrNull != null)
+        {
+            PerformanceProfiler.LoggerOrNull.Info(
+                $"stall-cluster  {_liveCluster.StallCount} stalls over {_liveCluster.SpanMs:F0}ms  total={_liveCluster.TotalDurationMs:F0}ms  worst={_liveCluster.WorstDurationMs:F0}ms  cause={domCause}  contributor={_liveCluster.DominantContributorName}");
+        }
+
+        _liveCluster = null;
+        _clusterContribCost.Clear();
+        _clusterCauseCounts.Clear();
+    }
+
+    private void AccumulateContribCost(StallContributor c)
+    {
+        if (c.ModId < 0 || c.RecentMs <= 0d) return;
+        _clusterContribCost[c.ModId] = (_clusterContribCost.TryGetValue(c.ModId, out double v) ? v : 0d) + c.RecentMs;
+    }
+
+    private static void AddContrib(List<StallContributorEntry> list, StallContributor c, string[] modNames)
+    {
+        if (c.ModId < 0 || c.RecentMs <= 0d) return;
+        list.Add(new StallContributorEntry
+        {
+            ModId = c.ModId,
+            Name = (c.ModId < modNames.Length) ? modNames[c.ModId] : ("mod-" + c.ModId),
+            RecentMs = c.RecentMs,
+        });
     }
 
     private List<PerSessionModAggregate> BuildModAggregates(MetricCollector collector)
