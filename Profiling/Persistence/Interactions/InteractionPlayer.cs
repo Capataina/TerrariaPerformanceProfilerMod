@@ -37,6 +37,17 @@ internal sealed class InteractionPlayer : ModPlayer
     private int[] _prevBuffTypes = new int[Player.MaxBuffs];
     private int _prevBuffCount;
 
+    /// <summary>Latch flipped by the first <see cref="PostUpdateBuffs"/> call
+    /// for which <c>Player.whoAmI == Main.myPlayer</c>. v0.5 had a race where
+    /// PostUpdateBuffs fired before the gate cleared, the snapshot stayed
+    /// uninitialised, and the first buff-edge tick after the gate cleared
+    /// got no "on" emission because the diff loop saw _prevBuffCount = 0 but
+    /// then the snapshot copy ran <em>after</em> the early return, so the
+    /// next tick's prev-state was still empty (loop never executed). v0.6
+    /// snapshots before the early return and emits all active buffs as "on"
+    /// on the first valid tick.</summary>
+    private bool _firstValidBuffTickSeen;
+
     /// <summary>Last loadout fingerprint, so we only enqueue on actual change.</summary>
     private string _lastLoadoutFingerprint = "";
 
@@ -137,34 +148,59 @@ internal sealed class InteractionPlayer : ModPlayer
 
     public override void PostUpdateBuffs()
     {
+        // Hard gate: only the local player. Note we do NOT early-return here
+        // before the diff (the v0.5 bug); for non-local-player ticks we still
+        // skip the diff but we deliberately do not even touch state, so the
+        // local-player branch's snapshot stays clean.
+        if (Player.whoAmI != Main.myPlayer) return;
+
         var recorder = ResolveRecorder();
-        if (recorder == null || Player.whoAmI != Main.myPlayer) return;
 
         // Diff against last tick's snapshot. Buffs leaving = old types not
-        // present in current, buffs entering = current types not present
-        // in old. tML's buff array holds active type ids contiguously up
-        // to Player.buffType.Length-1 with 0 = empty.
-        int current = 0;
-        for (int i = 0; i < Player.buffType.Length; i++) if (Player.buffType[i] > 0) current++;
-
-        // Removed.
-        for (int i = 0; i < _prevBuffCount; i++)
+        // present in current, buffs entering = current types not present in
+        // old. tML's buff array holds active type ids contiguously up to
+        // Player.buffType.Length-1 with 0 = empty.
+        //
+        // First valid tick (v0.6 fix): emit every currently-active buff as
+        // "on" so the timeline doesn't lose state for buffs that were already
+        // active when the gate first cleared. Same shape as the post-respawn
+        // re-initialisation case.
+        if (!_firstValidBuffTickSeen)
         {
-            int t = _prevBuffTypes[i];
-            if (t <= 0) continue;
-            if (System.Array.IndexOf(Player.buffType, t) < 0)
-                EmitBuffEdge(recorder, t, "off");
+            _firstValidBuffTickSeen = true;
+            if (recorder != null)
+            {
+                for (int i = 0; i < Player.buffType.Length; i++)
+                {
+                    int t = Player.buffType[i];
+                    if (t > 0) EmitBuffEdge(recorder, t, "on");
+                }
+            }
         }
-        // Added.
-        for (int i = 0; i < Player.buffType.Length; i++)
+        else if (recorder != null)
         {
-            int t = Player.buffType[i];
-            if (t <= 0) continue;
-            if (System.Array.IndexOf(_prevBuffTypes, t, 0, _prevBuffCount) < 0)
-                EmitBuffEdge(recorder, t, "on");
+            // Removed: types in prev but not in current.
+            for (int i = 0; i < _prevBuffCount; i++)
+            {
+                int t = _prevBuffTypes[i];
+                if (t <= 0) continue;
+                if (System.Array.IndexOf(Player.buffType, t) < 0)
+                    EmitBuffEdge(recorder, t, "off");
+            }
+            // Added: types in current but not in prev.
+            for (int i = 0; i < Player.buffType.Length; i++)
+            {
+                int t = Player.buffType[i];
+                if (t <= 0) continue;
+                if (System.Array.IndexOf(_prevBuffTypes, t, 0, _prevBuffCount) < 0)
+                    EmitBuffEdge(recorder, t, "on");
+            }
         }
 
-        // Snapshot for next tick.
+        // Snapshot for next tick — always, regardless of recorder availability,
+        // so that a recorder appearing mid-session still gets a coherent diff
+        // on its first tick (which then emits any new on/off vs the snapshot
+        // we kept while the recorder was null).
         if (_prevBuffTypes.Length < Player.buffType.Length)
             _prevBuffTypes = new int[Player.buffType.Length];
         System.Array.Copy(Player.buffType, _prevBuffTypes, Player.buffType.Length);
