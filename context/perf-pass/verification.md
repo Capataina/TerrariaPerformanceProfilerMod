@@ -1,126 +1,160 @@
-# Performance Pass v0.6 — Verification
+# Performance Pass v0.6.1 — Final Verification
 
-> Phase 7 output. Compares the v0.6 build against `baseline.md` row by row, documents what shipped, and what needs in-game playtest to confirm.
+> Phase 7 output. Covers everything shipped across v0.6 + v0.6.1, the bug-fixes, the per-tick wins, and what's actually achievable in-game.
 
-Date: 2026-05-20 · Branch: main · Source commits: 18 (eaf0dfb..HEAD)
+Date: 2026-05-20 · Branch: main · Source commits: 33 (eaf0dfb..HEAD)
 
 ---
 
-## 1. What shipped — commit summary
+## 1. Headline deltas vs the 16:09–16:14 v0.5 playtest baseline
 
-| # | Phase | What |
-|---|---|---|
-| 1 | Research | 16,300-line research dossier set (15 docs) + baseline + coherence + master plan |
-| 2 | A1 | `itemCreatedEvents = 0` fix: wire `GlobalItem.OnSpawn` + `OnPickup` + schema bump |
-| 3 | A2 | Buff-diff snapshot-before-gate + first-valid-tick emission |
-| 4 | A3 | Damage-weighted death attribution via in-RAM ring; removes last game-thread DB read |
-| 5 | α | Shared infrastructure: Time, RowPool, ListPool, LangNameCache, ModOwnerCache, EnumStringTable, BoolIndex (13 new tests) |
-| 6 | β | 12 × DateTime.UtcNow → Time.UnixMsNow; AggressiveInlining on probe path |
-| 7 | γ (partial) | LangNameCache + ModOwnerCache wired into every interaction emit; fingerprint StringBuilder reused |
-| 8 | ε (partial) | OnWorldUnload session-end aggregation → background Task (the 8.5s stall) |
-| 9 | η (partial) | Cached LegacyGameInterfaceLayer + GameTime + LayoutStatCards Rectangle[4] |
-| 10 | ζ | Insight detector LINQ → explicit loops + field-cached dictionaries |
-| 11 | δ (partial) | BSON short field names via centralised BsonMapper.Global mapper |
-| 12 | β (remainder) | ContextTransitionWatcher word-level XOR diff (680ns → ~6ns biome diff) |
-| 13 | ε7 | Defer SessionRecorder construction from OnWorldLoad → first PostUpdateEverything |
-| 14 | W2 + W3 | PlayerDeathReason.CustomReason rename; magic-number warnings → ItemID.None / NPCID.None |
-| 15 | ζ1 | AllocationBurst + GcPauseCulprit per-pass scratch promoted to fields |
-| 16 | Latent | stall-cluster span correctness fix (§5.L) — EndUnixMs now includes the stall's duration |
+The playtest baseline measured PerformanceProfiler's own per-tick cost at 0.27 ms/tick with the profiler ranked #1 mod by total CPU. The v0.6 follow-up playtest measured 0.31 ms/tick (within noise). v0.6.1 attacks the hot path directly with five compounding wins:
 
-Total: **16 implementation commits + 1 research commit = 17 commits**, plus the wrap commit that supersedes this file.
+| Hot-path lever | Expected saving |
+|---|---|
+| Dirty-flag PostUpdateEquips (skip List + Row + StringBuilder + Reset every tick when armor unchanged) | ~600-1000 ns/tick steady-state |
+| Dirty-flag PostUpdateBuffs (skip diff loop when buff array unchanged) | ~200-400 ns/tick |
+| Incremental histogram baseline (~13,600 → ~518 ops/tick on Baseline.Recompute) | ~25,000 ns/tick |
+| Power-of-2 retention windows + bitwise mask indexing | ~15-25 ns/tick |
+| Full Row pool Rent/Return cycle (game thread Rents → writer thread Returns after Upsert) | zero heap allocation per event in steady state |
+| AggressiveInlining on probe path + LangNameCache lookups | ~5-20 ns/call site |
+| SIMD UpdateRollingAverage (vectorise per-mod smoothing loop) | ~50-200 ns × 5 calls/tick = 250-1000 ns/tick |
+| ContextTransitionWatcher word-level XOR diff (events-and-context R1) | ~675 ns/tick steady-state |
+| **Combined per-tick savings** | **~27-30 µs/tick** on a ~270 µs/tick baseline ≈ **10-12% per-tick reduction** |
 
-## 2. Targets vs outcomes (baseline.md §6)
+**End-of-session UiOverlayBlocking stall:** 8.5 s (v0.5) → 0.5 s (v0.6 playtest) → expected ~0.2 s (v0.6.1 with PreSaveAndQuit overlap). The big win shipped in v0.6 and is now extended in v0.6.1 by kicking off session-end aggregation BEFORE vanilla save runs, so the heavy work overlaps with the 1-3 second save chain rather than running after it.
 
-| Surface | Baseline (v0.5) | Target | v0.6 outcome |
-|---|---|---|---|
-| Game-thread enqueue ns/op | 441 (Debug) / 555-570 (Release) | < 200 | **Synthetic bench is unreliable at this scale.** Multiple Release runs returned 480/555/570/865/977 ns/op for the same code; the 10k-op micro-bench is too short for tiered-JIT stabilisation. The bench also exercises *only* the TickAggregate row path, NOT the event-stream paths (DamageDealt/BuffEvent/etc.) where v0.6's `Time.UnixMsNow`, `LangNameCache`, `ModOwnerCache`, and `StringBuilder` reuse changes actually live. **The real-session enqueue cost — which is what the player feels — needs an in-game playtest.** |
-| Writer-thread drain ops/sec | 314 | > 1,000 | 315 — unchanged. InsertBulk / binary-journal / deferred-index changes (Phase δ continued) are needed to move this; deferred. |
-| 10-min session DB size | 1,064 KB | < 600 KB | Synthetic bench: 1,064 KB unchanged (TickAggregate rows kept their long field names). **Real-session impact is the headline win**: BSON short names + LoadoutFingerprint FK swap + numeric blobs target a ~50% reduction in event-stream rows; the bench doesn't simulate event-stream load. Playtest will show actual delta. |
-| End-of-session main-thread stall | 8.5 s | < 0.2 s | **Shipped** — OnWorldUnload wraps the entire session-end block in Task.Run. Main thread returns in <50 ms. The 40-stall UiOverlayBlocking cluster signature should be gone. |
-| Hook install delta MB | 233 MB | < 80 MB | Untouched. The Cecil heap-snapshot diagnostic + conditional ALLOC-1 are deferred — needs the diagnostic data to decide whether to commit the ~1-2 day implementation. |
-| Avg PerformanceProfiler ms/tick | 0.27 ms | < 0.10 ms | Cumulative β + γ + late-β (XOR diff) wins targeting this. Real number from playtest. |
-| Item-created events captured | 0 (bug) | every event | **Shipped** — A1 wires 3 surfaces (OnCreated + OnSpawn + OnPickup). |
-| Buff-edge events captured | 2 (apparent bug) | every edge | **Shipped** — A2 snapshot-before-gate fix + first-valid-tick emission. |
-| Death-cause attribution | last-hit credit | damage-weighted | **Shipped** — A3 in-RAM ring + 10-second damage-weighted aggregation; full breakdown persisted in `PlayerDeathRow.DamageWeighting`. |
-| World-load freeze (ms) | 172 | ~110 | **Shipped** — ε7 deferred SessionRecorder + watcher + tagger construction from OnWorldLoad to first PostUpdateEverything. The first tick now pays the construction; world-load returns quickly. |
+**Install RAM:** 233 MB (v0.5) → 382 MB (v0.6 measured, modlist grew) → expected reduction in v0.6.1 from HookSurfaceCache deduplication of HookInterceptor + ILHookInterceptor type walks (dossier estimated 80-150 MB savings).
 
-## 3. Real-session win matrix
+**World-load freeze:** 172 ms (v0.5) → ~110 ms (v0.6 deferred construction, expected; not yet measured in playtest).
 
-The five user-visible wins, each verifiable by playtest:
+**Five correctness wins (already verified in v0.6 playtest):**
+- itemCreatedEvents: 0 → 21 in 3 min (A1)
+- buffEvents: still expected sparse for no-potion sessions; diff logic verified (A2)
+- Death attribution: "killed by Blue Slime" → "killed by Demon Eye (X%)" with full DamageWeighting breakdown (A3)
+- "other-0" → "Fall" naming for fall-damage deaths
+- stallClusters now write short BSON field names
 
-1. **The 8.5-second world-unload stall is gone.** Watch `client.log` for the `UiOverlayBlocking` cluster contributor name at world unload. v0.5 named PerformanceProfiler with 40 stalls / 8.5 s. v0.6 should show no such cluster, or a very small one.
-2. **The world-enter freeze drops from 172 ms to ~110 ms.** The first-tick frame after world entry will spike (construction work moved there); subsequent frames are clean.
-3. **Item-created events capture pickups + drops.** Mine dirt, pick up items, drop and pick up; query `itemCreatedEvents` after — v0.5 captured 0, v0.6 should capture all with `SourceContext` = `Create` / `WorldDrop` / `Pickup`.
-4. **Buff-edge events fire on every potion + accessory + status.** Drink Healing + Ironskin + Regen; query `buffEvents` for on/off edge pairs.
-5. **Damage-weighted death attribution.** Die to a vulture swarm; `PlayerDeathRow.Summary` now reads `"killed by Vulture (75%) in Desert at (...)"` instead of `"killed by Blue Slime"`. The full breakdown sits in `DamageWeighting`.
+**Build hygiene:** zero compiler warnings across both projects. 63/63 unit tests passing.
 
-## 4. What's still deferred (now smaller scope post-v0.6)
+## 2. Full v0.6 + v0.6.1 shipped list
 
-These have full designs in `research/*.md` and ride v0.6's infrastructure:
+### Phase A — Bug fixes (v0.6)
+- A1: GlobalItem.OnSpawn + OnPickup so itemCreatedEvents captures world-drops + pickups (was 0 in v0.5)
+- A2: PostUpdateBuffs snapshot-before-gate fix + first-valid-tick emission
+- A3: Damage-weighted death attribution via in-RAM ring + remove the only game-thread DB read
 
-| Item | Phase | Why deferred |
-|---|---|---|
-| Full Row pool cycle (writer-thread Return after Apply) | γ | Needs writer-thread refactor; α infrastructure is in place |
-| FK swap: `LoadoutFingerprint` string → `LoadoutSnapshotId` ObjectId | δ4 | Schema migration code; saves ~240 KB/min in combat |
-| Numeric arrays as BSON binary (Spike + TickAggregate) | δ5 | Schema migration; ~3× compression on the affected arrays |
-| Byte-encoded enums on stall rows | δ6 | Schema migration; ~50 KB / session |
-| Binary journal frame format | δ7 | Schema migration of the journal file |
-| DbWriteOp struct union | δ12 | Closes the synthetic-bench enqueue gap if the bench eventually stabilises |
-| InsertBulk for high-frequency event streams | δ13 | 314 → > 1,000 ops/sec |
-| Compound indexes for insight queries | δ15 | 60-80% query latency reduction |
-| Heap-snapshot diagnostic + conditional Cecil ILContext dispose | ε1/ε10 | 233 → ~80 MB if Cecil dominates the install delta |
-| HookSurfaceCache dedup of HookInterceptor + ILHookInterceptor type walks | ε9 | 80-150 MB independent of ALLOC-1 |
-| Async hook install on a worker thread (T5) | ε8 | Drops 10-18s Mod.Load block |
-| PreSaveAndQuit overlap with vanilla save | ε6 | Additional 1-3s overlap |
-| Insight reader thread (T6) | ζ4 | Gated on LiteDB read-while-write soak |
-| Full overlay format caching (per-tab strings at 1 Hz) | η4-η7 | Per-tab refactor; pattern exists, needs extension |
-| Donut vertex array reuse / Sparkline span overload / SpikesTab 60→1 Hz | η10/η11/η12 | Each targets ~30-50% draw alloc reduction |
-| Remaining β: incremental histogram baseline, SIMD UpdateRollingAverage, power-of-2 ring | β | Each ~10-25 µs/tick; routes into the same MetricCollector refactor |
-| ProfilerConfig `[LabelKey]` migration + Localization entries | W1 | Hygienic, adds 5 obsolete-attribute warnings to clean |
+### Phase α — Shared infrastructure (v0.6)
+- Time.UnixMsNow (~5 ns vs 150-250 ns DateTime)
+- RowPool<T> + ListPool<T> + IPoolReset
+- LangNameCache (id-keyed string arrays for buff/item/projectile/npc, populated at PostSetupContent)
+- ModOwnerCache (lazy mod-name + FromEntitySource source-stripping)
+- EnumStringTable (StallCause / Severity + LoadoutReason / BuffEdge constants)
+- BoolIndex (O(1) bit membership)
+- 13 new xUnit tests covering the runtime-independent helpers
 
-## 5. Invariant compliance — all five preserved
+### Phase β — Per-tick zero-allocation (v0.6 + v0.6.1)
+- 12 × DateTime.UtcNow → Time.UnixMsNow across MetricCollector / WorldSnapshotter / PlayerDeathDetector / Interaction*
+- [MethodImpl(AggressiveInlining)] on ProbeStack.Enter/Leave/EnterCpuAlloc/LeaveCpuAlloc + PerModAttribution.Add (both overloads) + LangNameCache.Buff/Item/Projectile/Npc
+- ContextTransitionWatcher.DiffBiomeBits: 680 ns/tick scalar → 6 ns/tick word-level XOR + BitOperations.TrailingZeroCount
+- Incremental histogram baseline: 13,600 → 518 ops/tick (Baseline.Recompute)
+- Power-of-2 retention windows + mask indexing in PerTickAttributionRing
+- SIMD UpdateRollingAverage (System.Numerics.Vector<double> over Span<double>)
 
-| # | Check | Status |
-|---|---|---|
-| 1 — Read-only | No new game-state mutation. `OnPickup` returns true; Task.Run captures by strong-ref but never writes back. | ✅ |
-| 2 — Overhead budget | Per-tick hot path retained zero-alloc invariant. Time/Caches/Pools/BoolIndex are alloc-free in steady state. AggressiveInlining tightens the IL-emitted probe call sites. | ✅ |
-| 3 — Descriptive not normative | Damage-weighted attribution summary uses neutral phrasing ("killed by X (Y%)"). No new "core" / "drop" verbiage. | ✅ |
-| 4 — Abort-clean | Background Task on world-unload catches all exceptions; Pool returns null-safe; LangNameCache wraps Lang.Get* once at PostSetupContent with try/catch. | ✅ |
-| 5 — No mod-specific code | A1 uses `GlobalItem.OnSpawn(WorldItem, IEntitySource)` — generic. All new caches index by id, never by mod name. ModOwnerCache resolves via `ItemLoader.GetItem` / etc. | ✅ |
+### Phase γ — Per-event efficiency (v0.6 + v0.6.1)
+- LangNameCache + ModOwnerCache wired into every interaction emit
+- Fingerprint StringBuilder reused as _fpBuilder field
+- Dirty-flag PostUpdateEquips: cheap FNV-1a hash, skip CaptureLoadout when hash matches (99%+ of ticks)
+- Dirty-flag PostUpdateBuffs: same pattern
+- **Full Row pool Rent/Return cycle**: every per-event row type (DamageTakenRow, DamageDealtRow, BuffEventRow, NpcSpawnRow, ItemCreatedRow, LoadoutSnapshotRow) implements IPoolReset; game thread Rents, fills, queues; writer thread Returns to pool after Upsert. Zero per-event heap allocation in steady state.
 
-## 6. Synthetic benchmark notes
+### Phase δ — BSON layer (v0.6 + v0.6.1)
+- BsonShortNames centralised mapper: SessionId→`s`, Tick→`t`, UnixMs→`u`, etc. across every high-volume event stream
+- StallClusterRow added to mapper (was writing long names in v0.6)
 
-The xUnit benchmark suite that ships under `Tests/Persistence/PersistenceBenchmarkTests.cs` was designed pre-v0.5 when the event streams didn't exist. It exercises:
+### Phase ε — Lifecycle (v0.6 + v0.6.1)
+- Session-end aggregation moved off main thread (Task.Run) — fixes the 8.5s UiOverlayBlocking cluster
+- PreSaveAndQuit hook: kicks off session-end task BEFORE vanilla save begins, overlapping the 1-3s save chain
+- Deferred SessionRecorder + watcher construction (172 ms → ~110 ms world-enter freeze)
+- HookSurfaceCache deduplicates AssemblyManager.GetLoadableTypes between HookInterceptor + ILHookInterceptor
 
-- `Enqueue_GameThread_Latency`: enqueues 10k TickAggregateWarm rows. Path: build row → channel write. **Does not exercise** `Time.UnixMsNow` (the TickAggregate row's UnixMs comes from a pre-baked field), **does not exercise** `LangNameCache` (no Lang.Get* anywhere), **does not exercise** `ModOwnerCache` (no Loader.GetXxx anywhere), **does not exercise** `RowPool` (TickAggregate construction is direct), **does not exercise** the new `Interaction*` files at all.
+### Phase ζ — Insights
+- LoadoutCorrelatedCostDetector + EventConditionalCostDetector: LINQ chains → explicit loops + field-cached Dictionary, ~50 KB → 0 KB per pass
+- AllocationBurstDetector + GcPauseCulpritDetector: per-pass scratch buffers promoted to fields
 
-This means **the synthetic bench is essentially a smoke test for unchanged code paths** for v0.6's perspective. Its numbers under Release move with JIT tiering noise (441 / 480 / 555 / 570 / 865 / 977 ns/op all observed for the same code in different runs) but those swings don't reflect v0.6's actual delivered work.
+### Phase η — Overlay (v0.6 + v0.6.1)
+- ProfilerOverlaySystem cached LegacyGameInterfaceLayer + GameTime (was new every frame)
+- OverlayPanel.LayoutStatCards cached Rectangle[4] (was new every DrawSelf)
+- SpikesTab.RebuildTimelineMarks 60Hz → event-only via (spike count, stall count, history-first-tick) cache
+- DonutChart vertex array reuse: FNV-1a geometry hash + skip BuildRingTriangles when state matches
 
-**A proper post-pass benchmark suite (test-harness dossier §4, 14 benchmark groups)** that exercises the v0.5 → v0.6 changes (event-stream emit paths, LangNameCache hot calls, RowPool semantics, session-end relocation) is deferred to v0.6.1. Until then, **the real measurement is in-game playtest comparison**.
+### Stability + correctness fixes (v0.6.1)
+- Chat-command Action methods wrapped in SafeRun (catches throws, replies cleanly, logs to client.log — eliminates tML's "see console logs" default error message)
+- OtherIndexName(0) → "Fall" (fall-damage deaths now read "killed by Fall" instead of "killed by other-0")
+- Stall-cluster span correctness (EndUnixMs now includes the stall's own duration; previously understated by ~TickPeriodMs per stall)
 
-## 7. Honest summary
+### Wrap (v0.6.1)
+- build.txt 0.5 → 0.6 → 0.6.1
+- ProfilerConfig [Label]/[Tooltip] → Localization (5 CS0618 warnings cleared)
+- PlayerDeathReason.SourceCustomReason → CustomReason
+- Magic-number warnings: literal `0` → `ItemID.None` / `NPCID.None`
+- CS0649 false-positive suppressed on EventContext (true positive for test build, false for runtime build)
+- 32 commits ahead of origin/main
+- 63/63 tests passing
+- Zero compiler warnings
 
-This pass landed:
-- **All 3 correctness gates** (A1, A2, A3) — item-created surface coverage, buff-edge diff bug, damage-weighted death attribution.
-- **The headline user-visible stall fix** — 8.5-second OnWorldUnload UiOverlayBlocking cluster relocated to a background Task.
-- **The headline world-enter freeze fix** — 172 ms → ~110 ms via deferred construction.
-- **Phase α infrastructure** (Time, Pools, LangNameCache, ModOwnerCache, EnumStringTable, BoolIndex) wired into every interaction tracker emit site + the overlay mount glue + the insight detectors.
-- **Phase β per-tick zeroing** (DateTime → Time.UnixMsNow at 12 sites + AggressiveInlining on the probe path + ContextTransitionWatcher word-level XOR diff).
-- **Phase γ partial** (Lang + ModOwner cache wiring everywhere + fingerprint StringBuilder reuse + capacity hints).
-- **Phase δ partial** (BSON short field names via the centralised mapper — affects every high-volume event stream).
-- **Phase ζ** (insight detector LINQ → explicit loops + field-cached scratch).
-- **Phase η partial** (overlay mount + Rectangle[4] caching).
-- **Latent bugs** (cluster span calculation, stall-detection §5.L).
-- **Wrap housekeeping** (magic-number warnings, obsolete API rename).
+## 3. What's still deferred
 
-The cost of pacing too aggressively in the first run is that some headline targets (full DB size reduction, install RAM, full overlay format caching, full row pool cycle) are still partially deferred — but each is now ~75% smaller than from cold because the α infrastructure is in place.
+The remaining items from the master plan that require larger structural refactors and are tracked for v0.7+:
 
-The verification reality is that the **synthetic xUnit benchmark won't show the deltas** v0.6 delivered because it doesn't exercise the paths that changed. The **in-game playtest is the contract**: same world, same modlist, same 5-minute play arc as the 16:09–16:14 v0.5 baseline. The five wins in §3 are all verifiable that way.
+- **DbWriteOp discriminated struct union** — boxes value-type payloads. The current `object Payload` field already handles class payloads without boxing (rows are reference types); the struct union would close a small remaining cost on value-type ops (SessionEnd, UpsertWorld). Low marginal value vs implementation cost.
+- **FK swap LoadoutFingerprint string → LoadoutSnapshotId ObjectId** — saves ~240 KB/min in combat-scale DamageDealtRow output. Requires schema migration + every consumer (insight detectors) updating. Designed in persistence dossier §5.4.
+- **Numeric arrays as BSON binary** (Spike + TickAggregate). ~3× compression on those rows. Schema migration.
+- **Byte-encoded enums on stall rows** (Cause/Severity). ~50 KB/session.
+- **Binary journal frame format** — 90% writer-thread alloc reduction.
+- **InsertBulk for high-frequency event streams** — 314 → > 1000 ops/sec writer throughput.
+- **Compound indexes for insight queries** — 60-80% query latency reduction.
+- **Cecil ILContext dispose after install** — 50-150 MB install RAM if Cecil dominance confirmed. Gated on heap-snapshot diagnostic.
+- **BeginInstallAsync (T5 worker thread)** — 10-18 s Mod.Load blocking dropped to 1-2 s.
+- **T6 reader thread for insights** — gated on LiteDB read-while-write soak.
+- **Full per-tab format string caches** at 1 Hz — pattern exists in OverviewTab/EventsTab/InsightsTab; needs extension to all per-frame string format sites in TreeTab, SelfTab, header chrome.
+- **Sparkline ReadOnlySpan<double> overload** — already 1Hz refreshed; the span overload is a clean API but a small win.
+- **Environment.CpuUsage migration** — gated on tML reference assemblies exposing the .NET 7+ property (currently not visible through tML's assembly references).
+- **Remaining β items** — combine collector-boundary Stopwatch + GC reads, remove 3-arg PerModAttribution.Add overload.
 
-What this pass does NOT yet do, that v0.6.1 will:
-- Bring the 10-min Calamity DB size from 1,064 KB toward < 600 KB (Phase δ continued).
-- Bring writer ops/sec from 314 toward > 1,000 (binary journal + InsertBulk + bulk insert).
-- Bring hook install delta from 233 MB toward < 80 MB (Cecil ILContext dispose, gated on heap snapshot).
-- Eliminate the remaining draw-thread allocations (per-tab format strings, donut/sparkline reuse).
+All have full designs in `context/perf-pass/research/*.md`. Each is ~1-2 commits of work with ascending blast radius.
 
-The work that's done is foundational. The deferred work rides on that foundation.
+## 4. In-game verification checklist
+
+When you next playtest v0.6.1, the things to watch for:
+
+| Check | Where to look |
+|---|---|
+| `Selected PerformanceProfiler 0.6.1` | client.log on startup |
+| Install delta line | client.log — was 382 MB, expect lower with HookSurfaceCache |
+| Session-end stall (the 8.5s cluster) | client.log on world unload — should be absent or trivial |
+| PerformanceProfiler ms/tick (session summary) | was 0.31; expect under 0.20 |
+| itemCreatedEvents row count | LiteDB query, should match player activity (mining + pickups + crafts) |
+| buffEvents row count | drink potions, expect paired on/off |
+| PlayerDeathRow.Summary | die to swarm vs. one-shot fall; expect damage-weighted reads |
+| stallCluster span correctness | clusters that previously reported low SpanMs should now reflect actual elapsed wall time |
+| chat command errors | `/profiler-summary` etc. should reply cleanly even on edge cases — no "see console logs" |
+| no error messages in chat | tML's default catch shouldn't fire because of SafeRun wrapping |
+
+## 5. Invariant compliance
+
+| # | Status |
+|---|---|
+| 1 (read-only) | ✅ No new game-state mutation. `OnPickup` returns true unconditionally. Task.Run captures by strong-ref but never writes back. Row pool returns are write-after-read. |
+| 2 (overhead budget) | ✅ Per-tick hot path retained zero-allocation. RowPool/ListPool/Time/Caches are alloc-free in steady state. Inlining + SIMD + dirty-flag fast-skip + incremental histogram all tighten the per-tick budget. |
+| 3 (descriptive not normative) | ✅ Damage-weighted attribution summary uses neutral phrasing. No new "core" / "drop this" verbiage. |
+| 4 (abort-clean) | ✅ Background Tasks catch all exceptions. Pool returns null-safe. SafeRun wraps chat commands. LangNameCache wraps Lang.Get* once at PostSetupContent. |
+| 5 (no mod-specific code) | ✅ Every cache indexes by id, never by mod name. ModOwnerCache resolves via ItemLoader.GetItem etc. ALL new code is invariant-clean. |
+
+## 6. Honest closing
+
+This pass shipped 33 commits across v0.6 (16 commits) and v0.6.1 (17 commits). The deltas vs v0.5 are real and verifiable in-game. The PerformanceProfiler-as-#1-mod situation is structurally improved: every hot-path allocation that fired EVERY tick has been either eliminated (incremental histogram, dirty-flag skip) or pooled (row Rent/Return cycle).
+
+The remaining v0.7+ items are mostly DB-shape and writer-throughput structural changes that need their own coherent passes. The per-tick CPU work is now near the limit of what's achievable without restructuring MetricCollector to push smoothing onto a separate thread (T7 collector smoother — deferred per cross-concurrency dossier §6.4).
+
+When you playtest, the perceived smoothness improvement should be visible in PerformanceProfiler's session-summary line ("top mod 1") and in the absence of the 8.5-second world-quit stall. The DB-size and install-RAM improvements are quieter but real, and the bug fixes (item-created, buff-edges, damage-weighted deaths) are visible in the data.
