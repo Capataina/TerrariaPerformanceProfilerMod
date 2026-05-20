@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
@@ -201,36 +202,58 @@ public sealed class ProfilerSystem : ModSystem
         // Force-close any open spike window so an in-progress spike that
         // happened to coincide with the world exit still lands in the final
         // session report. Without the flush the detector keeps the open
-        // window in scratch and the JSON misses it.
+        // window in scratch and the JSON misses it. FlushSpikes is cheap;
+        // do it on the main thread before handing off.
         Collector?.FlushSpikes();
 
         if (Collector != null && _recorder != null)
         {
-            try
+            // v0.6 Phase ε: relocate the heavy session-end work off the
+            // main thread. v0.5 ran _recorder.End (BuildModAggregates +
+            // BuildHookAggregates + BuildArchive), DrainAndTruncateJournal
+            // (busy-wait), and SessionSummaryLogger.Write (6 LiteDB
+            // queries) inline in OnWorldUnload — captured as a 40-stall,
+            // 8.5-s UiOverlayBlocking cluster in the 16:09–16:14 playtest
+            // (mod-lifecycle dossier §4.1).
+            //
+            // The work captures Collector / _recorder / Database by ref;
+            // each held instance survives Mod.Unload because the Task
+            // holds a strong ref. If the user quits-to-desktop and the
+            // process exits before the Task finishes, the durable writes
+            // already landed (the writer thread drains synchronously into
+            // the channel before End returns); only the *summary line in
+            // client.log* might be missing on a hard exit, which is
+            // acceptable.
+            var sessionId = _recorder.SessionId;
+            var capturedCollector = Collector;
+            var capturedRecorder = _recorder;
+            var capturedDb = PerformanceProfiler.Database;
+            var capturedLogger = PerformanceProfiler.LoggerOrNull;
+
+            _ = Task.Run(() =>
             {
-                var sessionId = _recorder.SessionId;
-                _recorder.End(Collector, endReason: "clean");
-
-                // Drain + checkpoint + truncate the journal here instead of
-                // relying on Mod.Unload. tModLoader doesn't reliably fire
-                // Unload on quit-to-desktop, especially on macOS, which is
-                // why a 7 MB profiler.events.log survived the previous
-                // session. World-unload is the strongest "this session
-                // ended cleanly" signal we have.
-                PerformanceProfiler.Database?.DrainAndTruncateJournalForSessionEnd();
-
-                // Session-end narration: writes a multi-line summary block
-                // to client.log so a future log-only inspection can read
-                // the story without opening the DB.
-                if (PerformanceProfiler.Database != null && PerformanceProfiler.LoggerOrNull != null)
+                try
                 {
-                    SessionSummaryLogger.Write(PerformanceProfiler.LoggerOrNull, PerformanceProfiler.Database, sessionId);
+                    capturedRecorder.End(capturedCollector, endReason: "clean");
+
+                    // Drain + checkpoint + truncate the journal. v0.5 did
+                    // this on the main thread; the writer thread is fine
+                    // here too because we already own a recorder ref.
+                    capturedDb?.DrainAndTruncateJournalForSessionEnd();
+
+                    // Session-end narration to client.log. The 6 LiteDB
+                    // queries it runs now happen on the background thread
+                    // rather than blocking the game's quit-to-title path.
+                    if (capturedDb != null && capturedLogger != null)
+                    {
+                        SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Mod.Logger.Warn($"Session recorder end failed ({ex.GetType().Name}: {ex.Message}); world unload continues.");
-            }
+                catch (Exception ex)
+                {
+                    PerformanceProfiler.LoggerOrNull?.Warn($"Session recorder end failed (background): {ex.GetType().Name}: {ex.Message}");
+                }
+            });
         }
 
         _recorder = null;
