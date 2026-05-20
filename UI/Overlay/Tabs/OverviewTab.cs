@@ -226,13 +226,8 @@ internal sealed class OverviewTab : IOverlayTab
 
     private void DrawDonutCard(SpriteBatch sb, Rectangle cardRect, MetricCollector collector)
     {
-        // Title strip gets the top-contributor headline + the legend baked in.
-        string? rightStat = null;
-        if (_topModId >= 0 && _topModId < _truncatedNames.Length)
-        {
-            rightStat = $"top: {_truncatedNames[_topModId]}  {_topModShare * 100d:F0}%  ({_topModComposite:F1} ms)";
-        }
-        Rectangle body = ProfilerCard.Draw(sb, cardRect, "IMPACT  ·  CITY VIEW", rightStat);
+        Rectangle body = ProfilerCard.Draw(sb, cardRect, "IMPACT SHARE",
+            _scorer.Count > 0 ? $"{_scorer.Count} mods" : null);
 
         if (_slicesTotal <= 0d || _slices.Count == 0)
         {
@@ -241,16 +236,63 @@ internal sealed class OverviewTab : IOverlayTab
             return;
         }
 
-        // Reserve a slim band at the bottom for the legend; skyline takes the rest.
-        int legendBandHeight = 18;
-        Rectangle skylineArea = new Rectangle(
-            body.X + 8, body.Y + 4,
-            body.Width - 16,
-            body.Height - 4 - legendBandHeight);
-        DonutChart.Draw(sb, skylineArea, _slices);
+        // Donut occupies the left/centre of the body; centre stat is drawn in
+        // the hole; legend sits in the bottom-left under the donut.
+        int legendBandHeight = 16;
+        int donutAreaHeight = body.Height - legendBandHeight - 6;
+        float outerR = Math.Min(body.Width, donutAreaHeight) * 0.46f;
+        float innerR = outerR * 0.62f;
+        Vector2 centre = new Vector2(
+            body.X + outerR + 12,                  // anchored left so the right side stays free
+            body.Y + 4 + donutAreaHeight * 0.5f);
 
-        // Legend bar at the bottom: three colour swatches + axis labels.
-        int legendY = skylineArea.Bottom + 2;
+        DonutChart.Draw(sb, centre, outerR, innerR, _slices);
+
+        // Centre stat: top contributor name + share + composite ms, stacked vertically.
+        if (_topModId >= 0 && _topModId < _truncatedNames.Length)
+        {
+            string name = _truncatedNames[_topModId];
+            if (name.Length > 12) name = name.Substring(0, 12);
+            string sharePct = $"{_topModShare * 100d:F0}%";
+            string composite = $"{_topModComposite:F1} ms";
+            float bodyScale = OverlayLayoutCurrent.TextScaleBody;
+            float h2Scale = OverlayLayoutCurrent.TextScaleH2;
+            OverlayDraw.Text(sb, name,
+                new Vector2(centre.X - name.Length * 3f, centre.Y - 22),
+                ProfilerTheme.Text, bodyScale);
+            OverlayDraw.Text(sb, sharePct,
+                new Vector2(centre.X - sharePct.Length * 5f, centre.Y - 8),
+                ProfilerTheme.Accent, h2Scale);
+            OverlayDraw.Text(sb, composite,
+                new Vector2(centre.X - composite.Length * 3f, centre.Y + 14),
+                ProfilerTheme.TextMuted, bodyScale);
+        }
+
+        // Side ranking — top 5 mod names + identity dots in the right-side
+        // strip beside the donut. Gives context the donut alone can't show
+        // (which slice is which mod, in order).
+        int rankX = body.X + (int)(outerR * 2) + 28;
+        int rankY = body.Y + 8;
+        int maxRanksToShow = Math.Min(8, _slices.Count);
+        for (int i = 0; i < maxRanksToShow && rankX + 80 < body.Right; i++)
+        {
+            DonutSlice s = _slices[i];
+            // Identity dot
+            ProfilerTheme.FillRect(sb, new Rectangle(rankX, rankY + 4, 8, 8), s.SliceColor);
+            string label = s.Label ?? "(unnamed)";
+            if (label.Length > 18) label = label.Substring(0, 18);
+            OverlayDraw.Text(sb, label,
+                new Vector2(rankX + 14, rankY),
+                ProfilerTheme.Text, OverlayLayoutCurrent.TextScaleBody);
+            string val = $"{s.Value:F1} ms";
+            OverlayDraw.Text(sb, val,
+                new Vector2(body.Right - 70, rankY),
+                ProfilerTheme.TextMuted, OverlayLayoutCurrent.TextScaleBody);
+            rankY += 18;
+        }
+
+        // Legend bar at the bottom under the donut.
+        int legendY = body.Bottom - legendBandHeight + 2;
         DrawLegendDot(sb, body.X + 12, legendY, ProfilerTheme.CpuDominant, "cpu");
         DrawLegendDot(sb, body.X + 12 + 56, legendY, ProfilerTheme.AllocDominant, "alloc");
         DrawLegendDot(sb, body.X + 12 + 56 + 70, legendY, ProfilerTheme.SpikeDominant, "spike");
