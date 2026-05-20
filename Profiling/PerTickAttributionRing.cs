@@ -65,25 +65,50 @@ public sealed class PerTickAttributionRing
     private long _writeCount;
     private long _lastGameTick = -1L;
 
+    // v0.6.1 power-of-two masks. The capacities round UP to the next power of
+    // two so wrap-around becomes a bitwise AND instead of a `%`. The slack
+    // (e.g. 1800 → 2048 = 248 extra ticks of retention) is essentially free
+    // memory: 248 ticks × 18 mods × 4 bytes ≈ 18 KB at default sizing.
+    // Per spike-detection §4.3 + cross-allocations §6.2 β12.
+    private readonly int _historyTicksMask;
+    private readonly int _categorySnapshotTicksMask;
+
     /// <summary>
     /// Builds a ring sized for the given mod count and retention windows.
     /// <paramref name="trackAllocations"/> sizes (or skips) the parallel byte arrays.
+    ///
+    /// <para>
+    /// Retention windows round up to power-of-two for cheap mask-based
+    /// indexing on the hot path. The original sizes are honoured as a
+    /// minimum (e.g. a caller asking for 1800 ticks of history gets at
+    /// least 1800 ticks; actually gets 2048).
+    /// </para>
     /// </summary>
     public PerTickAttributionRing(int modCount, int historyTicks, int categorySnapshotTicks, bool trackAllocations)
     {
         _modCount = modCount;
-        _historyTicks = historyTicks;
-        _categorySnapshotTicks = categorySnapshotTicks;
+        _historyTicks = RoundUpPow2(historyTicks);
+        _categorySnapshotTicks = RoundUpPow2(categorySnapshotTicks);
+        _historyTicksMask = _historyTicks - 1;
+        _categorySnapshotTicksMask = _categorySnapshotTicks - 1;
 
-        _perModMs = new float[modCount * historyTicks];
+        _perModMs = new float[modCount * _historyTicks];
         int catCount = PerModAttribution.CategoryCount;
-        _perModCatMs = new float[modCount * catCount * categorySnapshotTicks];
+        _perModCatMs = new float[modCount * catCount * _categorySnapshotTicks];
 
         if (trackAllocations)
         {
-            _perModBytes = new float[modCount * historyTicks];
-            _perModCatBytes = new float[modCount * catCount * categorySnapshotTicks];
+            _perModBytes = new float[modCount * _historyTicks];
+            _perModCatBytes = new float[modCount * catCount * _categorySnapshotTicks];
         }
+    }
+
+    private static int RoundUpPow2(int n)
+    {
+        if (n <= 1) return 1;
+        n--;
+        n |= n >> 1; n |= n >> 2; n |= n >> 4; n |= n >> 8; n |= n >> 16;
+        return n + 1;
     }
 
     /// <summary>The game-tick index of the most recently written row, or -1 if empty.</summary>
@@ -108,8 +133,8 @@ public sealed class PerTickAttributionRing
         // Slot from the ring's own monotonic counter so wrap-around behaves
         // regardless of how the game's tick counter is sourced. The game tick
         // is stored alongside for lookup validation, not used for slot math.
-        int tickSlot = (int)(_writeCount % _historyTicks);
-        int catTickSlot = (int)(_writeCount % _categorySnapshotTicks);
+        int tickSlot = (int)(_writeCount & _historyTicksMask);
+        int catTickSlot = (int)(_writeCount & _categorySnapshotTicksMask);
 
         int byTickBase = tickSlot * _modCount;
         int byCatTickBase = catTickSlot * _modCount * catCount;
@@ -158,8 +183,8 @@ public sealed class PerTickAttributionRing
         if ((uint)modId >= (uint)_modCount) return 0f;
         // Walk back from the most recently written slot; the ring is decoupled
         // from game-tick magnitude so we use the ring's own write counter.
-        long latestSlot = (_writeCount - 1) % _historyTicks;
-        long slot = (latestSlot - ago + _historyTicks) % _historyTicks;
+        long latestSlot = (_writeCount - 1) & _historyTicksMask;
+        long slot = (latestSlot - ago + _historyTicks) & _historyTicksMask;
         return _perModMs[(int)slot * _modCount + modId];
     }
 
@@ -173,8 +198,8 @@ public sealed class PerTickAttributionRing
         long ago = _lastGameTick - gameTick;
         if (_lastGameTick < 0 || ago < 0 || ago >= _historyTicks) return 0f;
         if ((uint)modId >= (uint)_modCount) return 0f;
-        long latestSlot = (_writeCount - 1) % _historyTicks;
-        long slot = (latestSlot - ago + _historyTicks) % _historyTicks;
+        long latestSlot = (_writeCount - 1) & _historyTicksMask;
+        long slot = (latestSlot - ago + _historyTicks) & _historyTicksMask;
         return _perModBytes[(int)slot * _modCount + modId];
     }
 
@@ -189,7 +214,7 @@ public sealed class PerTickAttributionRing
     {
         if (_writeCount == 0) return;
         int catCount = PerModAttribution.CategoryCount;
-        int latestSlot = (int)((_writeCount - 1) % _categorySnapshotTicks);
+        int latestSlot = (int)((_writeCount - 1) & _categorySnapshotTicksMask);
         int baseIdx = latestSlot * _modCount * catCount;
         int n = _modCount * catCount;
 
@@ -229,8 +254,8 @@ public sealed class PerTickAttributionRing
         if (_lastGameTick < 0 || ago < 0 || ago >= _categorySnapshotTicks) return false;
 
         int catCount = PerModAttribution.CategoryCount;
-        long latestSlot = (_writeCount - 1) % _categorySnapshotTicks;
-        long slot = (latestSlot - ago + _categorySnapshotTicks) % _categorySnapshotTicks;
+        long latestSlot = (_writeCount - 1) & _categorySnapshotTicksMask;
+        long slot = (latestSlot - ago + _categorySnapshotTicks) & _categorySnapshotTicksMask;
         int baseIdx = (int)slot * _modCount * catCount;
         int n = _modCount * catCount;
 
