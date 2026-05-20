@@ -5,48 +5,38 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Insights;
+using PerformanceProfiler.UI.Overlay.Components;
 
 namespace PerformanceProfiler.UI.Overlay.Tabs;
 
 /// <summary>
-/// The INSIGHTS tab. Renders the top-ranked records from a shared
-/// <see cref="InsightsEngine"/> as one short-form line per row plus a
-/// confidence badge.
+/// The INSIGHTS tab, card-per-record layout. Each insight is one
+/// <see cref="ProfilerCard"/> with the pattern name as the title, the
+/// confidence and evidence-scope as <see cref="SeverityBadge"/> pills, the
+/// subject (mod or hook) prominent below, the rendered body string on its
+/// own line, and the supporting evidence in muted text.
 ///
 /// <para>
-/// The engine itself is owned by this tab as a singleton-of-process for
-/// now (no <c>ProfilerSystem</c> wiring yet, deliberately scoped to keep
-/// the tab self-contained). Every per-frame <see cref="Tick"/> drives one
-/// detector pass against the live collector, which is cheap because every
-/// in-scope detector reads already-smoothed accessors. When the Events
-/// tab and LiteDB land the engine can move up to a shared owner and the
-/// tab becomes a pure view.
+/// The previous dense two-line-per-record layout was the worst readability
+/// spot in the old UI. Cards give each insight breathing room and the
+/// confidence + scope badges are now side-by-side instead of fighting for
+/// space on a single text run.
 /// </para>
 /// </summary>
 internal sealed class InsightsTab : IOverlayTab
 {
     public string Label => "INSIGHTS";
 
-    private const float RowHeight = 28f;
-    private const int VisibleRows = 8;
-
-    /// <summary>1 Hz refresh cadence: re-evaluate detectors and re-rank only once a second instead of every frame.</summary>
+    private const int VisibleCards = 6;
+    private const float CardHeight = 72f;
+    private const float CardHeightCompact = 56f;
+    private const float CardGap = 6f;
     private const int RefreshIntervalTicks = 60;
 
-    // Shared with SessionLogWriter so the agent-readable session.json and the
-    // player-facing tab read the same store; dual-surface observability would
-    // be broken if each side ran its own engine instance.
     private readonly InsightsEngine _engine = InsightsEngine.GetOrCreateShared();
-
-    // _ranked is a reusable list that InsightStore.TopInto writes into; the
-    // previous shape allocated a fresh List + Dictionary + lambda closure
-    // every frame.
-    private readonly List<InsightRecord> _ranked = new List<InsightRecord>(VisibleRows);
-    // Parallel list of pre-truncated row bodies, refilled at the same 1 Hz
-    // cadence as _ranked. Pulls the OverlayDraw.Truncate allocation out of
-    // the per-frame DrawInsightRow path (audit overlay-ui finding).
-    private readonly List<string> _rankedBodies = new List<string>(VisibleRows);
-    private const int BodyTruncateMax = 80;
+    private readonly List<InsightRecord> _ranked = new List<InsightRecord>(VisibleCards);
+    private readonly List<string> _rankedBodies = new List<string>(VisibleCards);
+    private const int BodyTruncateMax = 96;
     private long _nowTick;
     private long _lastRefreshTick = -RefreshIntervalTicks;
 
@@ -60,9 +50,6 @@ internal sealed class InsightsTab : IOverlayTab
             : 0L;
         _nowTick = latestTick;
 
-        // 1 Hz refresh. Detectors read 30s-smoothed accessors, so the
-        // displayed set doesn't move meaningfully tick-to-tick; the previous
-        // shape ran the entire detector roster and a full re-rank 60×/sec.
         if (latestTick - _lastRefreshTick < RefreshIntervalTicks) return;
         _lastRefreshTick = latestTick;
 
@@ -70,12 +57,8 @@ internal sealed class InsightsTab : IOverlayTab
         {
             _engine.Evaluate(collector, latestTick, sessionLengthTicks);
         }
-        _engine.Store.TopInto(_ranked, VisibleRows, latestTick);
+        _engine.Store.TopInto(_ranked, VisibleCards, latestTick);
 
-        // Re-truncate row bodies into the parallel cache at the same cadence.
-        // InsightRenderer caches the rendered string on the record; this layer
-        // caches the truncated form so DrawInsightRow can read both without
-        // allocating per-frame.
         _rankedBodies.Clear();
         for (int i = 0; i < _ranked.Count; i++)
         {
@@ -86,91 +69,91 @@ internal sealed class InsightsTab : IOverlayTab
 
     public float MeasurePanelHeight(MetricCollector collector)
     {
+        float cardH = OverlayState.Mode == OverlayMode.Compact ? CardHeightCompact : CardHeight;
         int rows = _ranked.Count;
-        if (rows == 0) return OverlayLayout.RowsTopOffset + 40f;
-        return OverlayLayout.RowsTopOffset + 10f + rows * RowHeight + 14f;
+        if (rows == 0) return OverlayLayoutCurrent.ChromeHeight + 60f;
+        return OverlayLayoutCurrent.ChromeHeight + rows * (cardH + CardGap) + 32f; // gated footer
     }
 
-    public void HandleClick(float localX, float localY, MetricCollector collector)
-    {
-        // No drill-down yet; the click-through panel is a future feature.
-    }
-
-    public void HandleScroll(int delta, MetricCollector collector)
-    {
-        // No scroll yet; the top-8 cap from the store means everything fits.
-    }
+    public void HandleClick(float localX, float localY, MetricCollector collector) { }
+    public void HandleScroll(int delta, MetricCollector collector) { }
 
     public void Draw(SpriteBatch sb, Rectangle area, MetricCollector collector)
     {
-        int divY = area.Y + (int)OverlayLayout.DividerOffset;
-        ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
-        ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
+        int contentLeft = area.X + (int)OverlayLayoutCurrent.PanelPaddingX;
+        int contentRight = area.Right - (int)OverlayLayoutCurrent.PanelPaddingX;
+        int contentWidth = contentRight - contentLeft;
+        int y = area.Y + (int)OverlayLayoutCurrent.ChromeHeight;
+        float cardH = OverlayState.Mode == OverlayMode.Compact ? CardHeightCompact : CardHeight;
 
         int live = _engine.Store.LiveCount;
-        string header = live == 0
-            ? "INSIGHTS   ·   none yet — play a session"
-            : $"INSIGHTS   ·   {_ranked.Count} of {live} live · top by score";
-        OverlayDraw.Text(sb, header, new Vector2(area.X + 18, divY + 6f), ProfilerTheme.Accent, 0.72f);
-
         if (_ranked.Count == 0)
         {
-            OverlayDraw.Text(sb,
-                "insights appear when detectors observe meaningful patterns",
-                new Vector2(area.X + 18, area.Y + OverlayLayout.RowsTopOffset + 4),
-                ProfilerTheme.TextDim, 0.6f);
-            return;
+            Rectangle emptyCard = new Rectangle(contentLeft, y, contentWidth, (int)cardH);
+            Rectangle body = ProfilerCard.Draw(sb, emptyCard,
+                live == 0 ? "INSIGHTS  ·  none yet — play a session" : $"INSIGHTS  ·  {live} live",
+                null);
+            OverlayDraw.Text(sb, "insights appear when detectors observe meaningful patterns",
+                new Vector2(body.X + 8, body.Y + 8),
+                ProfilerTheme.TextDim,
+                OverlayLayoutCurrent.TextScaleBody);
         }
-
-        float rowY = area.Y + OverlayLayout.RowsTopOffset;
-        for (int i = 0; i < _ranked.Count; i++)
+        else
         {
-            string body = i < _rankedBodies.Count ? _rankedBodies[i] : string.Empty;
-            DrawInsightRow(sb, area, _ranked[i], body, rowY);
-            rowY += RowHeight;
+            for (int i = 0; i < _ranked.Count; i++)
+            {
+                Rectangle cardRect = new Rectangle(contentLeft, y, contentWidth, (int)cardH);
+                DrawInsightCard(sb, cardRect, _ranked[i], i < _rankedBodies.Count ? _rankedBodies[i] : string.Empty);
+                y += (int)(cardH + CardGap);
+            }
         }
 
-        // Gated-pattern label is pre-formatted at engine construction so no
-        // Linq / string.Join / array allocation runs in the Draw hot path.
+        // Gated detectors footer.
         if (_engine.GatedLabel.Length > 0)
         {
             OverlayDraw.Text(sb, _engine.GatedLabel,
-                new Vector2(area.X + 18, rowY + 2f), ProfilerTheme.TextDim, 0.55f);
+                new Vector2(contentLeft + 4, y + 4),
+                ProfilerTheme.TextDim,
+                OverlayLayoutCurrent.TextScaleBody);
         }
     }
 
-    private static void DrawInsightRow(SpriteBatch sb, Rectangle area, InsightRecord rec, string body, float y)
+    private static void DrawInsightCard(SpriteBatch sb, Rectangle cardRect, InsightRecord rec, string body)
     {
-        string label = rec.Pattern.ToString();
-        OverlayDraw.Text(sb, label, new Vector2(area.X + 18, y), ProfilerTheme.TextMuted, 0.6f);
+        // Title strip: pattern name + right-side stat ("12 hits" confirmation count).
+        string title = rec.Pattern.ToString();
+        string rightStat = $"{rec.ConfirmationCount} hit" + (rec.ConfirmationCount == 1 ? "" : "s");
+        Rectangle bodyRect = ProfilerCard.Draw(sb, cardRect, title, rightStat);
 
-        // Confidence badge: statistical strength of the claim.
-        Color badgeColor = rec.Confidence switch
-        {
-            Confidence.High => ProfilerTheme.Good,
-            Confidence.Medium => ProfilerTheme.Amber,
-            Confidence.Low => ProfilerTheme.TextMuted,
-            _ => ProfilerTheme.TextDim,
-        };
-        string badge = rec.Confidence == Confidence.Preliminary ? "preliminary" : rec.Confidence.ToString();
-        OverlayDraw.Text(sb, badge, new Vector2(area.X + 540f, y), badgeColor, 0.6f);
+        // Subject (mod name) — top-left of body in Row scale.
+        string subject = "—";
+        if (rec.Subject.ModId >= 0 && rec.Subject.ModId < HookInterceptor.ProfiledModNames.Length)
+            subject = HookInterceptor.ProfiledModNames[rec.Subject.ModId];
+        if (rec.Subject.HookId >= 0 && rec.Subject.HookId < PerModAttribution.Hooks.Count)
+            subject += " · " + PerModAttribution.Hooks[rec.Subject.HookId].DisplayName;
 
-        // Data-strength badge: scope of evidence behind the claim. Orthogonal
-        // to confidence (a tightly-fit one-session observation is still weaker
-        // than lifetime data); the honesty contract requires both visible.
-        string scopeBadge = rec.Scope switch
-        {
-            EvidenceScope.LifetimeData     => "lifetime data",
-            EvidenceScope.NeedsPersistence => "needs persistence",
-            _                              => "this session",
-        };
-        Color scopeColor = rec.Scope == EvidenceScope.LifetimeData
-            ? ProfilerTheme.Accent
-            : ProfilerTheme.TextDim;
-        OverlayDraw.Text(sb, scopeBadge, new Vector2(area.X + 540f, y + 13f), scopeColor, 0.52f);
+        OverlayDraw.Text(sb, OverlayDraw.Truncate(subject, 64),
+            new Vector2(bodyRect.X + 8, bodyRect.Y + 4),
+            ProfilerTheme.Text,
+            OverlayLayoutCurrent.TextScaleRow);
 
-        // body is pre-truncated by Tick at 1 Hz; no per-frame allocation.
-        OverlayDraw.Text(sb, body, new Vector2(area.X + 26f, y + 13f),
-            ProfilerTheme.Text, 0.62f);
+        // Body string on the next line.
+        OverlayDraw.Text(sb, body,
+            new Vector2(bodyRect.X + 8, bodyRect.Y + 22),
+            ProfilerTheme.TextMuted,
+            OverlayLayoutCurrent.TextScaleBody);
+
+        // Bottom row: confidence + scope badges, plus evidence summary on the right.
+        int badgeY = bodyRect.Bottom - 18;
+        SeverityBadge.DrawConfidence(sb, new Vector2(bodyRect.X + 8, badgeY), rec.Confidence);
+        int scopeX = bodyRect.X + 8 + SeverityBadge.MeasureWidth(rec.Confidence.ToString().ToLowerInvariant()) + 4;
+        SeverityBadge.DrawScope(sb, new Vector2(scopeX, badgeY), rec.Scope);
+
+        // Evidence summary on the right of the bottom row.
+        string evidence = $"share {rec.Magnitude.RatioOrDelta:F2} · pAdj {rec.Evidence.PValueAdjusted:F2}";
+        OverlayDraw.Text(sb, evidence,
+            new Vector2(bodyRect.Right - evidence.Length * 6 - 8, badgeY + 2),
+            ProfilerTheme.TextDim,
+            OverlayLayoutCurrent.TextScaleBody);
     }
 }

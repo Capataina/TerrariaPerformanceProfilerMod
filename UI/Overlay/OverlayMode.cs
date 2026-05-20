@@ -7,7 +7,7 @@ namespace PerformanceProfiler.UI.Overlay;
 /// "stand-in-the-base-and-read-it" view — generous, info-rich. Compact is
 /// the "walk-around-with-it-during-a-boss" view — denser, HUD-style.
 /// </summary>
-internal enum OverlayMode : byte
+public enum OverlayMode : byte
 {
     /// <summary>Generous 1120 px panel; full charts; larger typography. The at-rest inspection view.</summary>
     Default = 0,

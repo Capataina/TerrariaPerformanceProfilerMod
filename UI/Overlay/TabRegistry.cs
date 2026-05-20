@@ -37,11 +37,12 @@ internal static class TabRegistry
     /// </summary>
     public static List<IOverlayTab> Tabs { get; } = new List<IOverlayTab>
     {
-        new OverviewTab(),
+        new OverviewTab(),     // Renders as "SUMMARY" (multi-dimensional impact view).
         new TreeTab(),
-        new SpikesTab(),
+        new SpikesTab(),       // Renders as "LAG" (spikes + stalls unified feed).
         new EventsTab(),
         new InsightsTab(),
+        new SelfTab(),         // The profiler's own diagnostics: install delta, scaling projection.
     };
 
     // Reused buffer for the visible-tab list so the per-frame chrome path

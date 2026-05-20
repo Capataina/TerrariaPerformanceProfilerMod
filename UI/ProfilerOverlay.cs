@@ -24,6 +24,20 @@ public sealed class ProfilerOverlay : UIState
 {
     public override void OnInitialize()
     {
+        // Pull stored preferences from the ModConfig if available — first
+        // open of the overlay after a session start applies the user's
+        // persisted mode / default tab choice.
+        ProfilerConfig? cfg = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>();
+        if (cfg != null)
+        {
+            Overlay.OverlayState.Mode = cfg.DefaultMode;
+            int idx = cfg.DefaultTabIndex;
+            if (idx >= 0 && idx < Overlay.TabRegistry.Tabs.Count)
+            {
+                Overlay.OverlayState.ActiveTabIndex = idx;
+            }
+        }
+
         OverlayPanel panel = new OverlayPanel();
         panel.Left.Set(16f, 0f);
         panel.Top.Set(16f, 0f);

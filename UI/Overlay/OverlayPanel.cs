@@ -35,12 +35,33 @@ namespace PerformanceProfiler.UI.Overlay;
 /// </summary>
 internal sealed class OverlayPanel : UIElement
 {
-    public static float PanelWidth => OverlayLayoutCurrent.PanelWidth;
+    public static float PanelWidth
+    {
+        get
+        {
+            ProfilerConfig? cfg = ModContent.GetInstance<ProfilerConfig>();
+            if (cfg != null && cfg.PanelWidthOverride > 0)
+            {
+                int o = cfg.PanelWidthOverride;
+                if (o < (int)OverlayLayout.PanelWidthMin) o = (int)OverlayLayout.PanelWidthMin;
+                if (o > (int)OverlayLayout.PanelWidthMax) o = (int)OverlayLayout.PanelWidthMax;
+                return o;
+            }
+            return OverlayLayoutCurrent.PanelWidth;
+        }
+    }
+
+    private const int ResizeHandleSize = 14;
 
     private bool _dragging;
     private Vector2 _dragOffset;
     private float _appliedHeight;
     private float _appliedWidth;
+
+    // Resize-drag state — bottom-right corner handle.
+    private bool _resizing;
+    private float _resizeStartWidth;
+    private float _resizeStartMouseX;
 
     public static float InitialHeight(int modCount)
     {
@@ -70,6 +91,16 @@ internal sealed class OverlayPanel : UIElement
         Vector2 panelPos = GetDimensions().Position();
         float localX = evt.MousePosition.X - panelPos.X;
         float localY = evt.MousePosition.Y - panelPos.Y;
+        Rectangle dims = GetDimensions().ToRectangle();
+
+        // Resize handle: bottom-right corner.
+        if (localX >= dims.Width - ResizeHandleSize && localY >= dims.Height - ResizeHandleSize)
+        {
+            _resizing = true;
+            _resizeStartMouseX = evt.MousePosition.X;
+            _resizeStartWidth = dims.Width;
+            return;
+        }
 
         // Header band: pills + drag region.
         if (localY <= OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.PanelPaddingY)
@@ -101,6 +132,21 @@ internal sealed class OverlayPanel : UIElement
     {
         base.LeftMouseUp(evt);
         _dragging = false;
+
+        if (_resizing)
+        {
+            _resizing = false;
+            // Persist the resized width into the config so it survives the
+            // session. The config writes its JSON when the menu closes; we
+            // also flag the value as dirty by saving via ConfigManager if
+            // available, but since we're in the game loop the next
+            // config-save pass handles it.
+            ProfilerConfig? cfg = ModContent.GetInstance<ProfilerConfig>();
+            if (cfg != null)
+            {
+                cfg.PanelWidthOverride = (int)_appliedWidth;
+            }
+        }
     }
 
     public override void ScrollWheel(UIScrollWheelEvent evt)
@@ -188,7 +234,23 @@ internal sealed class OverlayPanel : UIElement
             else FollowMouse();
         }
 
-        ApplyWidth(OverlayLayoutCurrent.PanelWidth);
+        if (_resizing)
+        {
+            if (!Main.mouseLeft) _resizing = false;
+            else
+            {
+                float delta = Main.MouseScreen.X - _resizeStartMouseX;
+                float w = _resizeStartWidth + delta;
+                if (w < OverlayLayout.PanelWidthMin) w = OverlayLayout.PanelWidthMin;
+                if (w > OverlayLayout.PanelWidthMax) w = OverlayLayout.PanelWidthMax;
+                ApplyWidth(w);
+            }
+        }
+        else
+        {
+            // Honour config override if set; otherwise follow active mode.
+            ApplyWidth(PanelWidth);
+        }
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
@@ -257,6 +319,24 @@ internal sealed class OverlayPanel : UIElement
 
         // Tab content area.
         TabRegistry.ResolveActive(collector).Draw(spriteBatch, area, collector);
+
+        // Resize handle: small diagonal grip in the bottom-right corner.
+        DrawResizeHandle(spriteBatch, area);
+    }
+
+    private static void DrawResizeHandle(SpriteBatch sb, Rectangle area)
+    {
+        int x = area.Right - ResizeHandleSize;
+        int y = area.Bottom - ResizeHandleSize;
+        // Three diagonal lines, decreasing length, suggesting a grip.
+        for (int i = 0; i < 3; i++)
+        {
+            int off = (i + 1) * 3;
+            ProfilerTheme.FillRect(sb, new Rectangle(x + ResizeHandleSize - off, y + ResizeHandleSize - 2, off - 1, 1),
+                ProfilerTheme.TextDim);
+            ProfilerTheme.FillRect(sb, new Rectangle(x + ResizeHandleSize - 2, y + ResizeHandleSize - off, 1, off - 1),
+                ProfilerTheme.TextDim);
+        }
     }
 
     // ---- Header --------------------------------------------------------------

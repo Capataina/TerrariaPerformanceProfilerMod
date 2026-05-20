@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
+using PerformanceProfiler.UI.Overlay.Components;
 
 namespace PerformanceProfiler.UI.Overlay.Tabs;
 
@@ -37,12 +38,14 @@ namespace PerformanceProfiler.UI.Overlay.Tabs;
 /// </summary>
 internal sealed class SpikesTab : IOverlayTab
 {
-    public string Label => "SPIKES";
+    public string Label => "LAG";
 
-    private const float RowHeight = 32f;
+    private const float RowHeight = 36f;
     private const int VisibleRows = 8;
+    private const float TimelineStripHeight = 36f;
 
     private int _scrollOffset;
+    private readonly List<TimelineMark> _timelineMarks = new List<TimelineMark>(64);
 
     public bool IsAvailable(MetricCollector? collector) => collector != null && collector.History.Count > 0;
 
@@ -59,7 +62,7 @@ internal sealed class SpikesTab : IOverlayTab
         int rowsToShow = Math.Min(total - _scrollOffset, VisibleRows);
         if (rowsToShow < 0) rowsToShow = 0;
 
-        float h = OverlayLayout.RowsTopOffset + 10f;
+        float h = OverlayLayoutCurrent.ChromeHeight + 10f + TimelineStripHeight + 12f;
         if (rowsToShow == 0)
         {
             h += 24f;
@@ -86,24 +89,30 @@ internal sealed class SpikesTab : IOverlayTab
 
     public void Draw(SpriteBatch sb, Rectangle area, MetricCollector collector)
     {
-        int divY = area.Y + (int)OverlayLayout.DividerOffset;
-        ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
-        ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
-
         IReadOnlyList<SpikeWindow> spikes = collector.Spikes;
         IReadOnlyList<StallEvent> stalls = collector.Stalls;
         int total = spikes.Count + stalls.Count;
 
-        string header = total == 0
-            ? "LAG EVENTS   ·   none yet — play a session"
-            : $"LAG EVENTS   ·   {spikes.Count} spikes + {stalls.Count} stalls (newest first)";
-        OverlayDraw.Text(sb, header, new Vector2(area.X + 18, divY + 6f), ProfilerTheme.Accent, 0.72f);
+        int contentLeft = area.X + (int)OverlayLayoutCurrent.PanelPaddingX;
+        int contentRight = area.Right - (int)OverlayLayoutCurrent.PanelPaddingX;
+        int contentTop = area.Y + (int)OverlayLayoutCurrent.ChromeHeight;
+
+        // Timeline strip at the top — visual overview of where events landed.
+        Rectangle timelineCardRect = new Rectangle(contentLeft, contentTop,
+            contentRight - contentLeft, (int)TimelineStripHeight);
+        string title = total == 0
+            ? "LAG EVENTS  ·  none yet — play a session"
+            : $"LAG EVENTS  ·  {spikes.Count} spikes + {stalls.Count} stalls";
+        Rectangle timelineBody = ProfilerCard.Draw(sb, timelineCardRect, title, null);
+        RebuildTimelineMarks(collector);
+        TimelineStrip.Draw(sb, timelineBody, _timelineMarks);
 
         if (total == 0)
         {
             OverlayDraw.Text(sb, "● spike: tick over your session median   ▲ stall: wall time without game progress",
-                new Vector2(area.X + 18, area.Y + OverlayLayout.RowsTopOffset + 4),
-                ProfilerTheme.TextDim, 0.58f);
+                new Vector2(contentLeft, timelineCardRect.Bottom + 12),
+                ProfilerTheme.TextDim,
+                OverlayLayoutCurrent.TextScaleBody);
             return;
         }
 
@@ -113,7 +122,7 @@ internal sealed class SpikesTab : IOverlayTab
         int stallIdx = stalls.Count - 1;
         int skipped = 0;
         int drawn = 0;
-        float rowY = area.Y + OverlayLayout.RowsTopOffset;
+        float rowY = timelineCardRect.Bottom + 8;
 
         while (drawn < VisibleRows && (spikeIdx >= 0 || stallIdx >= 0))
         {
@@ -148,7 +157,62 @@ internal sealed class SpikesTab : IOverlayTab
         if (remaining > 0)
         {
             OverlayDraw.Text(sb, $"+ {remaining} older",
-                new Vector2(area.X + 18, rowY + 2f), ProfilerTheme.TextDim, 0.6f);
+                new Vector2(contentLeft + 4, rowY + 2f), ProfilerTheme.TextDim,
+                OverlayLayoutCurrent.TextScaleBody);
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds the <see cref="_timelineMarks"/> ring from the current spike +
+    /// stall data so the timeline visual reflects both event kinds. Spikes
+    /// are amber and weight-scaled by frame multiplier; stalls are
+    /// severity-coloured and weight-scaled by perceived severity.
+    /// </summary>
+    private void RebuildTimelineMarks(MetricCollector collector)
+    {
+        _timelineMarks.Clear();
+        RingBuffer<TickFrame> history = collector.History;
+        if (history.Count < 2) return;
+
+        long first = history[0].TickIndex;
+        long last = history[history.Count - 1].TickIndex;
+        double span = System.Math.Max(1d, (double)(last - first));
+
+        IReadOnlyList<SpikeWindow> spikes = collector.Spikes;
+        for (int i = 0; i < spikes.Count; i++)
+        {
+            long t = spikes[i].WorstTick;
+            if (t < first || t > last) continue;
+            double weight = spikes[i].BaselineMs > 0
+                ? System.Math.Min(1d, spikes[i].WorstFrameMs / (spikes[i].BaselineMs * 4d))
+                : 0.5d;
+            _timelineMarks.Add(new TimelineMark
+            {
+                Position = (t - first) / span,
+                Color = ProfilerTheme.Amber,
+                Weight = weight,
+            });
+        }
+
+        IReadOnlyList<StallEvent> stalls = collector.Stalls;
+        for (int i = 0; i < stalls.Count; i++)
+        {
+            long t = stalls[i].StartTickIndex;
+            if (t < first || t > last) continue;
+            Color hue = stalls[i].Severity switch
+            {
+                StallSeverity.Freeze     => ProfilerTheme.Danger,
+                StallSeverity.Disruptive => ProfilerTheme.Danger,
+                StallSeverity.Noticeable => ProfilerTheme.Amber,
+                _                        => ProfilerTheme.TextMuted,
+            };
+            double weight = (int)stalls[i].Severity / 3d + 0.25d;
+            _timelineMarks.Add(new TimelineMark
+            {
+                Position = (t - first) / span,
+                Color = hue,
+                Weight = weight,
+            });
         }
     }
 
