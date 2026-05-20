@@ -373,6 +373,30 @@ internal sealed class OverlayPanel : UIElement
             OverlayDraw.Text(spriteBatch, $"Δ {pct:+0.0;-0.0;0.0}%",
                 new Vector2(x + 380f, y + 32f), pctColor, 0.62f);
         }
+
+        // Self-footprint row. The profiler is meant to be near-invisible; this
+        // line keeps us honest about whether we're actually achieving that.
+        // Colour follows ProfilerSelfHealth.Severity which is bucketed against
+        // a fraction of the process working set, so the colour scales with the
+        // user's actual modlist size, not a hardcoded MB threshold.
+        ProfilerSelfHealth health = collector.SelfHealth;
+        if (health.IsInstalled)
+        {
+            float selfY = HookBackend.Mode == HookBackendMode.Parallel ? y + 46f : y + 32f;
+            Color selfColor = health.Severity switch
+            {
+                SelfHealthSeverity.Severe     => ProfilerTheme.Danger,
+                SelfHealthSeverity.Concerning => ProfilerTheme.Amber,
+                _                             => ProfilerTheme.TextMuted,
+            };
+            double selfMb = health.InstallDeltaBytes / (1024d * 1024d);
+            double kbPerHook = health.BytesPerHook / 1024d;
+            double pctOfProcess = health.InstallDeltaFractionOfProcess * 100d;
+            string line = health.ProcessWorkingSetBytes > 0
+                ? $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game"
+                : $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
+            OverlayDraw.Text(spriteBatch, line, new Vector2(x, selfY), selfColor, 0.62f);
+        }
     }
 
     private static double AverageFrameTimeMs(RingBuffer<TickFrame> history)
