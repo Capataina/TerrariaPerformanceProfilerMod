@@ -19,4 +19,15 @@
     <None Remove="Tests\**\*" />
     <Content Remove="Tests\**\*" />
   </ItemGroup>
+
+  <!--
+    LiteDB 5.0.21 — single-file managed embedded DB. Shipped inside the .tmod
+    so the mod is self-contained; build.txt's `dllReferences = LiteDB` tells
+    tModLoader to pack the assembly and load it before the mod assembly runs.
+    PrivateAssets=all keeps the package from leaking into consumers (n/a for
+    a mod but the right hygiene).
+  -->
+  <ItemGroup>
+    <PackageReference Include="LiteDB" Version="5.0.21" PrivateAssets="all" />
+  </ItemGroup>
 </Project>
