@@ -472,6 +472,14 @@ internal sealed class OverlayPanel : UIElement
         StatBlock.Draw(sb, body, title, value, valueColor, footer);
     }
 
+    /// <summary>
+    /// Cached layout buffer reused every draw. v0.5 allocated a fresh
+    /// <c>Rectangle[4]</c> every <c>DrawSelf</c> (twice — once per status row
+    /// + once per stat row), at 60 FPS that's ~480 array allocs per second
+    /// on the draw thread (overlay §4.6, cross-allocations §1.5).
+    /// </summary>
+    private readonly Rectangle[] _statCardRectsCache = new Rectangle[4];
+
     private Rectangle[] LayoutStatCards(Rectangle area)
     {
         const int CardCount = 4;
@@ -484,7 +492,7 @@ internal sealed class OverlayPanel : UIElement
         float gap = OverlayLayoutCurrent.StatCardGap;
         float cardW = (cardsAreaW - gap * (CardCount - 1)) / CardCount;
         int cardH = (int)OverlayLayoutCurrent.StatCardHeight;
-        Rectangle[] result = new Rectangle[CardCount];
+        Rectangle[] result = _statCardRectsCache;
         for (int i = 0; i < CardCount; i++)
         {
             float x = area.X + padX + i * (cardW + gap);

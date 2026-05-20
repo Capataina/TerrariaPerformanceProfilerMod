@@ -76,6 +76,23 @@ public sealed class ProfilerOverlaySystem : ModSystem
         }
     }
 
+    /// <summary>
+    /// Cached interface-layer instance reused every frame. v0.5 allocated a
+    /// fresh <see cref="LegacyGameInterfaceLayer"/> per draw — at 60 FPS
+    /// that's ~3,600 layer allocations per second on the draw thread. v0.6
+    /// builds it once on first show and reuses thereafter (overlay §3 +
+    /// cross-allocations §1.5).
+    /// </summary>
+    private LegacyGameInterfaceLayer? _cachedLayer;
+
+    /// <summary>
+    /// Cached <see cref="GameTime"/> instance. The overlay's
+    /// <see cref="UserInterface.Draw"/> signature requires a non-null
+    /// GameTime; we don't actually consume any of its fields, so a single
+    /// shared sentinel suffices (overlay §3).
+    /// </summary>
+    private static readonly GameTime _cachedGameTime = new GameTime();
+
     public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
     {
         if (!_visible || _userInterface == null)
@@ -87,16 +104,17 @@ public sealed class ProfilerOverlaySystem : ModSystem
         int cursorLayer = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Text");
         int insertAt = cursorLayer >= 0 ? cursorLayer : layers.Count;
 
-        layers.Insert(insertAt, new LegacyGameInterfaceLayer(
+        _cachedLayer ??= new LegacyGameInterfaceLayer(
             "PerformanceProfiler: Overlay",
             DrawOverlay,
-            InterfaceScaleType.UI));
+            InterfaceScaleType.UI);
+        layers.Insert(insertAt, _cachedLayer);
     }
 
     /// <summary>Draw delegate for the interface layer; returns true so later layers still draw.</summary>
     private bool DrawOverlay()
     {
-        _userInterface?.Draw(Main.spriteBatch, new GameTime());
+        _userInterface?.Draw(Main.spriteBatch, _cachedGameTime);
         return true;
     }
 
