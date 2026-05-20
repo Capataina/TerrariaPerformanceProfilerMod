@@ -1,5 +1,7 @@
 #nullable enable
 
+using PerformanceProfiler.Profiling.Events;
+
 namespace PerformanceProfiler.Profiling;
 
 /// <summary>
@@ -52,4 +54,14 @@ public struct TickFrame
     /// (Invariant 2).
     /// </summary>
     public PerModSample[]? ModSamples;
+
+    /// <summary>
+    /// Game-state context for the tick: biome bits, weather flags, hardmode,
+    /// difficulty, vanilla invasion, active boss types, optional subworld
+    /// key. Populated by <see cref="Events.ContextTagger"/> after
+    /// <c>MetricCollector.EndTick</c> closes the frame, then aggregated by
+    /// <see cref="Events.EventAggregator"/>. See
+    /// <c>context/notes/events-tab-plan.md</c> §3.1.
+    /// </summary>
+    public EventContext Context;
 }

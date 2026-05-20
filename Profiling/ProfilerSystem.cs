@@ -2,6 +2,7 @@
 
 using Terraria;
 using Terraria.ModLoader;
+using PerformanceProfiler.Profiling.Events;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -29,6 +30,24 @@ public sealed class ProfilerSystem : ModSystem
     private SessionLogWriter? _sessionLog;
 
     /// <summary>
+    /// Per-tick game-state snapshotter (biomes, bosses, weather, invasion,
+    /// subworld). Created once at world load, ticked from
+    /// <see cref="PostUpdateEverything"/> after <see cref="MetricCollector"/>
+    /// closes the frame so the same frame's <see cref="TickFrame.Context"/>
+    /// can be written and the Events aggregator can accumulate against it.
+    /// Live only while a world is loaded.
+    /// </summary>
+    private ContextTagger? _contextTagger;
+
+    /// <summary>
+    /// Per-dimension bucket aggregator that turns <see cref="TickFrame.Context"/>
+    /// into the rows the Events tab renders. Lives only while a world is
+    /// loaded; reset on world unload so a session's stats never bleed into
+    /// the next.
+    /// </summary>
+    internal EventAggregator? Events { get; private set; }
+
+    /// <summary>
     /// Installs the per-mod timing detours once, after every mod's content is
     /// set up (so all hook-override methods exist). The delegate-pair detours
     /// installed by <see cref="HookInterceptor"/> are removed automatically by
@@ -47,6 +66,19 @@ public sealed class ProfilerSystem : ModSystem
         {
             ILHookInterceptor.Install(Mod, HookInterceptor.ProfiledMods);
         }
+
+        // Context registry is built after every mod's ModBiomes have been
+        // registered (PostSetupContent runs after ModContent.Load). The
+        // SubworldLibrary probe binds its reflection surface here too; both
+        // are session-stable once populated.
+        BiomeRegistry.Populate();
+        SubworldProbe.Initialise();
+        Mod.Logger.Info(
+            $"events context: {BiomeRegistry.VanillaCount} vanilla biomes, " +
+            $"{BiomeRegistry.Count - BiomeRegistry.VanillaCount} modded biomes, " +
+            $"{WeatherSources.All.Length} weather flags, " +
+            $"subworld={(SubworldProbe.Available ? "true" : "false")}, " +
+            $"modBiomeBinding={(BiomeRegistry.ModBiomeBindingOk ? "ok" : "missing")}");
     }
 
     /// <summary>
@@ -58,6 +90,9 @@ public sealed class ProfilerSystem : ModSystem
     {
         Collector = new MetricCollector(HistoryCapacity);
         _sessionLog = SessionLogWriter.Create();
+        _contextTagger = new ContextTagger();
+        _contextTagger.Reset();
+        Events = new EventAggregator();
         Mod.Logger.Info($"Profiler armed: {HistoryCapacity}-tick rolling history allocated.");
     }
 
@@ -72,6 +107,10 @@ public sealed class ProfilerSystem : ModSystem
         _sessionLog?.Dispose();
         _sessionLog = null;
         Collector = null;
+        _contextTagger = null;
+        Events = null;
+        BossSampler.Clear();
+        SubworldProbe.Clear();
         Mod.Logger.Info("Profiler disarmed: world unloaded.");
     }
 
@@ -114,6 +153,20 @@ public sealed class ProfilerSystem : ModSystem
         }
 
         _sessionLog?.Tick(collector);
+
+        // Events: snapshot the per-tick context and feed it to the
+        // per-dimension aggregator. Ordering matters — EndTick has already
+        // pushed the closed TickFrame into history, so the snapshot here
+        // describes the same tick whose FrameTimeMs we read back below.
+        ContextTagger? tagger = _contextTagger;
+        EventAggregator? events = Events;
+        if (tagger != null && events != null && collector.History.Count > 0)
+        {
+            long tickIndex = (long)Main.GameUpdateCount;
+            tagger.Snapshot(tickIndex);
+            double frameMs = collector.History[collector.History.Count - 1].FrameTimeMs;
+            events.Accumulate(in tagger.Current, frameMs);
+        }
     }
 
     private static int CountActive(NPC[] entities)
