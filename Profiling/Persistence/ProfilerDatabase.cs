@@ -5,30 +5,30 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using LiteDB;
-using JsonSerializer = System.Text.Json.JsonSerializer;
-using JsonSerializerOptions = System.Text.Json.JsonSerializerOptions;
 using PerformanceProfiler.Profiling.Persistence.Records;
 
 namespace PerformanceProfiler.Profiling.Persistence;
 
 /// <summary>
-/// Facade owning the open <see cref="LiteDatabase"/>, the event journal, and
-/// the writer thread. One instance per running mod, constructed at
-/// <c>Mod.Load</c> and disposed at <c>Mod.Unload</c>.
+/// Facade over the open <see cref="LiteDatabase"/>, the append-only event
+/// journal, and the writer thread. One instance per running mod, constructed
+/// at <c>Mod.Load</c> and disposed at <c>Mod.Unload</c>.
 ///
-/// Lifecycle:
-/// <list type="number">
-/// <item>ctor — open DB (recover if needed), set pragmas, ensure indexes,
-/// replay journal, sweep warm tier, mark crash-detected sessions.</item>
-/// <item>game thread enqueues ops via <see cref="Writer"/>.</item>
-/// <item><see cref="Dispose"/> — drain queue, checkpoint, rotate backups,
-/// truncate journal, close LiteDB.</item>
-/// </list>
+/// <para>
+/// Per-collection write/read logic does <b>not</b> live here. Every collection
+/// is owned by an <see cref="IPersistenceStream"/> implementation under
+/// <c>Streams/</c>; this facade wires the registry, dispatches ops on the
+/// writer thread, and owns the cross-cutting concerns (open + recovery,
+/// schema versioning, journal replay, backups, compact, lifecycle).
+/// </para>
 ///
-/// All four Project Invariants are upheld here. Invariant 4 (abort-clean on
-/// host drift) maps to: if LiteDB construction throws, the mod degrades to
-/// no-persistence and continues running — see the <c>try/catch</c> wrap in
-/// <see cref="PerformanceProfiler.Load"/>.
+/// <para>
+/// To add a new collection later: create a record class under
+/// <c>Records/</c>, a stream implementation under <c>Streams/</c>, and add
+/// the new <see cref="DbOpKind"/>(s) to <see cref="DbWriteOp"/>. Register
+/// the stream in <see cref="StreamRegistry.Default"/>. No edit to this file
+/// is required.
+/// </para>
 /// </summary>
 public sealed class ProfilerDatabase : IDisposable
 {
@@ -38,27 +38,22 @@ public sealed class ProfilerDatabase : IDisposable
     /// <summary>Number of rotating backup files kept on disk.</summary>
     public const int BackupKeep = 3;
 
-    /// <summary>Warm-tier retention from creation. 24h per §3 of the migration plan.</summary>
+    /// <summary>Warm-tier retention from creation.</summary>
     public static readonly TimeSpan WarmRetention = TimeSpan.FromHours(24);
-
-    private static readonly JsonSerializerOptions JsonOpts = new JsonSerializerOptions
-    {
-        WriteIndented = false,
-        IncludeFields = false,
-    };
 
     private readonly string _root;
     private readonly LiteDatabase _db;
     private readonly EventJournal _journal;
     private readonly DbWriterThread _writer;
+    private readonly StreamRegistry _registry;
     private readonly Action<string, Exception?> _log;
     private bool _disposed;
 
     public string Root => _root;
-
     public LiteDatabase RawDb => _db;
     public EventJournal Journal => _journal;
     public DbWriterThread Writer => _writer;
+    public StreamRegistry Registry => _registry;
 
     // Typed collection accessors. Cheap — LiteDatabase caches.
     public ILiteCollection<SessionRow>              Sessions              => _db.GetCollection<SessionRow>("sessions");
@@ -76,15 +71,19 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<InsightRow>              Insights              => _db.GetCollection<InsightRow>("insights");
     public ILiteCollection<MetadataRow>             Metadata              => _db.GetCollection<MetadataRow>("metadata");
 
-    /// <summary>
-    /// Open (or recover) the DB at <paramref name="root"/>. Recovery is
-    /// best-effort — a corrupt main file is quarantined to
-    /// <c>profiler.litedb.broken-&lt;utc&gt;</c> and the most recent backup
-    /// is promoted, or a fresh DB is created if all backups are unusable.
-    /// </summary>
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
+        : this(root, StreamRegistry.Default(), log, profilerVersion) { }
+
+    /// <summary>
+    /// Open (or recover) the DB at <paramref name="root"/> with an explicit
+    /// stream registry. Tests inject a subset to exercise specific streams
+    /// in isolation; production callers use the parameterless ctor.
+    /// </summary>
+    public ProfilerDatabase(string root, StreamRegistry registry,
+                            Action<string, Exception?>? log = null, string profilerVersion = "")
     {
         _root = root;
+        _registry = registry;
         _log = log ?? ((_, _) => { });
         ProfilerPaths.EnsureDirectory();
 
@@ -96,7 +95,7 @@ public sealed class ProfilerDatabase : IDisposable
         _db.Pragma("CHECKPOINT", 1000);
 
         EnsureSchemaVersion();
-        EnsureIndexes();
+        EnsureAllIndexes();
         PreWarmCollections();
 
         _journal = new EventJournal(Path.Combine(_root, ProfilerPaths.JournalFileName));
@@ -112,148 +111,30 @@ public sealed class ProfilerDatabase : IDisposable
     }
 
     /// <summary>
-    /// Dispatch a batch of ops to the right collections. Invoked by the
-    /// writer thread. Every op is upserted on its natural key so a journal
-    /// replay (which re-runs ops that already landed) is idempotent.
+    /// Dispatch a batch of ops to the right streams. Invoked by the writer
+    /// thread. Each op routes through <see cref="StreamRegistry"/> to its
+    /// owning stream; the stream applies it idempotently. Unknown kinds
+    /// (defensive — a stream registration miss) log and skip.
     /// </summary>
     public void ApplyBatch(IReadOnlyList<DbWriteOp> batch)
     {
         if (batch == null || batch.Count == 0) return;
         for (int i = 0; i < batch.Count; i++)
         {
-            ApplyOne(batch[i]);
-        }
-    }
-
-    private void ApplyOne(DbWriteOp op)
-    {
-        switch (op.Kind)
-        {
-            case DbOpKind.SessionStart:
+            DbWriteOp op = batch[i];
+            IPersistenceStream? stream = _registry.Lookup(op.Kind);
+            if (stream == null)
             {
-                var row = (SessionRow)op.Payload;
-                Sessions.Upsert(row);
-                break;
+                _log($"ProfilerDatabase: no stream handles op kind {op.Kind}", null);
+                continue;
             }
-            case DbOpKind.SessionEnd:
+            try
             {
-                var existing = Sessions.FindById(op.SessionId);
-                if (existing != null)
-                {
-                    existing.EndedUtc = DateTime.UtcNow;
-                    existing.DurationMs = op.DurationMs;
-                    existing.TicksObserved = op.TicksObserved;
-                    existing.EndReason = string.IsNullOrEmpty(op.EndReason) ? "clean" : op.EndReason;
-                    existing.Incomplete = false;
-                    Sessions.Update(existing);
-                }
-                break;
+                stream.Apply(in op, this);
             }
-            case DbOpKind.Spike:
-                SpikeWindows.Upsert((SpikeWindowRow)op.Payload);
-                break;
-            case DbOpKind.Stall:
-                Stalls.Upsert((StallEventRow)op.Payload);
-                break;
-            case DbOpKind.ContextTransition:
-                ContextTransitions.Upsert((ContextTransitionRow)op.Payload);
-                break;
-            case DbOpKind.WarmAggregate:
+            catch (Exception ex)
             {
-                var row = (TickAggregateWarm)op.Payload;
-                // Idempotency: (sessionId, secondIndex) is the natural key.
-                // FindOne is safe here — there is at most one match by design.
-                var existing = TickAggregatesWarm.FindOne(x =>
-                    x.SessionId == row.SessionId && x.SecondIndex == row.SecondIndex);
-                if (existing == null) TickAggregatesWarm.Insert(row);
-                else { row.Id = existing.Id; TickAggregatesWarm.Update(row); }
-                break;
-            }
-            case DbOpKind.ColdAggregate:
-            {
-                var row = (TickAggregateCold)op.Payload;
-                var existing = TickAggregatesCold.FindOne(x =>
-                    x.SessionId == row.SessionId && x.MinuteIndex == row.MinuteIndex);
-                if (existing == null) TickAggregatesCold.Insert(row);
-                else { row.Id = existing.Id; TickAggregatesCold.Update(row); }
-                break;
-            }
-            case DbOpKind.ArchiveAggregate:
-            {
-                var row = (TickAggregateArchive)op.Payload;
-                var existing = TickAggregatesArchive.FindOne(x => x.SessionId == row.SessionId);
-                if (existing == null) TickAggregatesArchive.Insert(row);
-                else { row.Id = existing.Id; TickAggregatesArchive.Update(row); }
-                break;
-            }
-            case DbOpKind.PerSessionModAggregateBatch:
-            {
-                var rows = (List<PerSessionModAggregate>)op.Payload;
-                if (rows.Count == 0) break;
-                // Wipe-and-insert keyed on sessionId. Cheap because the
-                // count is bounded by mod count (~100s, not 1000s).
-                PerSessionMods.DeleteMany(x => x.SessionId == op.SessionId);
-                PerSessionMods.InsertBulk(rows);
-                break;
-            }
-            case DbOpKind.PerSessionHookAggregateBatch:
-            {
-                var rows = (List<PerSessionHookAggregate>)op.Payload;
-                if (rows.Count == 0) break;
-                PerSessionHooks.DeleteMany(x => x.SessionId == op.SessionId);
-                PerSessionHooks.InsertBulk(rows);
-                break;
-            }
-            case DbOpKind.Insight:
-                Insights.Upsert((InsightRow)op.Payload);
-                break;
-            case DbOpKind.UpsertWorld:
-            {
-                var row = (WorldRow)op.Payload;
-                var existing = Worlds.FindOne(x => x.Name == row.Name && x.UniqueId == row.UniqueId);
-                if (existing == null) Worlds.Insert(row);
-                else { row.Id = existing.Id; Worlds.Update(row); }
-                break;
-            }
-            case DbOpKind.UpsertModlist:
-            {
-                var row = (ModlistRow)op.Payload;
-                var existing = Modlists.FindOne(x => x.Fingerprint == row.Fingerprint);
-                if (existing == null) Modlists.Insert(row);
-                else
-                {
-                    row.Id = existing.Id;
-                    row.SessionCount = existing.SessionCount + 1;
-                    if (existing.FirstSeenUtc != default) row.FirstSeenUtc = existing.FirstSeenUtc;
-                    Modlists.Update(row);
-                }
-                break;
-            }
-            case DbOpKind.UpsertMod:
-            {
-                var row = (ModRow)op.Payload;
-                var existing = Mods.FindOne(x =>
-                    x.ModlistFingerprint == row.ModlistFingerprint && x.InternalName == row.InternalName);
-                if (existing == null) Mods.Insert(row);
-                else
-                {
-                    row.Id = existing.Id;
-                    if (existing.FirstSeenUtc != default) row.FirstSeenUtc = existing.FirstSeenUtc;
-                    // Append the new version entry if version changed.
-                    if (existing.VersionSeen != row.VersionSeen)
-                    {
-                        row.VersionHistory = new List<ModVersionEntry>(existing.VersionHistory)
-                        {
-                            new ModVersionEntry { Version = row.VersionSeen, FirstUtc = DateTime.UtcNow, LastUtc = DateTime.UtcNow }
-                        };
-                    }
-                    else
-                    {
-                        row.VersionHistory = existing.VersionHistory;
-                    }
-                    Mods.Update(row);
-                }
-                break;
+                _log($"ProfilerDatabase: stream '{stream.Name}' apply failed (kind {op.Kind})", ex);
             }
         }
     }
@@ -262,8 +143,7 @@ public sealed class ProfilerDatabase : IDisposable
 
     /// <summary>
     /// Compact the DB: <c>Checkpoint()</c> first (per LiteDB issue #2152),
-    /// then <c>Rebuild()</c>. Always at session-end, never during a session;
-    /// caller must guarantee no live world.
+    /// then <c>Rebuild()</c>. Caller must guarantee no live world.
     /// </summary>
     public long Compact()
     {
@@ -271,7 +151,7 @@ public sealed class ProfilerDatabase : IDisposable
         return _db.Rebuild();
     }
 
-    /// <summary>File size of the main DB, in bytes. Diagnostic.</summary>
+    /// <summary>File size of the main DB, in bytes.</summary>
     public long DbFileSize
     {
         get
@@ -281,10 +161,7 @@ public sealed class ProfilerDatabase : IDisposable
         }
     }
 
-    /// <summary>
-    /// Rotate the bounded backup ring. Called from the writer thread on a
-    /// clean session-end; never during a session.
-    /// </summary>
+    /// <summary>Rotate the bounded backup ring. Called on clean session-end.</summary>
     public void RotateBackups()
     {
         try
@@ -292,7 +169,6 @@ public sealed class ProfilerDatabase : IDisposable
             string mainFile = Path.Combine(_root, ProfilerPaths.DbFileName);
             if (!File.Exists(mainFile)) return;
 
-            // Shift bak-(N-1) → bak-N, dropping the oldest.
             string oldest = ProfilerPaths.BackupPath(BackupKeep);
             if (File.Exists(oldest)) File.Delete(oldest);
             for (int n = BackupKeep - 1; n >= 1; n--)
@@ -313,15 +189,9 @@ public sealed class ProfilerDatabase : IDisposable
         if (_disposed) return;
         try
         {
-            // Drain the writer first (it owns final checkpoints).
             _writer.Dispose();
-            // Rotate backups while LiteDB still holds an open handle so the
-            // file we copy is the post-final-checkpoint state.
             RotateBackups();
-            // Now close the DB.
             _db.Dispose();
-            // Truncate the journal — every op the writer drained is in the DB,
-            // which the freshly-rotated backup also contains.
             _journal.TruncateOnCleanShutdown();
             _journal.Dispose();
         }
@@ -342,7 +212,6 @@ public sealed class ProfilerDatabase : IDisposable
         string mainFile = Path.Combine(_root, ProfilerPaths.DbFileName);
         if (!File.Exists(mainFile)) return;
 
-        // Probe the file by opening read-only; if open works, we're fine.
         try
         {
             using var probe = new LiteDatabase(
@@ -354,7 +223,6 @@ public sealed class ProfilerDatabase : IDisposable
             _log("ProfilerDatabase: main file failed to open; attempting backup recovery", openEx);
         }
 
-        // Try the bounded backup ring in order (newest first).
         for (int n = 1; n <= BackupKeep; n++)
         {
             string bak = ProfilerPaths.BackupPath(n);
@@ -384,7 +252,6 @@ public sealed class ProfilerDatabase : IDisposable
             }
         }
 
-        // All backups failed. Quarantine the main file and start fresh.
         string ts = DateTime.UtcNow.ToString("yyyyMMddTHHmmss");
         string quarantine = Path.Combine(_root, ProfilerPaths.BrokenPrefix + ts);
         try
@@ -418,33 +285,30 @@ public sealed class ProfilerDatabase : IDisposable
         }
     }
 
-    private void EnsureIndexes()
+    /// <summary>
+    /// Walks every registered stream and lets it declare its own indexes.
+    /// Adding a new stream's indexes is a stream-local change; the facade
+    /// has no per-collection index list of its own.
+    /// </summary>
+    private void EnsureAllIndexes()
     {
-        Sessions.EnsureIndex(x => x.StartedUtc);
-        Sessions.EnsureIndex(x => x.ModlistFingerprint);
-        Modlists.EnsureIndex(x => x.Fingerprint, unique: true);
-        Mods.EnsureIndex(x => x.ModlistFingerprint);
-        Mods.EnsureIndex(x => x.InternalName);
-        PerSessionMods.EnsureIndex(x => x.SessionId);
-        PerSessionMods.EnsureIndex(x => x.ModInternalName);
-        PerSessionHooks.EnsureIndex(x => x.SessionId);
-        SpikeWindows.EnsureIndex(x => x.SessionId);
-        SpikeWindows.EnsureIndex(x => x.WorstFrameMs);
-        Stalls.EnsureIndex(x => x.SessionId);
-        ContextTransitions.EnsureIndex(x => x.SessionId);
-        TickAggregatesWarm.EnsureIndex(x => x.SessionId);
-        TickAggregatesWarm.EnsureIndex(x => x.ExpireAtUtc);
-        TickAggregatesCold.EnsureIndex(x => x.SessionId);
-        TickAggregatesArchive.EnsureIndex(x => x.SessionId, unique: true);
-        Insights.EnsureIndex(x => x.SessionId);
-        Insights.EnsureIndex(x => x.PatternKey);
+        foreach (var stream in _registry.Streams)
+        {
+            try
+            {
+                stream.EnsureIndexes(this);
+            }
+            catch (Exception ex)
+            {
+                _log($"ProfilerDatabase: stream '{stream.Name}' EnsureIndexes failed", ex);
+            }
+        }
     }
 
     /// <summary>
-    /// Inserts and immediately deletes a sentinel doc per collection so the
-    /// underlying file is paged before the first real burst arrives.
-    /// Mitigates LiteDB issue #2401 (ENSURE-page corruption when growing
-    /// from zero pages under heavy bursts).
+    /// Inserts and immediately deletes a sentinel row in <c>sessions</c> so
+    /// the DB file has grown past zero pages before the first real burst.
+    /// Mitigates LiteDB #2401.
     /// </summary>
     private void PreWarmCollections()
     {
@@ -476,12 +340,19 @@ public sealed class ProfilerDatabase : IDisposable
         int replayed = 0;
         foreach (JournalLine line in _journal.Replay())
         {
+            if (string.IsNullOrEmpty(line.Kind)) continue;
+            if (!Enum.TryParse(line.Kind, out DbOpKind kind)) continue;
+
+            IPersistenceStream? stream = _registry.Lookup(kind);
+            if (stream == null) continue;
+
             try
             {
-                DbWriteOp? reconstructed = ReconstructOp(line);
-                if (reconstructed.HasValue)
+                DbWriteOp? op = stream.Reconstruct(line);
+                if (op.HasValue)
                 {
-                    ApplyOne(reconstructed.Value);
+                    DbWriteOp value = op.Value;
+                    stream.Apply(in value, this);
                     replayed++;
                 }
             }
@@ -494,59 +365,13 @@ public sealed class ProfilerDatabase : IDisposable
         _log($"ProfilerDatabase: replayed {replayed} ops from journal", null);
     }
 
-    private static DbWriteOp? ReconstructOp(JournalLine line)
-    {
-        if (!Enum.TryParse(line.Kind, out DbOpKind kind)) return null;
-        ObjectId sid = string.IsNullOrEmpty(line.SessionId) ? ObjectId.Empty : new ObjectId(line.SessionId);
-        switch (kind)
-        {
-            case DbOpKind.SessionStart:
-                return DbWriteOp.SessionStart(JsonSerializer.Deserialize<SessionRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.SessionEnd:
-                return DbWriteOp.SessionEnd(sid, line.EndReason, line.DurationMs, line.TicksObserved);
-            case DbOpKind.Spike:
-                return DbWriteOp.Spike(JsonSerializer.Deserialize<SpikeWindowRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.Stall:
-                return DbWriteOp.Stall(JsonSerializer.Deserialize<StallEventRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.ContextTransition:
-                return DbWriteOp.ContextTransition(JsonSerializer.Deserialize<ContextTransitionRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.WarmAggregate:
-                return DbWriteOp.WarmAggregate(JsonSerializer.Deserialize<TickAggregateWarm>(line.Payload, JsonOpts)!);
-            case DbOpKind.ColdAggregate:
-                return DbWriteOp.ColdAggregate(JsonSerializer.Deserialize<TickAggregateCold>(line.Payload, JsonOpts)!);
-            case DbOpKind.ArchiveAggregate:
-                return DbWriteOp.ArchiveAggregate(JsonSerializer.Deserialize<TickAggregateArchive>(line.Payload, JsonOpts)!);
-            case DbOpKind.PerSessionModAggregateBatch:
-                return DbWriteOp.ModAggregateBatch(sid,
-                    JsonSerializer.Deserialize<List<PerSessionModAggregate>>(line.Payload, JsonOpts)!);
-            case DbOpKind.PerSessionHookAggregateBatch:
-                return DbWriteOp.HookAggregateBatch(sid,
-                    JsonSerializer.Deserialize<List<PerSessionHookAggregate>>(line.Payload, JsonOpts)!);
-            case DbOpKind.Insight:
-                return DbWriteOp.Insight(JsonSerializer.Deserialize<InsightRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.UpsertWorld:
-                return DbWriteOp.UpsertWorld(JsonSerializer.Deserialize<WorldRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.UpsertModlist:
-                return DbWriteOp.UpsertModlist(JsonSerializer.Deserialize<ModlistRow>(line.Payload, JsonOpts)!);
-            case DbOpKind.UpsertMod:
-                return DbWriteOp.UpsertMod(JsonSerializer.Deserialize<ModRow>(line.Payload, JsonOpts)!);
-        }
-        return null;
-    }
-
     private void MarkCrashDetectedSessions()
     {
-        // Any row left with no EndedUtc is from a session that didn't run
-        // the clean-end path. Flag it without inventing a duration —
-        // the journal replay above is best-effort; if it couldn't recover
-        // a clean end, "crash-detected" is the honest label.
         var orphans = Sessions.Find(x => x.Incomplete && x.EndedUtc == null).ToList();
         foreach (SessionRow row in orphans)
         {
             row.EndReason = "crash-detected";
             row.Incomplete = false;
-            // We don't fabricate an EndedUtc — leave it null so consumers
-            // know the run was crash-cut.
             Sessions.Update(row);
         }
         if (orphans.Count > 0)
@@ -603,3 +428,4 @@ public sealed class ProfilerDatabase : IDisposable
         }
     }
 }
+

@@ -36,6 +36,12 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
     <PackageReference Include="xunit" Version="2.9.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- LiteDB shipped via the mod's lib folder; reference the same assembly
+         that ships inside the .tmod so the test harness exercises the
+         production DLL. -->
+    <Reference Include="LiteDB">
+      <HintPath>..\lib\LiteDB.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
