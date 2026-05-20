@@ -6,6 +6,7 @@ using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Profiling.Insights;
+using PerformanceProfiler.Profiling.Persistence;
 
 namespace PerformanceProfiler.Profiling;
 
@@ -30,7 +31,13 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public MetricCollector? Collector { get; private set; }
 
-    private SessionLogWriter? _sessionLog;
+    /// <summary>
+    /// LiteDB-backed per-world recorder. Replaces the legacy JSON
+    /// <c>SessionLogWriter</c>. Null when the mod's <see cref="ProfilerDatabase"/>
+    /// failed to open (degraded session, no persistence — Invariant 4).
+    /// </summary>
+    private SessionRecorder? _recorder;
+    private ContextTransitionWatcher? _transitionWatcher;
 
     /// <summary>
     /// Per-tick game-state snapshotter (biomes, bosses, weather, invasion,
@@ -123,19 +130,43 @@ public sealed class ProfilerSystem : ModSystem
         // collector handles per-tick refresh; install-time state stays put.
         Collector = new MetricCollector(HistoryCapacity, SelfHealth);
 
-        // Session logging is an agent surface, never a gameplay dependency. A
-        // permissions/path/IO failure here must NEVER take down the profiler
-        // lifecycle — degrade to "no session JSON for this world" and report
-        // it in client.log so the loss is observable.
+        // Persistence is an agent surface, never a gameplay dependency. Any
+        // failure here degrades to "no session in DB for this world" without
+        // affecting metric collection or the live overlay (Invariant 4).
         try
         {
-            _sessionLog = SessionLogWriter.Create();
+            ProfilerDatabase? db = PerformanceProfiler.Database;
+            if (db != null)
+            {
+                string fingerprint = ModlistFingerprint.Compute();
+                string mode = HookBackend.Mode.ToString();
+                bool tracksAlloc = PerModAttribution.TracksAllocations;
+                _recorder = new SessionRecorder(
+                    db,
+                    profilerVersion: typeof(ProfilerSystem).Assembly.GetName().Version?.ToString() ?? "unknown",
+                    tmlVersion: "1.4.4",
+                    mode: mode,
+                    tracksAllocations: tracksAlloc,
+                    modlistFingerprint: fingerprint,
+                    worldId: null);
+
+                // Mirror the active modlist into the modlists/mods collections
+                // (upsert via the writer thread; no game-thread DB work).
+                EnqueueModlistUpserts(db, fingerprint);
+            }
+            else
+            {
+                _recorder = null;
+                Mod.Logger.Warn("Persistence unavailable this session (DB failed to open); metric collection continues normally.");
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            _sessionLog = null;
-            Mod.Logger.Warn($"Session log disabled for this world ({ex.GetType().Name}: {ex.Message}); metric collection continues normally.");
+            _recorder = null;
+            Mod.Logger.Warn($"Session recorder disabled for this world ({ex.GetType().Name}: {ex.Message}); metric collection continues normally.");
         }
+
+        _transitionWatcher = _recorder != null ? new ContextTransitionWatcher() : null;
 
         _contextTagger = new ContextTagger();
         _contextTagger.Reset();
@@ -152,20 +183,20 @@ public sealed class ProfilerSystem : ModSystem
         // window in scratch and the JSON misses it.
         Collector?.FlushSpikes();
 
-        if (Collector != null && _sessionLog != null)
+        if (Collector != null && _recorder != null)
         {
             try
             {
-                _sessionLog.End(Collector);
+                _recorder.End(Collector, endReason: "clean");
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            catch (Exception ex)
             {
-                Mod.Logger.Warn($"Session log end-write failed ({ex.GetType().Name}: {ex.Message}); world unload continues.");
+                Mod.Logger.Warn($"Session recorder end failed ({ex.GetType().Name}: {ex.Message}); world unload continues.");
             }
         }
 
-        _sessionLog?.Dispose();
-        _sessionLog = null;
+        _recorder = null;
+        _transitionWatcher = null;
         Collector = null;
         _contextTagger = null;
         Events = null;
@@ -218,17 +249,21 @@ public sealed class ProfilerSystem : ModSystem
                 $"Δ={pct:+0.0;-0.0;0.0}% (mode={HookBackend.Mode})");
         }
 
-        if (_sessionLog != null)
+        // Recorder feed: per-tick downsampling (1Hz / 1min aggregates) and
+        // drain of any new spike/stall windows that arrived during the tick.
+        // All work is queue-only — game thread never blocks on disk.
+        if (_recorder != null && collector.History.Count > 0)
         {
+            TickFrame latest = collector.History[collector.History.Count - 1];
             try
             {
-                _sessionLog.Tick(collector);
+                _recorder.OnTick(latest, collector);
             }
-            catch (SessionLogFailureException ex)
+            catch (Exception ex)
             {
-                Mod.Logger.Warn(
-                    $"Session log disabled for this world ({ex.InnerException?.GetType().Name}: {ex.InnerException?.Message}); metric collection continues normally.");
-                _sessionLog = null;
+                Mod.Logger.Warn($"SessionRecorder.OnTick failed ({ex.GetType().Name}: {ex.Message}); recorder dropped for this world.");
+                _recorder = null;
+                _transitionWatcher = null;
             }
         }
 
@@ -244,6 +279,68 @@ public sealed class ProfilerSystem : ModSystem
             tagger.Snapshot(tickIndex);
             double frameMs = collector.History[collector.History.Count - 1].FrameTimeMs;
             events.Accumulate(in tagger.Current, frameMs);
+
+            // Push transitions to the recorder. The watcher diffs against
+            // its last snapshot internally and only enqueues when a value
+            // actually changed.
+            if (_recorder != null && _transitionWatcher != null)
+            {
+                _transitionWatcher.OnSnapshot(in tagger.Current, frameMs, _recorder);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pushes the active modlist into the <c>modlists</c> and <c>mods</c>
+    /// collections via the writer thread. Called once per world load; the
+    /// writer thread is responsible for the upsert semantics (dedupe on
+    /// fingerprint / (fingerprint, internalName)).
+    /// </summary>
+    private static void EnqueueModlistUpserts(ProfilerDatabase db, string fingerprint)
+    {
+        string[] names = HookInterceptor.ProfiledModNames;
+        string[] versions = HookInterceptor.ProfiledModVersions;
+        DateTime now = DateTime.UtcNow;
+
+        var modlist = new Persistence.Records.ModlistRow
+        {
+            Fingerprint = fingerprint,
+            FingerprintAlg = ModlistFingerprint.AlgName,
+            FirstSeenUtc = now,
+            LastSeenUtc = now,
+            SessionCount = 1,
+        };
+        for (int i = 0; i < names.Length; i++)
+        {
+            modlist.Mods.Add(new Persistence.Records.ModEntry
+            {
+                ModId = i,
+                Name = names[i],
+                Version = i < versions.Length ? versions[i] : "unknown",
+            });
+        }
+        db.Writer.Enqueue(DbWriteOp.UpsertModlist(modlist));
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            db.Writer.Enqueue(DbWriteOp.UpsertMod(new Persistence.Records.ModRow
+            {
+                ModlistFingerprint = fingerprint,
+                InternalName = names[i],
+                DisplayName = names[i],
+                VersionSeen = i < versions.Length ? versions[i] : "unknown",
+                FirstSeenUtc = now,
+                LastSeenUtc = now,
+                VersionHistory = new System.Collections.Generic.List<Persistence.Records.ModVersionEntry>
+                {
+                    new Persistence.Records.ModVersionEntry
+                    {
+                        Version = i < versions.Length ? versions[i] : "unknown",
+                        FirstUtc = now,
+                        LastUtc = now,
+                    }
+                },
+            }));
         }
     }
 

@@ -158,6 +158,18 @@ internal static class BiomeRegistry
     }
 
     /// <summary>"ZoneUndergroundDesert" → "Underground Desert"; "ZoneJungle" → "Jungle".</summary>
+    /// <summary>
+    /// Display name for a biome bit index, or <c>(none)</c> when no biome
+    /// is active and a bracketed fallback when the index is past the
+    /// registered set (defensive — should not happen in practice).
+    /// </summary>
+    public static string NameOrIndex(int bitIndex)
+    {
+        if (bitIndex < 0) return "(none)";
+        if (bitIndex < _biomes.Count) return _biomes[bitIndex].DisplayName;
+        return "biome-" + bitIndex;
+    }
+
     internal static string Humanise(string zoneName)
     {
         string trimmed = zoneName.StartsWith("Zone", StringComparison.Ordinal)

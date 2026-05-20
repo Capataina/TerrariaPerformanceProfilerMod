@@ -1,9 +1,11 @@
 #nullable enable
 
+using System;
 using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.UI;
 
 namespace PerformanceProfiler;
@@ -16,11 +18,45 @@ namespace PerformanceProfiler;
 /// </summary>
 public class PerformanceProfiler : Mod
 {
+    /// <summary>
+    /// Mod-wide LiteDB-backed persistence layer. Opened at <see cref="Load"/>,
+    /// disposed at <see cref="Unload"/>. Null if the open path failed — in
+    /// that case the rest of the mod still runs, just without persistence
+    /// (Invariant 4: abort-clean on host drift; here the "host" is the
+    /// file system).
+    /// </summary>
+    public static ProfilerDatabase? Database { get; private set; }
+
     public override void Load()
     {
-        // Written to client.log: the machine-readable proof the mod loaded,
-        // verifiable from the log without anyone watching chat.
         Logger.Info($"Performance Profiler loaded (backend: {HookBackend.Mode}).");
+
+        // Open the DB on the main thread before any world loads. Failure to
+        // open degrades to no-persistence; the live overlay and metric
+        // collection still work.
+        try
+        {
+            Database = new ProfilerDatabase(
+                ProfilerPaths.Root(),
+                log: (msg, ex) =>
+                {
+                    if (ex != null) Logger.Warn($"{msg}: {ex.GetType().Name}: {ex.Message}");
+                    else Logger.Info(msg);
+                },
+                profilerVersion: typeof(PerformanceProfiler).Assembly.GetName().Version?.ToString() ?? "unknown");
+
+            // Best-effort import of any pre-existing JSON sessions written
+            // by the legacy SessionLogWriter. Runs once per launch; nothing
+            // imports a second time because the file is moved to a sentinel.
+            LegacyJsonImporter.RunOnceIfNeeded(Database, Logger);
+
+            Logger.Info($"Profiler DB opened at {Database.Root} (size {Database.DbFileSize / 1024} KB).");
+        }
+        catch (Exception ex)
+        {
+            Database = null;
+            Logger.Warn($"Profiler DB unavailable this session ({ex.GetType().Name}: {ex.Message}); the overlay still works in-memory only.");
+        }
     }
 
     /// <summary>
@@ -33,6 +69,15 @@ public class PerformanceProfiler : Mod
     public override void Unload()
     {
         ILHookInterceptor.Uninstall();
+        try
+        {
+            Database?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Profiler DB dispose failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        Database = null;
     }
 }
 

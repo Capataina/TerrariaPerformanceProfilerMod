@@ -92,6 +92,18 @@ internal struct BiomeBitset : IEquatable<BiomeBitset>
     }
 
     /// <summary>Enumerator-free iteration: callers walk indices and call <see cref="IsSet"/>.</summary>
+    /// <summary>Index of the lowest-numbered set bit, or -1 if none are set.</summary>
+    public readonly int PrimaryBitIndex()
+    {
+        for (int w = 0; w < _words.Length; w++)
+        {
+            ulong bits = _words[w];
+            if (bits == 0UL) continue;
+            return (w << 6) + System.Numerics.BitOperations.TrailingZeroCount(bits);
+        }
+        return -1;
+    }
+
     public readonly int PopCount()
     {
         int count = 0;
