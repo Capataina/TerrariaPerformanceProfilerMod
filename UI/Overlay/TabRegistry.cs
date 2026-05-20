@@ -39,8 +39,7 @@ internal static class TabRegistry
         new OverviewTab(),
         new TreeTab(),
         new SpikesTab(),
-        // Remaining parallel agent:
-        //     new EventsTab(),
+        new EventsTab(),
         new InsightsTab(),
     };
 
