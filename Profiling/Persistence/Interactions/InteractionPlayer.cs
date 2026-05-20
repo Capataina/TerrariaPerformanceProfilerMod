@@ -436,9 +436,17 @@ internal sealed class InteractionPlayer : ModPlayer
         return ("unknown", -1, "(unknown)");
     }
 
-    /// <summary>Vanilla "Other" source indices (lava, drowning, fall, etc.). See PlayerDeathReason.LegacyDefault constants.</summary>
+    /// <summary>
+    /// Vanilla "Other" source indices. See <c>PlayerDeathReason.LegacyDefault</c>
+    /// constants. Case 0 maps to "Fall" — vanilla's <c>PlayerDeathReason.ByOther(0)</c>
+    /// is reached by the fall-damage code path that doesn't carry the
+    /// <c>Fall_TooHigh = 1</c> tag (e.g. mining-tunnel jumps the player
+    /// initiated), and the v0.6 playtest confirmed this with a 1500-dmg
+    /// one-shot from jumping down a self-dug shaft.
+    /// </summary>
     private static string OtherIndexName(int idx) => idx switch
     {
+        0 => "Fall",
         1 => "Fall",
         2 => "Drown",
         3 => "Lava",

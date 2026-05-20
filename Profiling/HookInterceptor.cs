@@ -351,16 +351,11 @@ public static class HookInterceptor
 
     private static int InstallForMod(int modId, Mod mod, Mod self)
     {
-        Type[] types;
-        try
-        {
-            types = AssemblyManager.GetLoadableTypes(mod.Code);
-        }
-        catch (Exception ex)
-        {
-            self.Logger.Warn($"HookInterceptor: skipped {mod.Name}, could not read its types: {ex.Message}");
-            return 0;
-        }
+        // v0.6.1: populate the shared HookSurfaceCache so ILHookInterceptor
+        // can read from it instead of re-walking the assembly's types
+        // (mod-lifecycle §4.6 ε9).
+        Type[]? types = HookSurfaceCache.GetTypes(modId, mod, self);
+        if (types == null) return 0;
 
         int count = 0;
         foreach (Type type in types)

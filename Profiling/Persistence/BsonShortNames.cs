@@ -175,6 +175,20 @@ internal static class BsonShortNames
             .Field(x => x.ClusterId, "ci")
             .Field(x => x.TopContributors, "tc");
 
+        mapper.Entity<StallClusterRow>()
+            .Field(x => x.SessionId, "s")
+            .Field(x => x.StartTick, "st")
+            .Field(x => x.EndTick, "et")
+            .Field(x => x.StartUnixMs, "su")
+            .Field(x => x.EndUnixMs, "eu")
+            .Field(x => x.StallCount, "n")
+            .Field(x => x.TotalDurationMs, "td")
+            .Field(x => x.WorstDurationMs, "wd")
+            .Field(x => x.SpanMs, "sp")
+            .Field(x => x.DominantCause, "c")
+            .Field(x => x.DominantContributorModId, "cm")
+            .Field(x => x.DominantContributorName, "cn");
+
         mapper.Entity<SpikeWindowRow>()
             .Field(x => x.SessionId, "s")
             .Field(x => x.StartTick, "st")

@@ -205,6 +205,7 @@ public static class ILHookInterceptor
 
         _installedHooks.Clear();
         _instrumentedHandles.Clear();
+        HookSurfaceCache.Clear();
         Installed = false;
         _measuredOverrides = 0;
         _skippedOverrides = 0;
@@ -216,16 +217,12 @@ public static class ILHookInterceptor
 
     private static void InstallForMod(int modId, Mod mod, Mod self)
     {
-        Type[] types;
-        try
-        {
-            types = AssemblyManager.GetLoadableTypes(mod.Code);
-        }
-        catch (Exception ex)
-        {
-            self.Logger.Warn($"ILHookInterceptor: skipped {mod.Name}, could not read its types: {ex.Message}");
-            return;
-        }
+        // v0.6.1: consume the shared cache that HookInterceptor populated
+        // first. Avoids a second AssemblyManager.GetLoadableTypes call per
+        // mod and the downstream reflection-state retention that comes
+        // with it (mod-lifecycle §4.6 ε9).
+        Type[]? types = HookSurfaceCache.GetTypes(modId, mod, self);
+        if (types == null) return;
 
         // Skip dynamic assemblies (Reflection.Emit-built code) -- their MethodBody
         // is not reliably introspectable by Cecil.
