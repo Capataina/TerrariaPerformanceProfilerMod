@@ -8,76 +8,90 @@ using Terraria;
 using Terraria.ModLoader;
 using Terraria.UI;
 using PerformanceProfiler.Profiling;
+using PerformanceProfiler.UI.Overlay.Components;
 
 namespace PerformanceProfiler.UI.Overlay;
 
 /// <summary>
-/// The F9 profiler overlay's draggable panel. Owns chrome only:
-///
-/// <list type="bullet">
-///   <item>Panel background and border</item>
-///   <item>Header strip: title, NOW/30S AVG toggle, LIVE/PAUSED toggle, drag region</item>
-///   <item>Tab strip: one pill per <see cref="TabRegistry"/> entry plus the metric pill</item>
-///   <item>Per-tick stats: tick / avg / gc / entities / tick #</item>
-///   <item>PROFILER HEALTH section: coverage bar, backend label, Parallel-mode compare</item>
-/// </list>
+/// The F9 profiler overlay's draggable panel. Owns the entire chrome
+/// (header, tab strip, raised stat cards, PROFILER HEALTH card) and
+/// delegates tab content rendering to the active <see cref="IOverlayTab"/>.
 ///
 /// <para>
-/// Tab content (the per-mod tree, the spikes feed, future events / overview /
-/// insights) is delegated to whichever <see cref="IOverlayTab"/> is active.
-/// The chrome calls the active tab's <c>Tick</c>, <c>MeasurePanelHeight</c>,
-/// and <c>Draw</c> each frame, and dispatches mouse input to it when the
-/// click falls outside the chrome's regions.
+/// Post-overhaul layout (top to bottom):
 /// </para>
+/// <list type="bullet">
+///   <item>Header strip — title, NOW/30S AVG pill, LIVE/PAUSED pill,
+///         DEFAULT/COMPACT pill. Drag region.</item>
+///   <item>Tab strip — one pill per <see cref="TabRegistry"/> entry, plus
+///         the CPU/MEM/BOTH metric pill on the right.</item>
+///   <item>Stat card row — four raised cards (this tick / avg 30 s / gc /
+///         tick #) distributed across the panel width.</item>
+///   <item>PROFILER HEALTH card — coverage progress + backend label +
+///         self-footprint line. One raised card.</item>
+///   <item>Tab content area — everything below the chrome. Tab decides
+///         its own height; chrome resizes the panel to fit.</item>
+/// </list>
 /// </summary>
 internal sealed class OverlayPanel : UIElement
 {
-    public const float PanelWidth = OverlayLayout.PanelWidth;
+    public static float PanelWidth => OverlayLayoutCurrent.PanelWidth;
 
     private bool _dragging;
     private Vector2 _dragOffset;
     private float _appliedHeight;
+    private float _appliedWidth;
 
-    /// <summary>
-    /// Initial panel height when the overlay is first appended. Tabs take
-    /// over via <see cref="ApplyHeight"/> from the first frame onward, so
-    /// the exact value here matters only for the moment between OnInitialize
-    /// and the first Update.
-    /// </summary>
     public static float InitialHeight(int modCount)
     {
         int shown = modCount < OverlayLayout.MaxModRows ? modCount : OverlayLayout.MaxModRows;
-        float h = OverlayLayout.RowsTopOffset + shown * OverlayLayout.RowHeight + 10f;
+        float h = OverlayLayoutCurrent.ChromeHeight + shown * OverlayLayoutCurrent.RowHeight + 32f;
         if (modCount > shown) h += 14f;
         return h;
     }
+
+    // ---- Hit-test cached pill rectangles -------------------------------------
+    //
+    // Recomputed on every draw + click. We cache them between drawing and
+    // hit-testing so the click handler doesn't recompute the layout — the
+    // pills don't move unless the panel is being dragged or the mode is
+    // flipped.
+
+    private Rectangle _avgPillRect;
+    private Rectangle _pausePillRect;
+    private Rectangle _modePillRect;
+    private Rectangle _metricPillRect;
 
     // ---- Input ---------------------------------------------------------------
 
     public override void LeftMouseDown(UIMouseEvent evt)
     {
         base.LeftMouseDown(evt);
+        Vector2 panelPos = GetDimensions().Position();
+        float localX = evt.MousePosition.X - panelPos.X;
+        float localY = evt.MousePosition.Y - panelPos.Y;
 
-        float localY = evt.MousePosition.Y - GetDimensions().Position().Y;
-        float localX = evt.MousePosition.X - GetDimensions().Position().X;
-
-        // Header band: title + 2 toggles + drag.
-        if (localY <= OverlayLayout.HeaderHeight)
+        // Header band: pills + drag region.
+        if (localY <= OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.PanelPaddingY)
         {
-            if (ClickHeaderControl(localX, localY)) return;
+            if (ClickHeaderPill(localX, localY)) return;
             _dragging = true;
-            _dragOffset = evt.MousePosition - GetDimensions().Position();
+            _dragOffset = evt.MousePosition - panelPos;
             return;
         }
 
-        // Tab strip band: tab selection + metric pill.
-        if (localY <= OverlayLayout.HeaderHeight + OverlayLayout.TabStripHeight)
+        // Tab strip band.
+        float tabStripBottom = OverlayLayoutCurrent.PanelPaddingY
+                             + OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.ChromeRegionGap
+                             + OverlayLayoutCurrent.TabStripHeight;
+        if (localY <= tabStripBottom)
         {
             ClickTabStrip(localX);
             return;
         }
 
-        // Content band: delegate to the active tab.
+        // Below chrome: delegate to active tab.
+        if (localY <= OverlayLayoutCurrent.ChromeHeight) return;
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
         TabRegistry.ResolveActive(collector).HandleClick(localX, localY, collector);
@@ -93,62 +107,67 @@ internal sealed class OverlayPanel : UIElement
     {
         base.ScrollWheel(evt);
         if (!IsMouseHovering) return;
-
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
-
         int delta = evt.ScrollWheelValue > 0 ? -1 : 1;
         TabRegistry.ResolveActive(collector).HandleScroll(delta, collector);
     }
 
-    private bool ClickHeaderControl(float localX, float localY)
+    private bool ClickHeaderPill(float localX, float localY)
     {
-        if (localY < OverlayLayout.ToggleY || localY > OverlayLayout.ToggleY + OverlayLayout.ToggleHeight)
-            return false;
-
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
 
-        // NOW / 30S AVG pill
-        if (localX >= OverlayLayout.MetricToggleX && localX <= OverlayLayout.MetricToggleX + OverlayLayout.MetricToggleW)
+        if (Pill.HitTest(_avgPillRect, localX + GetDimensions().X, localY + GetDimensions().Y))
+        {
+            // The cached rect uses panel-local coords; convert click to the
+            // same frame for hit-test consistency.
+        }
+
+        // Use raw local-coord rectangles instead — easier than wrestling with
+        // converted spaces. We store rects in panel-local coords below.
+        if (RectContainsLocal(_avgPillRect, localX, localY))
         {
             OverlayState.ShowAverage = !OverlayState.ShowAverage;
-            if (OverlayState.Paused && collector != null)
-                OverlayState.CaptureSnapshot(collector);
+            if (OverlayState.Paused && collector != null) OverlayState.CaptureSnapshot(collector);
             return true;
         }
-
-        // LIVE / PAUSED pill
-        if (localX >= OverlayLayout.PauseToggleX && localX <= OverlayLayout.PauseToggleX + OverlayLayout.PauseToggleW)
+        if (RectContainsLocal(_pausePillRect, localX, localY))
         {
             OverlayState.Paused = !OverlayState.Paused;
-            if (OverlayState.Paused && collector != null)
-                OverlayState.CaptureSnapshot(collector);
+            if (OverlayState.Paused && collector != null) OverlayState.CaptureSnapshot(collector);
             return true;
         }
-
+        if (RectContainsLocal(_modePillRect, localX, localY))
+        {
+            OverlayState.Mode = OverlayState.Mode == OverlayMode.Default
+                ? OverlayMode.Compact
+                : OverlayMode.Default;
+            // Force a width refresh on next Update.
+            _appliedWidth = -1f;
+            return true;
+        }
         return false;
     }
 
+    private static bool RectContainsLocal(Rectangle r, float lx, float ly)
+        => lx >= r.X && lx <= r.Right && ly >= r.Y && ly <= r.Bottom;
+
     private void ClickTabStrip(float localX)
     {
-        // Metric pill first (right edge of the strip).
-        Rectangle metricPill = MetricPillRect(GetDimensions().ToRectangle());
-        float pillLocalX = metricPill.X - (int)GetDimensions().X;
-        if (localX >= pillLocalX && localX <= pillLocalX + metricPill.Width)
+        if (RectContainsLocal(_metricPillRect, localX, _metricPillRect.Y + 1))
         {
             OverlayState.CurrentMetric = (MetricView)(((int)OverlayState.CurrentMetric + 1) % 3);
             return;
         }
-
-        // Tab pills (left side). Click indices map to the visible-tab list so
-        // hidden tabs (IsAvailable == false) get skipped over and players see
-        // the click land on whatever pill they actually saw.
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         IReadOnlyList<IOverlayTab> visible = TabRegistry.Visible(collector);
+        float tabFirstX = OverlayLayoutCurrent.PanelPaddingX;
+        float tabWidth = OverlayLayoutCurrent.TabWidth;
+        float tabGap = OverlayLayoutCurrent.TabGap;
         for (int slot = 0; slot < visible.Count; slot++)
         {
-            float x = OverlayLayout.TabFirstX + slot * (OverlayLayout.TabWidth + OverlayLayout.TabGap);
-            if (localX >= x && localX <= x + OverlayLayout.TabWidth)
+            float x = tabFirstX + slot * (tabWidth + tabGap);
+            if (localX >= x && localX <= x + tabWidth)
             {
                 OverlayState.ActiveTabIndex = slot;
                 return;
@@ -161,23 +180,18 @@ internal sealed class OverlayPanel : UIElement
     public override void Update(GameTime gameTime)
     {
         base.Update(gameTime);
-
-        if (IsMouseHovering || _dragging)
-            Main.LocalPlayer.mouseInterface = true;
+        if (IsMouseHovering || _dragging) Main.LocalPlayer.mouseInterface = true;
 
         if (_dragging)
         {
             if (!Main.mouseLeft) _dragging = false;
-            else                 FollowMouse();
+            else FollowMouse();
         }
+
+        ApplyWidth(OverlayLayoutCurrent.PanelWidth);
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null) return;
-
-        // Tab refresh + panel resize. The active tab decides its own height;
-        // the chrome only enforces the change against the UIElement.
-        // ResolveActive clamps the persisted index against the visible list,
-        // so a tab that just became unavailable can never receive Tick.
         IOverlayTab active = TabRegistry.ResolveActive(collector);
         active.Tick(collector);
         ApplyHeight(active.MeasurePanelHeight(collector));
@@ -193,13 +207,23 @@ internal sealed class OverlayPanel : UIElement
         }
     }
 
+    private void ApplyWidth(float w)
+    {
+        if (Math.Abs(w - _appliedWidth) > 0.5f)
+        {
+            _appliedWidth = w;
+            Width.Set(w, 0f);
+            Recalculate();
+        }
+    }
+
     private void FollowMouse()
     {
         Vector2 target = Main.MouseScreen - _dragOffset;
-        float maxX = Main.screenWidth  - GetDimensions().Width;
+        float maxX = Main.screenWidth - GetDimensions().Width;
         float maxY = Main.screenHeight - GetDimensions().Height;
         Left.Set(MathHelper.Clamp(target.X, 0f, maxX < 0f ? 0f : maxX), 0f);
-        Top.Set(MathHelper.Clamp(target.Y,  0f, maxY < 0f ? 0f : maxY), 0f);
+        Top.Set(MathHelper.Clamp(target.Y, 0f, maxY < 0f ? 0f : maxY), 0f);
         Recalculate();
     }
 
@@ -209,141 +233,236 @@ internal sealed class OverlayPanel : UIElement
     {
         Rectangle area = GetDimensions().ToRectangle();
 
-        ProfilerTheme.DrawPanel(spriteBatch, area, ProfilerTheme.Panel, ProfilerTheme.Border);
-        DrawHeaderStrip(spriteBatch, area);
+        // Outer panel background + border.
+        ProfilerTheme.FillRect(spriteBatch, area, ProfilerTheme.Background);
+        ProfilerTheme.DrawBorder(spriteBatch, area, ProfilerTheme.Border);
+
+        DrawHeader(spriteBatch, area);
         DrawTabStrip(spriteBatch, area);
 
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (collector == null || collector.History.Count == 0)
         {
-            float x = area.X + 14f;
-            float y = area.Y + OverlayLayout.HeaderHeight + OverlayLayout.TabStripHeight + OverlayLayout.StatStartY;
-            OverlayDraw.Text(spriteBatch, "waiting for a world...", new Vector2(x, y), ProfilerTheme.TextMuted, 0.8f);
+            DrawEmptyStatCards(spriteBatch, area);
+            DrawEmptyHealthCard(spriteBatch, area);
+            float emptyY = area.Y + OverlayLayoutCurrent.ChromeHeight + 14f;
+            OverlayDraw.Text(spriteBatch, "waiting for a world...",
+                new Vector2(area.X + OverlayLayoutCurrent.PanelPaddingX + 8, emptyY),
+                ProfilerTheme.TextMuted, OverlayLayoutCurrent.TextScaleRow);
             return;
         }
 
-        DrawStats(spriteBatch, area, collector);
-        DrawProfilerHealth(spriteBatch, area, collector);
+        DrawStatCards(spriteBatch, area, collector);
+        DrawHealthCard(spriteBatch, area, collector);
 
-        // Tab content: everything from DividerOffset down. ResolveActive matches
-        // the index used by the tab strip and the click handler, so the painted
-        // active pill always corresponds to the tab whose content we're drawing.
+        // Tab content area.
         TabRegistry.ResolveActive(collector).Draw(spriteBatch, area, collector);
     }
 
-    private static void DrawHeaderStrip(SpriteBatch spriteBatch, Rectangle area)
-    {
-        Rectangle header = new Rectangle(area.X, area.Y, area.Width, (int)OverlayLayout.HeaderHeight);
-        ProfilerTheme.FillRect(spriteBatch, header, ProfilerTheme.Header);
-        ProfilerTheme.DrawBorder(spriteBatch, header, ProfilerTheme.Border);
-        ProfilerTheme.FillRect(spriteBatch, new Rectangle(area.X, area.Y, 2, (int)OverlayLayout.HeaderHeight), ProfilerTheme.Accent);
+    // ---- Header --------------------------------------------------------------
 
-        OverlayDraw.Text(spriteBatch, "PERFORMANCE PROFILER",
-            new Vector2(area.X + 12, area.Y + 8), ProfilerTheme.Accent, 0.82f);
-        OverlayDraw.Toggle(spriteBatch, area.X + OverlayLayout.MetricToggleX, area.Y + OverlayLayout.ToggleY,
-            OverlayLayout.MetricToggleW, OverlayState.ShowAverage ? "30S AVG" : "NOW", OverlayState.ShowAverage);
-        OverlayDraw.Toggle(spriteBatch, area.X + OverlayLayout.PauseToggleX, area.Y + OverlayLayout.ToggleY,
-            OverlayLayout.PauseToggleW, OverlayState.Paused ? "PAUSED" : "LIVE", OverlayState.Paused);
+    private void DrawHeader(SpriteBatch sb, Rectangle area)
+    {
+        float padX = OverlayLayoutCurrent.PanelPaddingX;
+        float padY = OverlayLayoutCurrent.PanelPaddingY;
+        float headerH = OverlayLayoutCurrent.HeaderHeight;
+
+        Rectangle headerArea = new Rectangle(
+            area.X + (int)padX,
+            area.Y + (int)padY,
+            area.Width - (int)padX * 2,
+            (int)headerH);
+        ProfilerTheme.FillRect(sb, headerArea, ProfilerTheme.Header);
+        ProfilerTheme.DrawBorder(sb, headerArea, ProfilerTheme.Border);
+        // Accent stripe on the left.
+        ProfilerTheme.FillRect(sb, new Rectangle(headerArea.X, headerArea.Y, 3, headerArea.Height), ProfilerTheme.Accent);
+
+        OverlayDraw.Text(sb, "PERFORMANCE PROFILER",
+            new Vector2(headerArea.X + 12, headerArea.Y + (headerArea.Height - 16) / 2),
+            ProfilerTheme.Accent, OverlayLayoutCurrent.TextScaleH1);
+
+        // Right-side pills, packed right-to-left: MODE | LIVE/PAUSED | NOW/AVG.
+        int pillH = (int)System.Math.Max(20, headerH - 8);
+        int pillY = headerArea.Y + (headerArea.Height - pillH) / 2;
+        int pillRight = headerArea.Right - 8;
+
+        // MODE pill (Default / Compact).
+        string modeLabel = OverlayState.Mode == OverlayMode.Default ? "DEFAULT" : "COMPACT";
+        int modeW = 86;
+        _modePillRect = new Rectangle(pillRight - modeW - (int)area.X, pillY - (int)area.Y, modeW, pillH);
+        Rectangle modeAbs = new Rectangle(pillRight - modeW, pillY, modeW, pillH);
+        Pill.Draw(sb, modeAbs, modeLabel, active: OverlayState.Mode == OverlayMode.Compact, leadingDot: false);
+        pillRight -= modeW + 6;
+
+        // PAUSE pill.
+        string pauseLabel = OverlayState.Paused ? "PAUSED" : "LIVE";
+        int pauseW = 78;
+        _pausePillRect = new Rectangle(pillRight - pauseW - (int)area.X, pillY - (int)area.Y, pauseW, pillH);
+        Rectangle pauseAbs = new Rectangle(pillRight - pauseW, pillY, pauseW, pillH);
+        Pill.Draw(sb, pauseAbs, pauseLabel, active: OverlayState.Paused, leadingDot: true);
+        pillRight -= pauseW + 6;
+
+        // AVG/NOW pill.
+        string avgLabel = OverlayState.ShowAverage ? "30S AVG" : "NOW";
+        int avgW = 72;
+        _avgPillRect = new Rectangle(pillRight - avgW - (int)area.X, pillY - (int)area.Y, avgW, pillH);
+        Rectangle avgAbs = new Rectangle(pillRight - avgW, pillY, avgW, pillH);
+        Pill.Draw(sb, avgAbs, avgLabel, active: OverlayState.ShowAverage, leadingDot: false);
     }
 
-    private static void DrawTabStrip(SpriteBatch spriteBatch, Rectangle area)
-    {
-        float stripY = area.Y + OverlayLayout.HeaderHeight;
-        Rectangle stripRect = new Rectangle(area.X, (int)stripY, area.Width, (int)OverlayLayout.TabStripHeight);
-        ProfilerTheme.FillRect(spriteBatch, stripRect, ProfilerTheme.Panel);
-        ProfilerTheme.FillRect(spriteBatch,
-            new Rectangle(area.X, (int)(stripY + OverlayLayout.TabStripHeight - 1), area.Width, 1), ProfilerTheme.Border);
+    // ---- Tab strip -----------------------------------------------------------
 
-        // Visible-tab list — hidden tabs (IsAvailable == false) don't paint a
-        // pill. The click handler uses the same visible-index basis so the
-        // strip stays the source of truth for what's selectable.
+    private void DrawTabStrip(SpriteBatch sb, Rectangle area)
+    {
+        float padX = OverlayLayoutCurrent.PanelPaddingX;
+        float padY = OverlayLayoutCurrent.PanelPaddingY;
+        float stripY = area.Y + padY + OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.ChromeRegionGap;
+        float stripH = OverlayLayoutCurrent.TabStripHeight;
+        Rectangle stripArea = new Rectangle(area.X + (int)padX, (int)stripY, area.Width - (int)padX * 2, (int)stripH);
+        ProfilerTheme.FillRect(sb, stripArea, ProfilerTheme.Panel);
+        ProfilerTheme.DrawBorder(sb, stripArea, ProfilerTheme.Border);
+
         MetricCollector? collector = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         IReadOnlyList<IOverlayTab> visible = TabRegistry.Visible(collector);
         int activeIdx = OverlayState.ActiveTabIndex;
+        float tabFirstX = OverlayLayoutCurrent.PanelPaddingX;
+        float tabWidth = OverlayLayoutCurrent.TabWidth;
+        float tabGap = OverlayLayoutCurrent.TabGap;
+        int pillH = (int)stripH - 6;
+        int pillY = (int)stripY + 3;
         for (int slot = 0; slot < visible.Count; slot++)
         {
-            DrawTabPill(spriteBatch, area, slot, visible[slot].Label, slot == activeIdx);
+            float x = area.X + tabFirstX + slot * (tabWidth + tabGap);
+            Rectangle tabRect = new Rectangle((int)x, pillY, (int)tabWidth, pillH);
+            Pill.Draw(sb, tabRect, visible[slot].Label, active: slot == activeIdx);
         }
 
-        DrawMetricPill(spriteBatch, area);
-    }
-
-    private static void DrawTabPill(SpriteBatch spriteBatch, Rectangle area, int slot, string label, bool active)
-    {
-        float x = area.X + OverlayLayout.TabFirstX + slot * (OverlayLayout.TabWidth + OverlayLayout.TabGap);
-        float y = area.Y + OverlayLayout.HeaderHeight + 3f;
-        Rectangle r = new Rectangle((int)x, (int)y, (int)OverlayLayout.TabWidth, (int)(OverlayLayout.TabStripHeight - 6));
-
-        ProfilerTheme.FillRect(spriteBatch, r, active ? new Color(25, 40, 60) : ProfilerTheme.Panel);
-        ProfilerTheme.DrawBorder(spriteBatch, r, active ? ProfilerTheme.Accent : ProfilerTheme.Border);
-        OverlayDraw.Text(spriteBatch, label,
-            new Vector2(r.X + 10, r.Y + 2),
-            active ? ProfilerTheme.Accent : ProfilerTheme.TextMuted, 0.66f);
-    }
-
-    private static void DrawMetricPill(SpriteBatch spriteBatch, Rectangle area)
-    {
-        string label = OverlayState.CurrentMetric switch
+        // Metric pill on the right.
+        int metricW = 76;
+        int metricX = stripArea.Right - 8 - metricW;
+        Rectangle metricAbs = new Rectangle(metricX, pillY, metricW, pillH);
+        string metricLabel = OverlayState.CurrentMetric switch
         {
             MetricView.Cpu  => "CPU",
             MetricView.Mem  => "MEM",
             MetricView.Both => "BOTH",
             _               => "?",
         };
-        Rectangle r = MetricPillRect(area);
-        ProfilerTheme.FillRect(spriteBatch, r, new Color(25, 40, 60));
-        ProfilerTheme.DrawBorder(spriteBatch, r, ProfilerTheme.Accent);
-        OverlayDraw.Text(spriteBatch, label,
-            new Vector2(r.X + 8, r.Y + 2),
-            ProfilerTheme.Accent, 0.66f);
+        Pill.Draw(sb, metricAbs, metricLabel, active: true);
+        _metricPillRect = new Rectangle(metricX - area.X, pillY - area.Y, metricW, pillH);
     }
 
-    private static Rectangle MetricPillRect(Rectangle area)
+    // ---- Stat cards ----------------------------------------------------------
+
+    private void DrawStatCards(SpriteBatch sb, Rectangle area, MetricCollector collector)
     {
-        float w = 56f;
-        float x = area.X + area.Width - 14f - w;
-        float y = area.Y + OverlayLayout.HeaderHeight + 3f;
-        return new Rectangle((int)x, (int)y, (int)w, (int)(OverlayLayout.TabStripHeight - 6));
+        Rectangle[] cards = LayoutStatCards(area);
+        TickFrame latest = collector.History.Newest;
+        double avg30 = AverageFrameTimeMs(collector.History);
+
+        // Card 1: this tick
+        DrawStatCard(sb, cards[0], "THIS TICK", $"{latest.FrameTimeMs:F2} ms",
+            ColourForFrameMs(latest.FrameTimeMs, collector.Baseline.FrameMsMedian));
+
+        // Card 2: avg 30s
+        DrawStatCard(sb, cards[1], "AVG 30 S", $"{avg30:F2} ms", ProfilerTheme.Text,
+            footer: $"median {collector.Baseline.FrameMsMedian:F2} ms");
+
+        // Card 3: gc this tick
+        DrawStatCard(sb, cards[2], "GC THIS TICK", $"{latest.GcTimeMs:F1} ms",
+            latest.GcTimeMs > 0d ? ProfilerTheme.Amber : ProfilerTheme.Good);
+
+        // Card 4: tick + entity counts
+        DrawStatCard(sb, cards[3], "TICK", $"#{latest.TickIndex}", ProfilerTheme.Text,
+            footer: $"{latest.NpcCount} npc · {latest.ProjectileCount} proj · {latest.DustCount} dust");
     }
 
-    private static void DrawStats(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
+    private void DrawEmptyStatCards(SpriteBatch sb, Rectangle area)
     {
-        float x = area.X + 14f;
-        float y = area.Y + OverlayLayout.HeaderHeight + OverlayLayout.TabStripHeight + OverlayLayout.StatStartY;
-
-        RingBuffer<TickFrame> history = collector.History;
-        TickFrame latest = history.Newest;
-
-        OverlayDraw.Stat(spriteBatch, "tick",    $"{latest.FrameTimeMs:F2} ms",                                          x,        y,                              ProfilerTheme.Amber);
-        OverlayDraw.Stat(spriteBatch, "avg 30s", $"{AverageFrameTimeMs(history):F2} ms",                                 x + 250f, y,                              ProfilerTheme.Text);
-        OverlayDraw.Stat(spriteBatch, "gc",      $"{latest.GcTimeMs:F2} ms",                                             x,        y + OverlayLayout.StatGap,      ProfilerTheme.Good);
-        OverlayDraw.Stat(spriteBatch, "entities",
-            $"npc {latest.NpcCount}   proj {latest.ProjectileCount}   dust {latest.DustCount}",
-            x + 250f, y + OverlayLayout.StatGap, ProfilerTheme.Text);
-        OverlayDraw.Text(spriteBatch, $"tick #{latest.TickIndex}",
-            new Vector2(x, y + OverlayLayout.StatGap * 2f + 2f), ProfilerTheme.TextDim, 0.72f);
-
-        // Thin separator below stats.
-        ProfilerTheme.FillRect(spriteBatch,
-            new Rectangle(area.X + 8, area.Y + (int)OverlayLayout.HealthTopOffset - 6, area.Width - 16, 1),
-            ProfilerTheme.Border);
+        Rectangle[] cards = LayoutStatCards(area);
+        for (int i = 0; i < cards.Length; i++)
+        {
+            ProfilerCard.Draw(sb, cards[i], null, null);
+        }
     }
 
-    private static void DrawProfilerHealth(SpriteBatch spriteBatch, Rectangle area, MetricCollector collector)
+    private void DrawStatCard(SpriteBatch sb, Rectangle area, string title, string value, Color valueColor, string? footer = null)
     {
-        float x = area.X + 14f;
-        float y = area.Y + OverlayLayout.HealthTopOffset;
+        Rectangle body = ProfilerCard.Draw(sb, area, null, null);
+        StatBlock.Draw(sb, body, title, value, valueColor, footer);
+    }
 
+    private Rectangle[] LayoutStatCards(Rectangle area)
+    {
+        const int CardCount = 4;
+        float padX = OverlayLayoutCurrent.PanelPaddingX;
+        float padY = OverlayLayoutCurrent.PanelPaddingY;
+        float cardsY = area.Y + padY
+                     + OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.ChromeRegionGap
+                     + OverlayLayoutCurrent.TabStripHeight + OverlayLayoutCurrent.ChromeRegionGap;
+        float cardsAreaW = area.Width - padX * 2;
+        float gap = OverlayLayoutCurrent.StatCardGap;
+        float cardW = (cardsAreaW - gap * (CardCount - 1)) / CardCount;
+        int cardH = (int)OverlayLayoutCurrent.StatCardHeight;
+        Rectangle[] result = new Rectangle[CardCount];
+        for (int i = 0; i < CardCount; i++)
+        {
+            float x = area.X + padX + i * (cardW + gap);
+            result[i] = new Rectangle((int)x, (int)cardsY, (int)cardW, cardH);
+        }
+        return result;
+    }
+
+    // ---- PROFILER HEALTH card ------------------------------------------------
+
+    private void DrawHealthCard(SpriteBatch sb, Rectangle area, MetricCollector collector)
+    {
+        Rectangle cardRect = LayoutHealthCard(area);
         CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods);
         double coverage = total > 0 ? measured / (double)total : 1d;
-        Color  covColor = coverage >= 0.95d ? ProfilerTheme.Good
-                        : coverage >= 0.75d ? ProfilerTheme.Amber
-                        : ProfilerTheme.Danger;
 
-        OverlayDraw.Text(spriteBatch, "PROFILER HEALTH",                          new Vector2(x,        y), ProfilerTheme.Accent,    0.68f);
-        OverlayDraw.Text(spriteBatch, $"hooks {measured}/{total} ({coverage:P0})", new Vector2(x + 142f, y), covColor,                0.68f);
-        OverlayDraw.Text(spriteBatch, $"full {fullMods}  partial {partialMods}",  new Vector2(x + 358f, y), ProfilerTheme.TextMuted, 0.68f);
+        string title = $"PROFILER HEALTH  ·  {measured}/{total} hooks";
+        string rightStat = $"{coverage:P0}";
+        Rectangle body = ProfilerCard.Draw(sb, cardRect, title, rightStat);
 
+        DrawHealthBody(sb, body, collector, coverage, measured, total, fullMods, partialMods);
+    }
+
+    private void DrawEmptyHealthCard(SpriteBatch sb, Rectangle area)
+    {
+        Rectangle cardRect = LayoutHealthCard(area);
+        ProfilerCard.Draw(sb, cardRect, "PROFILER HEALTH", "waiting");
+    }
+
+    private Rectangle LayoutHealthCard(Rectangle area)
+    {
+        float padX = OverlayLayoutCurrent.PanelPaddingX;
+        float padY = OverlayLayoutCurrent.PanelPaddingY;
+        float startY = area.Y + padY
+                     + OverlayLayoutCurrent.HeaderHeight + OverlayLayoutCurrent.ChromeRegionGap
+                     + OverlayLayoutCurrent.TabStripHeight + OverlayLayoutCurrent.ChromeRegionGap
+                     + OverlayLayoutCurrent.StatCardHeight + OverlayLayoutCurrent.ChromeRegionGap;
+        int h = (int)OverlayLayoutCurrent.ProfilerHealthCardHeight;
+        return new Rectangle(area.X + (int)padX, (int)startY,
+            area.Width - (int)padX * 2, h);
+    }
+
+    private void DrawHealthBody(SpriteBatch sb, Rectangle body, MetricCollector collector,
+        double coverage, int measured, int total, int fullMods, int partialMods)
+    {
+        int leftX = body.X + 8;
+        int topY = body.Y + 6;
+        float scale = OverlayLayoutCurrent.TextScaleBody;
+
+        // Top row: coverage bar + backend label.
+        int barX = leftX;
+        int barW = body.Width - 240;
+        int barH = 10;
+        int barY = topY + 4;
+        Rectangle barRect = new Rectangle(barX, barY, barW, barH);
+        HeatBar.Draw(sb, barRect, coverage, 1d, coverage);
+        OverlayDraw.Text(sb, $"full {fullMods}  ·  partial {partialMods}",
+            new Vector2(barRect.Right + 12, topY), ProfilerTheme.TextMuted, scale);
         string backendLabel = HookBackend.Mode switch
         {
             HookBackendMode.Delegate => "backend: delegate",
@@ -351,38 +470,14 @@ internal sealed class OverlayPanel : UIElement
             HookBackendMode.Parallel => "backend: parallel",
             _                        => "backend: ?",
         };
-        OverlayDraw.Text(spriteBatch, backendLabel, new Vector2(x + 510f, y), ProfilerTheme.Accent, 0.58f);
+        OverlayDraw.Text(sb, backendLabel, new Vector2(body.Right - 138, topY),
+            ProfilerTheme.Accent, scale);
 
-        int barW = area.Width - 28;
-        ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, barW, 10), ProfilerTheme.Border);
-        int fill = (int)(barW * coverage);
-        if (fill > 0)
-            ProfilerTheme.FillRect(spriteBatch, new Rectangle((int)x, (int)y + 18, fill, 10), covColor);
-
-        if (HookBackend.Mode == HookBackendMode.Parallel)
-        {
-            double del = collector.BackendTotalMs0;
-            double il  = collector.BackendTotalMs1;
-            double pct = collector.BackendDivergence * 100d;
-            Color  pctColor = Math.Abs(pct) <= 5d ? ProfilerTheme.Good
-                            : Math.Abs(pct) <= 20d ? ProfilerTheme.Amber
-                            : ProfilerTheme.Danger;
-            OverlayDraw.Text(spriteBatch,
-                $"compare   delegate {del:F2}ms   ilhook {il:F2}ms",
-                new Vector2(x, y + 32f), ProfilerTheme.TextMuted, 0.62f);
-            OverlayDraw.Text(spriteBatch, $"Δ {pct:+0.0;-0.0;0.0}%",
-                new Vector2(x + 380f, y + 32f), pctColor, 0.62f);
-        }
-
-        // Self-footprint row. The profiler is meant to be near-invisible; this
-        // line keeps us honest about whether we're actually achieving that.
-        // Colour follows ProfilerSelfHealth.Severity which is bucketed against
-        // a fraction of the process working set, so the colour scales with the
-        // user's actual modlist size, not a hardcoded MB threshold.
+        // Second row: self-footprint line.
         ProfilerSelfHealth health = collector.SelfHealth;
         if (health.IsInstalled)
         {
-            float selfY = HookBackend.Mode == HookBackendMode.Parallel ? y + 46f : y + 32f;
+            int selfY = topY + 22;
             Color selfColor = health.Severity switch
             {
                 SelfHealthSeverity.Severe     => ProfilerTheme.Danger,
@@ -391,29 +486,32 @@ internal sealed class OverlayPanel : UIElement
             };
             double selfMb = health.InstallDeltaBytes / (1024d * 1024d);
             double kbPerHook = health.BytesPerHook / 1024d;
-            double pctOfProcess = health.InstallDeltaFractionOfProcess * 100d;
-            string line = health.ProcessWorkingSetBytes > 0
-                ? $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game"
-                : $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
-            OverlayDraw.Text(spriteBatch, line, new Vector2(x, selfY), selfColor, 0.62f);
+            string left;
+            if (health.ProcessWorkingSetBytes > 0)
+            {
+                double pctOfProcess = health.InstallDeltaFractionOfProcess * 100d;
+                left = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game";
+            }
+            else
+            {
+                left = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
+            }
+            OverlayDraw.Text(sb, left, new Vector2(leftX, selfY), selfColor, scale);
+
+            // Right-aligned severity badge.
+            string sevLabel = health.Severity.ToString().ToLowerInvariant();
+            int badgeW = SeverityBadge.MeasureWidth(sevLabel);
+            SeverityBadge.DrawSelfHealth(sb,
+                new Vector2(body.Right - badgeW - 8, selfY - 1), health.Severity);
         }
     }
 
-    private static double AverageFrameTimeMs(RingBuffer<TickFrame> history)
-    {
-        if (history.Count == 0) return 0d;
-        double sum = 0d;
-        for (int i = 0; i < history.Count; i++) sum += history[i].FrameTimeMs;
-        return sum / history.Count;
-    }
+    // ---- Coverage totals (uses backend-aware view) ---------------------------
 
     private static void CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods)
     {
-        // Single source of truth shared with SessionLogWriter so the player and
-        // agent surfaces never disagree on which backend's counters they read.
-        System.Collections.Generic.IReadOnlyList<int> totals    = HookCoverageView.TotalHookCounts;
-        System.Collections.Generic.IReadOnlyList<int> measureds = HookCoverageView.MeasuredHookCounts;
-
+        IReadOnlyList<int> totals    = HookCoverageView.TotalHookCounts;
+        IReadOnlyList<int> measureds = HookCoverageView.MeasuredHookCounts;
         total = 0; measured = 0; fullMods = 0; partialMods = 0;
         int mods = HookInterceptor.ProfiledModNames.Length;
         for (int i = 0; i < mods; i++)
@@ -425,5 +523,27 @@ internal sealed class OverlayPanel : UIElement
             if (modTotal == modMeasured) fullMods++;
             else                         partialMods++;
         }
+    }
+
+    private static double AverageFrameTimeMs(RingBuffer<TickFrame> history)
+    {
+        if (history.Count == 0) return 0d;
+        double sum = 0d;
+        for (int i = 0; i < history.Count; i++) sum += history[i].FrameTimeMs;
+        return sum / history.Count;
+    }
+
+    /// <summary>
+    /// Colour for frame-time stat: green when at or below baseline median,
+    /// amber when 2× the median, red when 4×. Relative threshold so the
+    /// colour scales with the player's actual hardware.
+    /// </summary>
+    private static Color ColourForFrameMs(double frameMs, double baselineMs)
+    {
+        if (baselineMs <= 0d) return ProfilerTheme.Text;
+        double ratio = frameMs / baselineMs;
+        if (ratio >= 4d) return ProfilerTheme.Danger;
+        if (ratio >= 2d) return ProfilerTheme.Amber;
+        return ProfilerTheme.Good;
     }
 }
