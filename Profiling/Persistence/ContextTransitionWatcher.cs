@@ -198,25 +198,40 @@ internal sealed class ContextTransitionWatcher
     }
 
     /// <summary>
-    /// Diff two biome bitsets and emit a transition per changed bit. Names
-    /// come from <see cref="BiomeRegistry"/>.
+    /// Diff two biome bitsets and emit a transition per changed bit.
+    /// v0.5 walked bit-by-bit, calling <see cref="BiomeBitset.IsSet"/> twice
+    /// per index — ~680 ns per tick across 68 typical bits, 99%+ of which
+    /// were no-change ticks paying for the full scan.
+    ///
+    /// v0.6 (events-and-context dossier R1) walks 64-bit words, XOR-diffs
+    /// them, and uses <see cref="System.Numerics.BitOperations.TrailingZeroCount"/>
+    /// to iterate only the changed bits. No-change ticks short-circuit on
+    /// the diff==0 check; only edges pay the loop body cost.
     /// </summary>
     private static void DiffBiomeBits(in BiomeBitset current, ref BiomeBitset last,
         SessionRecorder recorder, long tick, double frameMs)
     {
-        int bits = Math.Min(current.BitLength, last.BitLength);
-        for (int i = 0; i < bits; i++)
+        int wc = current.WordCount;
+        if (last.WordCount < wc) wc = last.WordCount;
+        for (int w = 0; w < wc; w++)
         {
-            bool nowSet = current.IsSet(i);
-            bool wasSet = last.IsSet(i);
-            if (nowSet == wasSet) continue;
-
-            string name = BiomeRegistry.NameOrIndex(i);
-            recorder.OnContextTransition(
-                "biome",
-                wasSet ? name : "(off)",
-                nowSet ? name : "(off)",
-                tick, frameMs);
+            ulong cur = current.WordAt(w);
+            ulong was = last.WordAt(w);
+            ulong diff = cur ^ was;
+            while (diff != 0UL)
+            {
+                int b = System.Numerics.BitOperations.TrailingZeroCount(diff);
+                int bit = (w << 6) + b;
+                ulong mask = 1UL << b;
+                bool nowSet = (cur & mask) != 0UL;
+                string name = BiomeRegistry.NameOrIndex(bit);
+                recorder.OnContextTransition(
+                    "biome",
+                    nowSet ? "(off)" : name,
+                    nowSet ? name : "(off)",
+                    tick, frameMs);
+                diff &= diff - 1UL;   // clear lowest set bit, move to next
+            }
         }
         last.CopyFrom(current);
     }

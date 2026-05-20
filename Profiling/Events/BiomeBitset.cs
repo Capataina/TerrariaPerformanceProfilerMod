@@ -63,6 +63,18 @@ internal struct BiomeBitset : IEquatable<BiomeBitset>
         for (int i = 0; i < _words.Length; i++) _words[i] = 0UL;
     }
 
+    /// <summary>
+    /// Word-level accessor for diff hot paths. Used by
+    /// <c>ContextTransitionWatcher.DiffBiomeBits</c> to compute XOR deltas
+    /// in 64-bit chunks instead of bit-by-bit, per events-and-context R1.
+    /// Out-of-range index returns zero (defensive against shape drift).
+    /// </summary>
+    public readonly ulong WordAt(int wordIndex)
+    {
+        if ((uint)wordIndex >= (uint)_words.Length) return 0UL;
+        return _words[wordIndex];
+    }
+
     /// <summary>Copies <paramref name="source"/> into this bitset. Both must share the same bit length; mismatches reallocate.</summary>
     public void CopyFrom(in BiomeBitset source)
     {
