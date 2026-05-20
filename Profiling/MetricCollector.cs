@@ -498,16 +498,56 @@ public sealed class MetricCollector
         return sum;
     }
 
+    /// <summary>
+    /// Maintain a rolling sum + rolling average over <see cref="_historyCapacity"/>
+    /// samples for one parallel set of arrays. v0.5/v0.6 ran a scalar loop;
+    /// v0.6.1 vectorises via <see cref="System.Numerics.Vector{T}"/> when the
+    /// array length permits, processing <see cref="System.Numerics.Vector{double}.Count"/>
+    /// values per iteration. On Apple Silicon and modern x86, that's typically
+    /// 2 or 4 doubles per SIMD lane (= ~2-4× throughput on this hot loop).
+    /// Falls back to the scalar loop for any tail that doesn't fit a full
+    /// vector. Per metric-collection §4.7 [F] + cross-allocations §6.2 β.
+    /// </summary>
     private void UpdateRollingAverage(double[] source, double[] history, double[] rolling, double[] average, int slot)
     {
-        int offset = slot * source.Length;
+        int n = source.Length;
+        int offset = slot * n;
         int samples = _history.Count < _historyCapacity ? _history.Count + 1 : _historyCapacity;
-        for (int i = 0; i < source.Length; i++)
+        double invSamples = 1.0 / samples;
+
+        int vecLen = System.Numerics.Vector<double>.Count;
+        int i = 0;
+        if (vecLen > 1 && n >= vecLen)
+        {
+            var sourceSpan = new System.Span<double>(source);
+            var historySpan = new System.Span<double>(history, offset, n);
+            var rollingSpan = new System.Span<double>(rolling);
+            var averageSpan = new System.Span<double>(average);
+            var invVec = new System.Numerics.Vector<double>(invSamples);
+
+            for (; i <= n - vecLen; i += vecLen)
+            {
+                var src = new System.Numerics.Vector<double>(sourceSpan.Slice(i, vecLen));
+                var hist = new System.Numerics.Vector<double>(historySpan.Slice(i, vecLen));
+                var roll = new System.Numerics.Vector<double>(rollingSpan.Slice(i, vecLen));
+
+                // rolling += source - history
+                var newRoll = roll + (src - hist);
+                newRoll.CopyTo(rollingSpan.Slice(i, vecLen));
+                // history[index] = source
+                src.CopyTo(historySpan.Slice(i, vecLen));
+                // average = rolling / samples (implemented as * invSamples)
+                (newRoll * invVec).CopyTo(averageSpan.Slice(i, vecLen));
+            }
+        }
+
+        // Scalar tail for the remainder (also the whole loop when n < vecLen).
+        for (; i < n; i++)
         {
             int index = offset + i;
             rolling[i] += source[i] - history[index];
             history[index] = source[i];
-            average[i] = rolling[i] / samples;
+            average[i] = rolling[i] * invSamples;
         }
     }
 

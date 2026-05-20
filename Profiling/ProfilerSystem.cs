@@ -212,65 +212,78 @@ public sealed class ProfilerSystem : ModSystem
         Mod.Logger.Info($"Profiler armed: {HistoryCapacity}-tick rolling history allocated.");
     }
 
+    /// <summary>
+    /// Fires immediately before vanilla world-save begins (and before
+    /// <see cref="OnWorldUnload"/>). Starts the session-end aggregation
+    /// task NOW so it can run in parallel with vanilla's 1-3s save+backup
+    /// chain instead of after it. Per mod-lifecycle dossier §4.7 ε6.
+    /// </summary>
+    private bool _preSaveEndKickedOff;
+
+    public override void PreSaveAndQuit()
+    {
+        try
+        {
+            KickOffSessionEndAsync();
+            _preSaveEndKickedOff = true;
+        }
+        catch (System.Exception ex)
+        {
+            // Catch defensively: PreSaveAndQuit is not wrapped by tML's
+            // SystemLoader catch (verified via mod-lifecycle dossier §3.5).
+            // A throw here would abort the user's world save.
+            PerformanceProfiler.LoggerOrNull?.Warn($"PreSaveAndQuit threw: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Spawn the background session-end task. Idempotent — if PreSaveAndQuit
+    /// already kicked it off, OnWorldUnload sees the latch and skips a
+    /// second spawn. Internal so KickOff can be reused by both lifecycle
+    /// points without code duplication.
+    /// </summary>
+    private void KickOffSessionEndAsync()
+    {
+        if (Collector == null || _recorder == null) return;
+
+        Collector?.FlushSpikes();
+
+        var sessionId = _recorder.SessionId;
+        var capturedCollector = Collector;
+        var capturedRecorder = _recorder;
+        var capturedDb = PerformanceProfiler.Database;
+        var capturedLogger = PerformanceProfiler.LoggerOrNull;
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                capturedRecorder.End(capturedCollector, endReason: "clean");
+                capturedDb?.DrainAndTruncateJournalForSessionEnd();
+                if (capturedDb != null && capturedLogger != null)
+                {
+                    SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId);
+                }
+            }
+            catch (Exception ex)
+            {
+                PerformanceProfiler.LoggerOrNull?.Warn($"Session recorder end failed (background): {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+    }
+
     /// <summary>Releases the engine at world exit.</summary>
     public override void OnWorldUnload()
     {
-        // Force-close any open spike window so an in-progress spike that
-        // happened to coincide with the world exit still lands in the final
-        // session report. Without the flush the detector keeps the open
-        // window in scratch and the JSON misses it. FlushSpikes is cheap;
-        // do it on the main thread before handing off.
-        Collector?.FlushSpikes();
-
-        if (Collector != null && _recorder != null)
+        // v0.6.1: PreSaveAndQuit may already have kicked off the
+        // session-end task. If so, skip the second spawn — the task is
+        // already running. Otherwise (quit via title-screen menu, server
+        // disconnect, etc) kick it off now.
+        if (!_preSaveEndKickedOff)
         {
-            // v0.6 Phase ε: relocate the heavy session-end work off the
-            // main thread. v0.5 ran _recorder.End (BuildModAggregates +
-            // BuildHookAggregates + BuildArchive), DrainAndTruncateJournal
-            // (busy-wait), and SessionSummaryLogger.Write (6 LiteDB
-            // queries) inline in OnWorldUnload — captured as a 40-stall,
-            // 8.5-s UiOverlayBlocking cluster in the 16:09–16:14 playtest
-            // (mod-lifecycle dossier §4.1).
-            //
-            // The work captures Collector / _recorder / Database by ref;
-            // each held instance survives Mod.Unload because the Task
-            // holds a strong ref. If the user quits-to-desktop and the
-            // process exits before the Task finishes, the durable writes
-            // already landed (the writer thread drains synchronously into
-            // the channel before End returns); only the *summary line in
-            // client.log* might be missing on a hard exit, which is
-            // acceptable.
-            var sessionId = _recorder.SessionId;
-            var capturedCollector = Collector;
-            var capturedRecorder = _recorder;
-            var capturedDb = PerformanceProfiler.Database;
-            var capturedLogger = PerformanceProfiler.LoggerOrNull;
-
-            _ = Task.Run(() =>
-            {
-                try
-                {
-                    capturedRecorder.End(capturedCollector, endReason: "clean");
-
-                    // Drain + checkpoint + truncate the journal. v0.5 did
-                    // this on the main thread; the writer thread is fine
-                    // here too because we already own a recorder ref.
-                    capturedDb?.DrainAndTruncateJournalForSessionEnd();
-
-                    // Session-end narration to client.log. The 6 LiteDB
-                    // queries it runs now happen on the background thread
-                    // rather than blocking the game's quit-to-title path.
-                    if (capturedDb != null && capturedLogger != null)
-                    {
-                        SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    PerformanceProfiler.LoggerOrNull?.Warn($"Session recorder end failed (background): {ex.GetType().Name}: {ex.Message}");
-                }
-            });
+            KickOffSessionEndAsync();
         }
+        _preSaveEndKickedOff = false;
 
         _recorder = null;
         _transitionWatcher = null;
