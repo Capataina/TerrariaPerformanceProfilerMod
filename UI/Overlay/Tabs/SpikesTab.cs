@@ -47,6 +47,17 @@ internal sealed class SpikesTab : IOverlayTab
     private int _scrollOffset;
     private readonly List<TimelineMark> _timelineMarks = new List<TimelineMark>(64);
 
+    /// <summary>
+    /// v0.6.1 (overlay dossier η12): RebuildTimelineMarks ran every
+    /// DrawSelf call (60 Hz on the draw thread). The marks only change
+    /// when a new spike or stall is detected — both happen at most a
+    /// handful of times per second. Cache the last-seen counts and skip
+    /// the rebuild loop when both still match.
+    /// </summary>
+    private int _lastSpikeCount = -1;
+    private int _lastStallCount = -1;
+    private long _lastHistoryFirstTick = -1;
+
     public bool IsAvailable(MetricCollector? collector) => collector != null && collector.History.Count > 0;
 
     public void Tick(MetricCollector collector)
@@ -170,11 +181,25 @@ internal sealed class SpikesTab : IOverlayTab
     /// </summary>
     private void RebuildTimelineMarks(MetricCollector collector)
     {
-        _timelineMarks.Clear();
+        // v0.6.1: fast-skip when nothing's changed since the last rebuild.
+        // The history ring's first tick advances on every Push, so we use
+        // it as the "window slid" signal alongside the spike/stall counts.
         RingBuffer<TickFrame> history = collector.History;
         if (history.Count < 2) return;
+        int curSpikes = collector.Spikes.Count;
+        int curStalls = collector.Stalls.Count;
+        long curFirst = history[0].TickIndex;
+        if (curSpikes == _lastSpikeCount && curStalls == _lastStallCount && curFirst == _lastHistoryFirstTick)
+        {
+            return;     // marks list still reflects current state
+        }
+        _lastSpikeCount = curSpikes;
+        _lastStallCount = curStalls;
+        _lastHistoryFirstTick = curFirst;
 
-        long first = history[0].TickIndex;
+        _timelineMarks.Clear();
+
+        long first = curFirst;
         long last = history[history.Count - 1].TickIndex;
         double span = System.Math.Max(1d, (double)(last - first));
 

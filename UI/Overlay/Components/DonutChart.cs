@@ -78,6 +78,15 @@ internal static class DonutChart
     private static int _vertexCount;
 
     /// <summary>
+    /// v0.6.1 vertex-array reuse cache (overlay dossier η10). The donut
+    /// geometry only changes when slice values / colours / radii / centre
+    /// change. In a stable frame (player not moving the overlay), the
+    /// hash matches across consecutive draws and BuildRingTriangles can
+    /// be skipped entirely — just resubmit the existing _vertices buffer.
+    /// </summary>
+    private static ulong _lastGeometryHash;
+
+    /// <summary>
     /// Draws the donut centred at <paramref name="centre"/> with the given
     /// outer/inner radii. Caller pre-sorts slices in descending Value
     /// order; we draw them clockwise from 12 o'clock.
@@ -92,13 +101,19 @@ internal static class DonutChart
 
         GraphicsDevice gd = sb.GraphicsDevice;
 
-        // Build the geometry. Two concentric rings:
-        //   outer band  (75% of thickness)  identity colour
-        //   inner band  (25% of thickness)  dominant-axis tint
-        float thickness = outerR - innerR;
-        float midR = innerR + thickness * 0.25f; // split point: lower 25% is dominant band
-        BuildRingTriangles(centre, midR, outerR, slices, total, identityRing: true);
-        BuildRingTriangles(centre, innerR, midR, slices, total, identityRing: false);
+        // v0.6.1: hash geometry to skip BuildRingTriangles when nothing changed.
+        ulong geomHash = ComputeGeometryHash(centre, innerR, outerR, slices);
+        if (geomHash != _lastGeometryHash)
+        {
+            // Build the geometry. Two concentric rings:
+            //   outer band  (75% of thickness)  identity colour
+            //   inner band  (25% of thickness)  dominant-axis tint
+            float thickness = outerR - innerR;
+            float midR = innerR + thickness * 0.25f; // split point: lower 25% is dominant band
+            BuildRingTriangles(centre, midR, outerR, slices, total, identityRing: true);
+            BuildRingTriangles(centre, innerR, midR, slices, total, identityRing: false);
+            _lastGeometryHash = geomHash;
+        }
 
         if (_vertexCount == 0) return;
 
@@ -196,6 +211,27 @@ internal static class DonutChart
             int newSize = Math.Max(_vertices.Length * 2, needed);
             Array.Resize(ref _vertices, newSize);
         }
+    }
+
+    /// <summary>
+    /// Cheap geometry hash for the vertex-reuse cache. FNV-1a folded over
+    /// (centre, innerR, outerR, sliceCount, each slice's value + packed
+    /// RGBA). No allocations, ~30 ops typical, constant per slice.
+    /// </summary>
+    private static ulong ComputeGeometryHash(Vector2 centre, float innerR, float outerR, IReadOnlyList<DonutSlice> slices)
+    {
+        ulong h = 14695981039346656037UL;
+        h = (h ^ unchecked((uint)BitConverter.SingleToInt32Bits(centre.X))) * 1099511628211UL;
+        h = (h ^ unchecked((uint)BitConverter.SingleToInt32Bits(centre.Y))) * 1099511628211UL;
+        h = (h ^ unchecked((uint)BitConverter.SingleToInt32Bits(innerR))) * 1099511628211UL;
+        h = (h ^ unchecked((uint)BitConverter.SingleToInt32Bits(outerR))) * 1099511628211UL;
+        h = (h ^ (uint)slices.Count) * 1099511628211UL;
+        for (int i = 0; i < slices.Count; i++)
+        {
+            h = (h ^ unchecked((uint)BitConverter.DoubleToInt64Bits(slices[i].Value))) * 1099511628211UL;
+            h = (h ^ slices[i].Color.PackedValue) * 1099511628211UL;
+        }
+        return h;
     }
 
     private static void EnsureEffect(GraphicsDevice gd)
