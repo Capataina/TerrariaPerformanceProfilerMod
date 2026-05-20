@@ -29,6 +29,13 @@ internal static class OverlayState
     /// <summary>Index into <see cref="TabRegistry.Tabs"/> of the active tab.</summary>
     public static int ActiveTabIndex { get; set; } = 0;
 
+    /// <summary>
+    /// Active presentation mode. Default = generous "at-rest" view;
+    /// Compact = denser "during-combat" HUD. Persisted via ModConfig in
+    /// Phase 7; for now it lives only in process state.
+    /// </summary>
+    public static OverlayMode Mode { get; set; } = OverlayMode.Default;
+
     /// <summary>CPU/MEM/BOTH choice for the value column in tree/list views.</summary>
     public static MetricView CurrentMetric { get; set; } = MetricView.Cpu;
 
