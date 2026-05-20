@@ -69,6 +69,31 @@
     <Compile Include="..\Profiling\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
     <Compile Include="..\Profiling\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+
+    <!-- Persistence sources. These reference LiteDB only (no tModLoader),
+         so they lift cleanly into the test runner. ProfilerDatabase,
+         every stream, the writer thread, the journal, all records. -->
+    <Compile Include="..\Profiling\Persistence\*.cs" Link="Source\Persistence\%(Filename)%(Extension)" />
+    <Compile Include="..\Profiling\Persistence\Records\*.cs" Link="Source\Persistence\Records\%(Filename)%(Extension)" />
+    <Compile Include="..\Profiling\Persistence\Streams\*.cs" Link="Source\Persistence\Streams\%(Filename)%(Extension)" />
+    <!-- Files that reference Terraria types must be excluded from the
+         test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
+         imports legacy JSON via game-runtime calls, ProfilerCompactCommand
+         is a tModLoader ModCommand, ModlistFingerprint reads HookInterceptor.
+         The Terraria-free constants live in PersistenceFileNames so the
+         tests reach those without dragging in the game runtime. -->
+    <Compile Remove="..\Profiling\Persistence\ProfilerPaths.cs" />
+    <Compile Remove="..\Profiling\Persistence\LegacyJsonImporter.cs" />
+    <Compile Remove="..\Profiling\Persistence\ProfilerCompactCommand.cs" />
+    <Compile Remove="..\Profiling\Persistence\ModlistFingerprint.cs" />
+    <!-- SessionRecorder + TickDownsampler + ContextTransitionWatcher all
+         depend on MetricCollector + SpikeWindow which transitively pull
+         in HookInterceptor and a Terraria entry point. They're integration
+         code; the persistence-layer tests exercise the writer + streams
+         directly without them. -->
+    <Compile Remove="..\Profiling\Persistence\SessionRecorder.cs" />
+    <Compile Remove="..\Profiling\Persistence\TickDownsampler.cs" />
+    <Compile Remove="..\Profiling\Persistence\ContextTransitionWatcher.cs" />
   </ItemGroup>
 
 </Project>

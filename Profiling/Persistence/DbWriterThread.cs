@@ -43,11 +43,17 @@ public sealed class DbWriterThread : IDisposable
     private DateTime _lastCheckpointUtc = DateTime.UtcNow;
     private int _pendingSinceLastCheckpoint;
     private long _droppedWarmCount;
+    private int _approxQueueDepth;
 
     public long DroppedWarmCount => Volatile.Read(ref _droppedWarmCount);
 
-    /// <summary>Approximate queue depth — for diagnostics only.</summary>
-    public int ApproxQueueDepth => _queue.Reader.Count;
+    /// <summary>
+    /// Approximate queue depth, maintained by <see cref="Interlocked"/> at
+    /// enqueue and dequeue. The unbounded channel's reader does not expose
+    /// <c>Count</c> reliably on all platforms, so we track it ourselves.
+    /// Diagnostic / test-fixture use only.
+    /// </summary>
+    public int ApproxQueueDepth => Volatile.Read(ref _approxQueueDepth);
 
     public DbWriterThread(ProfilerDatabase db, EventJournal journal, Action<string, Exception?>? log = null)
     {
@@ -77,12 +83,15 @@ public sealed class DbWriterThread : IDisposable
     {
         if (_cts.IsCancellationRequested) return;
 
-        if (_queue.Reader.Count >= QueueSoftCap && op.Kind == DbOpKind.WarmAggregate)
+        if (Volatile.Read(ref _approxQueueDepth) >= QueueSoftCap && op.Kind == DbOpKind.WarmAggregate)
         {
             Interlocked.Increment(ref _droppedWarmCount);
             return;
         }
-        _queue.Writer.TryWrite(op);
+        if (_queue.Writer.TryWrite(op))
+        {
+            Interlocked.Increment(ref _approxQueueDepth);
+        }
     }
 
     private void Run()
@@ -114,6 +123,7 @@ public sealed class DbWriterThread : IDisposable
                 while (batch.Count < BatchCap && _queue.Reader.TryRead(out var op))
                 {
                     batch.Add(op);
+                    Interlocked.Decrement(ref _approxQueueDepth);
                 }
 
                 if (batch.Count == 0)
@@ -172,7 +182,11 @@ public sealed class DbWriterThread : IDisposable
     private void DrainAndShutdown(List<DbWriteOp> batch)
     {
         batch.Clear();
-        while (_queue.Reader.TryRead(out var op)) batch.Add(op);
+        while (_queue.Reader.TryRead(out var op))
+        {
+            batch.Add(op);
+            Interlocked.Decrement(ref _approxQueueDepth);
+        }
         if (batch.Count > 0)
         {
             try

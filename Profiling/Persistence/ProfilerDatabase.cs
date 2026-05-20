@@ -85,11 +85,11 @@ public sealed class ProfilerDatabase : IDisposable
         _root = root;
         _registry = registry;
         _log = log ?? ((_, _) => { });
-        ProfilerPaths.EnsureDirectory();
+        Directory.CreateDirectory(_root);
 
         RecoverIfNeeded();
 
-        string connStr = $"Filename={Path.Combine(_root, ProfilerPaths.DbFileName)};Upgrade=true;Connection=direct";
+        string connStr = $"Filename={Path.Combine(_root, PersistenceFileNames.Db)};Upgrade=true;Connection=direct";
         _db = new LiteDatabase(connStr);
         _db.Pragma("UTC_DATE", false);
         _db.Pragma("CHECKPOINT", 1000);
@@ -98,7 +98,7 @@ public sealed class ProfilerDatabase : IDisposable
         EnsureAllIndexes();
         PreWarmCollections();
 
-        _journal = new EventJournal(Path.Combine(_root, ProfilerPaths.JournalFileName));
+        _journal = new EventJournal(Path.Combine(_root, PersistenceFileNames.Journal));
         ReplayJournalIfNeeded();
         MarkCrashDetectedSessions();
         SweepExpiredWarmTier();
@@ -156,7 +156,7 @@ public sealed class ProfilerDatabase : IDisposable
     {
         get
         {
-            string p = Path.Combine(_root, ProfilerPaths.DbFileName);
+            string p = Path.Combine(_root, PersistenceFileNames.Db);
             return File.Exists(p) ? new FileInfo(p).Length : 0L;
         }
     }
@@ -166,17 +166,17 @@ public sealed class ProfilerDatabase : IDisposable
     {
         try
         {
-            string mainFile = Path.Combine(_root, ProfilerPaths.DbFileName);
+            string mainFile = Path.Combine(_root, PersistenceFileNames.Db);
             if (!File.Exists(mainFile)) return;
 
-            string oldest = ProfilerPaths.BackupPath(BackupKeep);
+            string oldest = Path.Combine(_root, PersistenceFileNames.BackupPrefix + (BackupKeep).ToString());
             if (File.Exists(oldest)) File.Delete(oldest);
             for (int n = BackupKeep - 1; n >= 1; n--)
             {
-                string src = ProfilerPaths.BackupPath(n);
-                if (File.Exists(src)) File.Move(src, ProfilerPaths.BackupPath(n + 1));
+                string src = Path.Combine(_root, PersistenceFileNames.BackupPrefix + (n).ToString());
+                if (File.Exists(src)) File.Move(src, Path.Combine(_root, PersistenceFileNames.BackupPrefix + (n + 1).ToString()));
             }
-            File.Copy(mainFile, ProfilerPaths.BackupPath(1), overwrite: true);
+            File.Copy(mainFile, Path.Combine(_root, PersistenceFileNames.BackupPrefix + (1).ToString()), overwrite: true);
         }
         catch (Exception ex)
         {
@@ -209,7 +209,7 @@ public sealed class ProfilerDatabase : IDisposable
 
     private void RecoverIfNeeded()
     {
-        string mainFile = Path.Combine(_root, ProfilerPaths.DbFileName);
+        string mainFile = Path.Combine(_root, PersistenceFileNames.Db);
         if (!File.Exists(mainFile)) return;
 
         try
@@ -225,7 +225,7 @@ public sealed class ProfilerDatabase : IDisposable
 
         for (int n = 1; n <= BackupKeep; n++)
         {
-            string bak = ProfilerPaths.BackupPath(n);
+            string bak = Path.Combine(_root, PersistenceFileNames.BackupPrefix + (n).ToString());
             if (!File.Exists(bak)) continue;
             try
             {
@@ -238,7 +238,7 @@ public sealed class ProfilerDatabase : IDisposable
             }
 
             string brokenPath = Path.Combine(_root,
-                ProfilerPaths.BrokenPrefix + DateTime.UtcNow.ToString("yyyyMMddTHHmmss"));
+                PersistenceFileNames.BrokenPrefix + DateTime.UtcNow.ToString("yyyyMMddTHHmmss"));
             try
             {
                 File.Move(mainFile, brokenPath);
@@ -253,7 +253,7 @@ public sealed class ProfilerDatabase : IDisposable
         }
 
         string ts = DateTime.UtcNow.ToString("yyyyMMddTHHmmss");
-        string quarantine = Path.Combine(_root, ProfilerPaths.BrokenPrefix + ts);
+        string quarantine = Path.Combine(_root, PersistenceFileNames.BrokenPrefix + ts);
         try
         {
             File.Move(mainFile, quarantine);
@@ -267,7 +267,8 @@ public sealed class ProfilerDatabase : IDisposable
 
     private void EnsureSchemaVersion()
     {
-        int v = (int)(long)_db.Pragma("USER_VERSION");
+        // LiteDB returns BsonValue for Pragma; USER_VERSION is stored as Int32.
+        int v = _db.Pragma("USER_VERSION").AsInt32;
         if (v == 0)
         {
             _db.Pragma("USER_VERSION", CurrentUserVersion);

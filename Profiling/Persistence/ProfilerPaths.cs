@@ -19,11 +19,11 @@ internal static class ProfilerPaths
 {
     private const string FolderName = "PerformanceProfiler";
 
-    public const string DbFileName       = "profiler.litedb";
-    public const string JournalFileName  = "profiler.events.log";
-    public const string BackupPrefix     = "profiler.litedb.bak-";
-    public const string BrokenPrefix     = "profiler.litedb.broken-";
-    public const string LegacySessions   = "Sessions";
+    public const string DbFileName       = PersistenceFileNames.Db;
+    public const string JournalFileName  = PersistenceFileNames.Journal;
+    public const string BackupPrefix     = PersistenceFileNames.BackupPrefix;
+    public const string BrokenPrefix     = PersistenceFileNames.BrokenPrefix;
+    public const string LegacySessions   = PersistenceFileNames.LegacySessions;
 
     /// <summary>The persistence root for this install. Created on demand.</summary>
     public static string Root()
