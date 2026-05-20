@@ -268,28 +268,9 @@ internal sealed class OverviewTab : IOverlayTab
                 ProfilerTheme.TextMuted, bodyScale);
         }
 
-        // Side ranking — top 5 mod names + identity dots in the right-side
-        // strip beside the donut. Gives context the donut alone can't show
-        // (which slice is which mod, in order).
-        int rankX = body.X + (int)(outerR * 2) + 28;
-        int rankY = body.Y + 8;
-        int maxRanksToShow = Math.Min(8, _slices.Count);
-        for (int i = 0; i < maxRanksToShow && rankX + 80 < body.Right; i++)
-        {
-            DonutSlice s = _slices[i];
-            // Identity dot
-            ProfilerTheme.FillRect(sb, new Rectangle(rankX, rankY + 4, 8, 8), s.SliceColor);
-            string label = s.Label ?? "(unnamed)";
-            if (label.Length > 18) label = label.Substring(0, 18);
-            OverlayDraw.Text(sb, label,
-                new Vector2(rankX + 14, rankY),
-                ProfilerTheme.Text, OverlayLayoutCurrent.TextScaleBody);
-            string val = $"{s.Value:F1} ms";
-            OverlayDraw.Text(sb, val,
-                new Vector2(body.Right - 70, rankY),
-                ProfilerTheme.TextMuted, OverlayLayoutCurrent.TextScaleBody);
-            rankY += 18;
-        }
+        // The neighbouring TOP CONTRIBUTORS card already shows the same
+        // top-N ranking with bars + values. Don't duplicate it inside the
+        // donut card — that produced two ranking lists side by side.
 
         // Legend bar at the bottom under the donut.
         int legendY = body.Bottom - legendBandHeight + 2;

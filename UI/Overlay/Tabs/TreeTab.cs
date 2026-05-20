@@ -89,7 +89,7 @@ internal sealed class TreeTab : IOverlayTab
 
         int catCount = PerModAttribution.CategoryCount;
         int visible  = Math.Min(_rowCount - _scrollOffset, OverlayLayout.MaxModRows);
-        float h      = OverlayLayout.RowsTopOffset + 10f;
+        float h      = OverlayLayoutCurrent.ChromeHeight + 32f;  // chrome + section header + a touch of breathing room
 
         Span<int> sortedCatIds = stackalloc int[catCount];
         Span<double> sortedCatMs = stackalloc double[catCount];
@@ -139,7 +139,7 @@ internal sealed class TreeTab : IOverlayTab
 
     public void Draw(SpriteBatch sb, Rectangle area, MetricCollector collector)
     {
-        int divY = area.Y + (int)OverlayLayout.DividerOffset;
+        int divY = area.Y + (int)OverlayLayoutCurrent.ChromeHeight;
         ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
         ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
         OverlayDraw.Text(sb, "PER-MOD CPU   ·   click to expand",
@@ -148,7 +148,7 @@ internal sealed class TreeTab : IOverlayTab
         if (_rowCount == 0)
         {
             OverlayDraw.Text(sb, "no per-mod data yet",
-                new Vector2(area.X + 14, area.Y + OverlayLayout.RowsTopOffset),
+                new Vector2(area.X + 14, area.Y + OverlayLayoutCurrent.ChromeHeight + 22f),
                 ProfilerTheme.TextMuted, 0.72f);
             return;
         }
@@ -161,14 +161,14 @@ internal sealed class TreeTab : IOverlayTab
         double maxMs     = _rows[0].TotalMs;
         int    visible   = Math.Min(_rowCount - _scrollOffset, OverlayLayout.MaxModRows);
         bool   hasScroll = _rowCount > OverlayLayout.MaxModRows;
-        float  rowY      = area.Y + OverlayLayout.RowsTopOffset;
+        float  rowY      = area.Y + OverlayLayoutCurrent.ChromeHeight + 22f;
         float  mouseY    = Main.MouseScreen.Y;
 
         // Scroll indicator.
         if (hasScroll)
         {
             float trackX = area.X + area.Width - OverlayLayout.ScrollTrackGap;
-            float trackY = area.Y + OverlayLayout.RowsTopOffset;
+            float trackY = area.Y + OverlayLayoutCurrent.ChromeHeight + 22f;
             float trackH = visible * OverlayLayout.RowHeight;
             ProfilerTheme.FillRect(sb,
                 new Rectangle((int)trackX, (int)trackY, (int)OverlayLayout.ScrollTrackW, (int)trackH),
@@ -322,7 +322,7 @@ internal sealed class TreeTab : IOverlayTab
         int catCount = PerModAttribution.CategoryCount;
         IReadOnlyList<double> categoryMs = OverlayState.SelectedCategoryMs(collector);
         int visible = Math.Min(_rowCount - _scrollOffset, OverlayLayout.MaxModRows);
-        float y = OverlayLayout.RowsTopOffset;
+        float y = OverlayLayoutCurrent.ChromeHeight + 22f;
 
         Span<int> sortedCatIds = stackalloc int[catCount];
         Span<double> sortedCatMs = stackalloc double[catCount];

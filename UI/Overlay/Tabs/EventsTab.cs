@@ -121,7 +121,7 @@ internal sealed class EventsTab : IOverlayTab
 
     public float MeasurePanelHeight(MetricCollector collector)
     {
-        float h = OverlayLayout.RowsTopOffset + 10f;
+        float h = OverlayLayoutCurrent.ChromeHeight + 32f;
         if (_rowCount == 0)
         {
             h += 24f; // empty-state hint
@@ -204,7 +204,7 @@ internal sealed class EventsTab : IOverlayTab
     {
         EventAggregator? agg = ModContent.GetInstance<ProfilerSystem>()?.Events;
 
-        int divY = area.Y + (int)OverlayLayout.DividerOffset;
+        int divY = area.Y + (int)OverlayLayoutCurrent.ChromeHeight;
         ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY, area.Width - 16, 1), ProfilerTheme.Border);
         ProfilerTheme.FillRect(sb, new Rectangle(area.X + 8, divY + 5, 2, 14), ProfilerTheme.Accent);
 
@@ -219,14 +219,14 @@ internal sealed class EventsTab : IOverlayTab
                 ? "events aggregator not armed (enter a world)"
                 : "no buckets yet — buckets appear once a context is active for 1 s";
             OverlayDraw.Text(sb, hint,
-                new Vector2(area.X + 18, area.Y + OverlayLayout.RowsTopOffset + 4),
+                new Vector2(area.X + 18, area.Y + OverlayLayoutCurrent.ChromeHeight + 22f + 4),
                 ProfilerTheme.TextDim, 0.6f);
-            DrawFooter(sb, area, area.Y + OverlayLayout.RowsTopOffset + 26f);
+            DrawFooter(sb, area, area.Y + OverlayLayoutCurrent.ChromeHeight + 22f + 26f);
             return;
         }
 
         double sessionAvg = agg?.SessionAverageMs ?? 0d;
-        float rowY = area.Y + OverlayLayout.RowsTopOffset;
+        float rowY = area.Y + OverlayLayoutCurrent.ChromeHeight + 22f;
         int visible = Math.Min(_rowCount - _scrollOffset, VisibleRowCount);
 
         // Column header strip.

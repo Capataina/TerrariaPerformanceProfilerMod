@@ -531,18 +531,28 @@ internal sealed class OverlayPanel : UIElement
         double coverage, int measured, int total, int fullMods, int partialMods)
     {
         int leftX = body.X + 8;
-        int topY = body.Y + 6;
         float scale = OverlayLayoutCurrent.TextScaleBody;
+        ProfilerSelfHealth health = collector.SelfHealth;
 
-        // Top row: coverage bar + backend label.
-        int barX = leftX;
-        int barW = body.Width - 240;
-        int barH = 10;
-        int barY = topY + 4;
-        Rectangle barRect = new Rectangle(barX, barY, barW, barH);
-        HeatBar.Draw(sb, barRect, coverage, 1d, coverage);
-        OverlayDraw.Text(sb, $"full {fullMods}  ·  partial {partialMods}",
-            new Vector2(barRect.Right + 12, topY), ProfilerTheme.TextMuted, scale);
+        // Three vertical rows inside the card body:
+        //   row 1 (top)    label strip: "full X · partial Y"  + (right) "backend ilhook"
+        //   row 2 (middle) coverage heat bar
+        //   row 3 (bottom) self-footprint line + severity badge (right)
+        //
+        // Each row is approximately a third of the body height; the bar gets
+        // the middle band so the labels above and the self-line below have
+        // room without overlapping it.
+
+        int row1Y = body.Y + 4;
+        int barY  = body.Y + body.Height / 2 - 4;
+        int barH  = 9;
+        int row3Y = body.Y + body.Height - 16;
+
+        // Row 1 — backend + coverage-detail labels.
+        string detail = $"full {fullMods}  ·  partial {partialMods}";
+        OverlayDraw.Text(sb, detail, new Vector2(leftX, row1Y),
+            ProfilerTheme.TextMuted, scale);
+
         string backendLabel = HookBackend.Mode switch
         {
             HookBackendMode.Delegate => "backend: delegate",
@@ -550,14 +560,19 @@ internal sealed class OverlayPanel : UIElement
             HookBackendMode.Parallel => "backend: parallel",
             _                        => "backend: ?",
         };
-        OverlayDraw.Text(sb, backendLabel, new Vector2(body.Right - 138, topY),
+        // Approximate width of the backend label so we can right-align it.
+        int backendApproxW = backendLabel.Length * 7;
+        OverlayDraw.Text(sb, backendLabel,
+            new Vector2(body.Right - backendApproxW - 8, row1Y),
             ProfilerTheme.Accent, scale);
 
-        // Second row: self-footprint line.
-        ProfilerSelfHealth health = collector.SelfHealth;
+        // Row 2 — coverage bar, full width.
+        Rectangle barRect = new Rectangle(leftX, barY, body.Width - 16, barH);
+        HeatBar.Draw(sb, barRect, coverage, 1d, coverage);
+
+        // Row 3 — self-footprint + severity badge on the right.
         if (health.IsInstalled)
         {
-            int selfY = topY + 22;
             Color selfColor = health.Severity switch
             {
                 SelfHealthSeverity.Severe     => ProfilerTheme.Danger,
@@ -566,23 +581,23 @@ internal sealed class OverlayPanel : UIElement
             };
             double selfMb = health.InstallDeltaBytes / (1024d * 1024d);
             double kbPerHook = health.BytesPerHook / 1024d;
-            string left;
+            string selfLine;
             if (health.ProcessWorkingSetBytes > 0)
             {
                 double pctOfProcess = health.InstallDeltaFractionOfProcess * 100d;
-                left = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game";
+                selfLine = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game";
             }
             else
             {
-                left = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
+                selfLine = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
             }
-            OverlayDraw.Text(sb, left, new Vector2(leftX, selfY), selfColor, scale);
+            OverlayDraw.Text(sb, selfLine, new Vector2(leftX, row3Y),
+                selfColor, scale);
 
-            // Right-aligned severity badge.
             string sevLabel = health.Severity.ToString().ToLowerInvariant();
             int badgeW = SeverityBadge.MeasureWidth(sevLabel);
             SeverityBadge.DrawSelfHealth(sb,
-                new Vector2(body.Right - badgeW - 8, selfY - 1), health.Severity);
+                new Vector2(body.Right - badgeW - 8, row3Y - 1), health.Severity);
         }
     }
 
