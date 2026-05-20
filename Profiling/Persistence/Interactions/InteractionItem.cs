@@ -79,20 +79,13 @@ internal sealed class InteractionItem : GlobalItem
 
     private static void Emit(Persistence.SessionRecorder recorder, Item item, string sourceContext, string contextCategory)
     {
-        string owningMod = "Terraria";
-        if (item.type >= ItemID.Count)
-        {
-            var modItem = ItemLoader.GetItem(item.type);
-            if (modItem != null) owningMod = modItem.Mod?.Name ?? "Terraria";
-        }
-
         recorder.OnItemCreated(new ItemCreatedRow
         {
             Tick = (long)Main.GameUpdateCount,
             UnixMs = Time.UnixMsNow(),
             ItemType = item.type,
-            ItemName = item.Name ?? "",
-            OwningMod = owningMod,
+            ItemName = LangNameCache.Item(item.type),
+            OwningMod = ModOwnerCache.ForItem(item.type),
             SourceContext = sourceContext,
             ContextCategory = contextCategory,
             Stack = item.stack,

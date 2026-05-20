@@ -23,32 +23,20 @@ internal sealed class InteractionNpc : GlobalNPC
         var recorder = system?.LiveRecorder;
         if (recorder == null) return;
 
-        // IEntitySource is a class hierarchy; the runtime type name is what
-        // distinguishes CheatSheet's debug-spawn from a natural spawn, a
-        // boss-spawn-item, a SpawnNPC call, etc. Strip the EntitySource_
-        // prefix for compactness; record the rest verbatim.
-        string sourceCategory = source?.GetType().Name ?? "unknown";
-        if (sourceCategory.StartsWith("EntitySource_"))
-            sourceCategory = sourceCategory.Substring("EntitySource_".Length);
-
+        // v0.6: ModOwnerCache.FromEntitySource strips the EntitySource_
+        // prefix from the runtime type name. LangNameCache.Npc and
+        // ModOwnerCache.ForNpc replace the inline lookup + dictionary
+        // walk per cross-allocations §3.2 / §3.5.
+        string sourceCategory = ModOwnerCache.FromEntitySource(source);
         string sourceContext = source?.Context ?? "";
-
-        // Owning mod of the NPC type — vanilla types resolve to "Terraria",
-        // modded types to their mod's internal name. Read from tML's
-        // dynamic registry, never from a hardcoded list.
-        string owningMod = "Terraria";
-        if (npc.type >= NPCID.Count)
-        {
-            var modNpc = NPCLoader.GetNPC(npc.type);
-            if (modNpc != null) owningMod = modNpc.Mod?.Name ?? "Terraria";
-        }
+        string owningMod = ModOwnerCache.ForNpc(npc.type);
 
         recorder.OnNpcSpawn(new NpcSpawnRow
         {
             Tick = (long)Main.GameUpdateCount,
             UnixMs = Time.UnixMsNow(),
             NpcType = npc.type,
-            NpcName = npc.TypeName ?? "",
+            NpcName = LangNameCache.Npc(npc.type),
             OwningMod = owningMod,
             SourceCategory = sourceCategory,
             SourceContext = sourceContext,

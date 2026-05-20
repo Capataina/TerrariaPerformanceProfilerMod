@@ -55,6 +55,14 @@ internal sealed class InteractionPlayer : ModPlayer
     private long _lastPeriodicLoadoutTick;
     private const int PeriodicLoadoutIntervalTicks = 30 * 60;
 
+    /// <summary>
+    /// Reused fingerprint builder. v0.5 allocated a fresh <c>StringBuilder</c>
+    /// every <c>PostUpdateEquips</c> tick — multiple times per second under
+    /// heavy combat. v0.6 keeps one per <c>ModPlayer</c> instance, cleared at
+    /// start of each capture. Phase γ.
+    /// </summary>
+    private readonly System.Text.StringBuilder _fpBuilder = new System.Text.StringBuilder(256);
+
     public override void OnHurt(Player.HurtInfo info)
     {
         var recorder = ResolveRecorder();
@@ -93,7 +101,7 @@ internal sealed class InteractionPlayer : ModPlayer
             ItemId = 0,
             ProjectileId = 0,
             NpcType = target.type,
-            NpcName = target.TypeName ?? "",
+            NpcName = LangNameCache.Npc(target.type),
             DamageDealt = damageDone,
             Crit = hit.Crit,
             LoadoutFingerprint = _lastLoadoutFingerprint,
@@ -113,7 +121,7 @@ internal sealed class InteractionPlayer : ModPlayer
             ItemId = item?.type ?? 0,
             ProjectileId = 0,
             NpcType = target.type,
-            NpcName = target.TypeName ?? "",
+            NpcName = LangNameCache.Npc(target.type),
             DamageDealt = damageDone,
             Crit = hit.Crit,
             LoadoutFingerprint = _lastLoadoutFingerprint,
@@ -139,7 +147,7 @@ internal sealed class InteractionPlayer : ModPlayer
             ItemId = 0,
             ProjectileId = proj?.type ?? 0,
             NpcType = target.type,
-            NpcName = target.TypeName ?? "",
+            NpcName = LangNameCache.Npc(target.type),
             DamageDealt = damageDone,
             Crit = hit.Crit,
             LoadoutFingerprint = _lastLoadoutFingerprint,
@@ -236,10 +244,12 @@ internal sealed class InteractionPlayer : ModPlayer
 
     private void EmitBuffEdge(SessionRecorder recorder, int buffType, string edge)
     {
-        string name;
-        try { name = Lang.GetBuffName(buffType) ?? ("buff-" + buffType); }
-        catch { name = "buff-" + buffType; }
-        string owner = OwningModName(BuffLoader.GetBuff(buffType));
+        // v0.6: LangNameCache + ModOwnerCache (Phase α infrastructure).
+        // Was: try { Lang.GetBuffName } catch + OwningModName(BuffLoader.GetBuff).
+        // Both lookups are now id-keyed array reads, populated once at
+        // PostSetupContent. Allocation + lookup cost dropped to near-zero.
+        string name = LangNameCache.Buff(buffType);
+        string owner = ModOwnerCache.ForBuff(buffType);
         recorder.OnBuffEvent(new BuffEventRow
         {
             Tick = (long)Main.GameUpdateCount,
@@ -275,8 +285,11 @@ internal sealed class InteractionPlayer : ModPlayer
         }
 
         // Fingerprint = concatenation of (kind:index:type) sorted by index +
-        // held item type. Stable + cheap to compare.
-        var sb = new System.Text.StringBuilder(slots.Count * 12 + 16);
+        // held item type. Stable + cheap to compare. v0.6 reuses the
+        // _fpBuilder field (cleared per call) so the per-tick allocation
+        // is just the final ToString().
+        var sb = _fpBuilder;
+        sb.Clear();
         sb.Append('h').Append(Player.HeldItem?.type ?? 0).Append('|');
         foreach (var s in slots) sb.Append(s.Kind[0]).Append(s.Index).Append(':').Append(s.ItemType).Append('|');
         string fp = sb.ToString();
@@ -295,7 +308,10 @@ internal sealed class InteractionPlayer : ModPlayer
 
     private List<int> SnapshotActiveBuffTypes()
     {
-        var list = new List<int>();
+        // The list itself escapes into ActiveBuffs on the row, so it can't
+        // be pooled-and-returned here — the row owns it. Capacity hint
+        // sized to typical-loadout buff count avoids the doubling-growth.
+        var list = new List<int>(8);
         for (int i = 0; i < Player.buffType.Length; i++)
             if (Player.buffType[i] > 0) list.Add(Player.buffType[i]);
         return list;
@@ -305,24 +321,19 @@ internal sealed class InteractionPlayer : ModPlayer
     {
         // PlayerDeathReason exposes mutually-exclusive sources via int fields.
         // -1 = "not this source". Take the first that's set.
+        //
+        // v0.6: Lang.GetProjectileName and NPC.TypeName both go through
+        // LangNameCache — the cache resolves once at PostSetupContent into
+        // a flat string[] indexed by type id. Per-call cost: one array load.
         if (reason.SourceProjectileLocalIndex >= 0 && reason.SourceProjectileType >= 0)
         {
             int type = reason.SourceProjectileType;
-            string name;
-            try { name = Lang.GetProjectileName(type)?.Value ?? ("proj-" + type); }
-            catch
-            {
-                // Lang.GetProjectileName returns LocalizedText in some tML versions, plain string in others.
-                // Fallback already covers both via .Value? (string returns null on .Value access in newer
-                // builds, suppressed by the ?). Safe default below.
-                name = "proj-" + type;
-            }
-            return ("projectile", type, name);
+            return ("projectile", type, LangNameCache.Projectile(type));
         }
         if (reason.SourceNPCIndex >= 0 && reason.SourceNPCIndex < Main.npc.Length)
         {
             int type = Main.npc[reason.SourceNPCIndex].type;
-            return ("npc", type, Main.npc[reason.SourceNPCIndex].TypeName ?? ("npc-" + type));
+            return ("npc", type, LangNameCache.Npc(type));
         }
         if (reason.SourceOtherIndex >= 0)
         {
