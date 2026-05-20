@@ -193,9 +193,13 @@ internal sealed class OverviewTab : IOverlayTab
         int contentRight = area.Right - (int)OverlayLayoutCurrent.PanelPaddingX;
         int contentWidth = contentRight - contentLeft;
 
-        // ---- Region 1: donut + contributors ----
+        // ---- Region 1: city skyline + contributors strip ----
+        // Skyline takes 65% of the width — needs the room to render 12 bars
+        // legibly. Contributors gets the remaining 35% with the precise
+        // per-axis numbers the skyline expresses as shapes.
         int donutH = (int)DonutHForMode();
-        Rectangle donutCardRect = new Rectangle(contentLeft, contentTop, donutH + 40, donutH);
+        int skylineWidth = (int)((contentRight - contentLeft) * 0.65f);
+        Rectangle donutCardRect = new Rectangle(contentLeft, contentTop, skylineWidth, donutH);
         Rectangle contribRect = new Rectangle(donutCardRect.Right + (int)OverlayLayoutCurrent.StatCardGap,
             contentTop, contentRight - donutCardRect.Right - (int)OverlayLayoutCurrent.StatCardGap, donutH);
 
@@ -222,7 +226,13 @@ internal sealed class OverviewTab : IOverlayTab
 
     private void DrawDonutCard(SpriteBatch sb, Rectangle cardRect, MetricCollector collector)
     {
-        Rectangle body = ProfilerCard.Draw(sb, cardRect, "IMPACT SHARE", _scorer.Count > 0 ? $"{_scorer.Count} mods" : null);
+        // Title strip gets the top-contributor headline + the legend baked in.
+        string? rightStat = null;
+        if (_topModId >= 0 && _topModId < _truncatedNames.Length)
+        {
+            rightStat = $"top: {_truncatedNames[_topModId]}  {_topModShare * 100d:F0}%  ({_topModComposite:F1} ms)";
+        }
+        Rectangle body = ProfilerCard.Draw(sb, cardRect, "IMPACT  ·  CITY VIEW", rightStat);
 
         if (_slicesTotal <= 0d || _slices.Count == 0)
         {
@@ -231,31 +241,16 @@ internal sealed class OverviewTab : IOverlayTab
             return;
         }
 
-        // Top contributor summary, large in the upper portion of the card.
-        if (_topModId >= 0 && _topModId < _truncatedNames.Length)
-        {
-            string name = _truncatedNames[_topModId];
-            string sharePct = $"{_topModShare * 100d:F0}%";
-            string composite = $"{_topModComposite:F1} ms";
-            float bodyScale = OverlayLayoutCurrent.TextScaleBody;
-            float rowScale = OverlayLayoutCurrent.TextScaleRow;
-            float h2Scale = OverlayLayoutCurrent.TextScaleH2;
-            OverlayDraw.Text(sb, "TOP", new Vector2(body.X + 12, body.Y + 6), ProfilerTheme.TextMuted, bodyScale);
-            OverlayDraw.Text(sb, name, new Vector2(body.X + 12, body.Y + 22), ProfilerTheme.Text, rowScale);
-            OverlayDraw.Text(sb, sharePct, new Vector2(body.X + 12, body.Y + 44), ProfilerTheme.Accent, h2Scale);
-            OverlayDraw.Text(sb, composite, new Vector2(body.X + 12, body.Y + 68), ProfilerTheme.TextMuted, bodyScale);
-        }
+        // Reserve a slim band at the bottom for the legend; skyline takes the rest.
+        int legendBandHeight = 18;
+        Rectangle skylineArea = new Rectangle(
+            body.X + 8, body.Y + 4,
+            body.Width - 16,
+            body.Height - 4 - legendBandHeight);
+        DonutChart.Draw(sb, skylineArea, _slices);
 
-        // Stacked share bar across the lower portion of the card.
-        int barTop = body.Y + body.Height - 50;
-        int barLeft = body.X + 12;
-        int barRight = body.Right - 12;
-        int barHeight = 28;
-        Rectangle barArea = new Rectangle(barLeft, barTop, barRight - barLeft, barHeight);
-        DonutChart.Draw(sb, barArea, _slices);
-
-        // Legend below the bar.
-        int legendY = barArea.Bottom + 6;
+        // Legend bar at the bottom: three colour swatches + axis labels.
+        int legendY = skylineArea.Bottom + 2;
         DrawLegendDot(sb, body.X + 12, legendY, ProfilerTheme.CpuDominant, "cpu");
         DrawLegendDot(sb, body.X + 12 + 56, legendY, ProfilerTheme.AllocDominant, "alloc");
         DrawLegendDot(sb, body.X + 12 + 56 + 70, legendY, ProfilerTheme.SpikeDominant, "spike");
@@ -502,9 +497,10 @@ internal sealed class OverviewTab : IOverlayTab
         IReadOnlyList<ModImpact> sorted = _scorer.Sorted;
         if (sorted.Count == 0) return;
 
-        // Take top 8 by composite, fold the rest into "others".
-        const int MaxSlices = 8;
+        // Skyline shows the top N as discrete towers; tail collapses into one.
+        const int MaxBars = 12;
         double othersTotal = 0d;
+        double othersCpu = 0d, othersAlloc = 0d, othersSpike = 0d;
 
         for (int i = 0; i < sorted.Count; i++) _slicesTotal += sorted[i].Composite;
         if (_slicesTotal <= 0d) return;
@@ -512,19 +508,28 @@ internal sealed class OverviewTab : IOverlayTab
         for (int i = 0; i < sorted.Count; i++)
         {
             ModImpact m = sorted[i];
-            if (i < MaxSlices)
+            if (i < MaxBars)
             {
+                string? label = m.ModId >= 0 && m.ModId < _truncatedNames.Length
+                    ? _truncatedNames[m.ModId]
+                    : null;
                 _slices.Add(new DonutSlice
                 {
                     Value = m.Composite,
                     SliceColor = ProfilerTheme.ModColor(m.ModId),
                     DominantHue = DominantHueFor(m),
-                    Label = null,
+                    Label = label,
+                    CpuMs = m.CpuMs,
+                    AllocMsEq = m.AllocMsEq,
+                    SpikeMs = m.SpikeMs,
                 });
             }
             else
             {
                 othersTotal += m.Composite;
+                othersCpu += m.CpuMs;
+                othersAlloc += m.AllocMsEq;
+                othersSpike += m.SpikeMs;
             }
         }
 
@@ -536,6 +541,9 @@ internal sealed class OverviewTab : IOverlayTab
                 SliceColor = ProfilerTheme.TextDim,
                 DominantHue = ProfilerTheme.TextDim,
                 Label = "others",
+                CpuMs = othersCpu,
+                AllocMsEq = othersAlloc,
+                SpikeMs = othersSpike,
             });
         }
 
