@@ -33,6 +33,8 @@ internal static class RetrospectiveToast
 {
     private const int Width = 340;
     private const int CardH = SegmentCard.PreferredHeight;
+    private const int RibbonH = 16;            // separate band ABOVE the card carrying the promotion reason
+    private const int ToastH = CardH + RibbonH; // total vertical footprint per toast
     private const int Gap = 6;
     private const int MarginX = 18;
     private const int MarginY = 36;
@@ -53,9 +55,22 @@ internal static class RetrospectiveToast
     /// <summary>Drain freshly-promoted segments from the store and enqueue toasts.</summary>
     public static void Pump()
     {
+        // Config gate: when toasts are disabled, drain-and-discard any pending
+        // ones so they don't pile up against a future toggle-on.
+        ProfilerConfig? cfg = ModContent.GetInstance<ProfilerConfig>();
+        bool enabled = cfg == null || cfg.EnableRetrospectiveToasts;
+
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
         SegmentStore? store = sys?.SegmentStore;
         if (store == null) return;
+
+        if (!enabled)
+        {
+            while (store.TryDequeueToast(out _)) { /* drop */ }
+            _live.Clear();
+            _pending.Clear();
+            return;
+        }
 
         while (store.TryDequeueToast(out Segment? seg))
         {
@@ -94,8 +109,8 @@ internal static class RetrospectiveToast
         int screenH = Main.screenHeight;
         long now = Time.UnixMsNow();
 
-        // Stack bottom-up.
-        int y = screenH - MarginY - CardH;
+        // Stack bottom-up. Each toast is ribbon (16 px) + card.
+        int y = screenH - MarginY - ToastH;
         int x = screenW - MarginX - Width;
 
         for (int i = 0; i < _live.Count; i++)
@@ -111,20 +126,16 @@ internal static class RetrospectiveToast
             // Slide-in offset on first FadeMs.
             int slide = age < FadeMs ? (int)(40 * (1f - alpha)) : 0;
 
-            Rectangle rect = new Rectangle(x + slide, y, Width, CardH);
+            Rectangle ribbonRect = new Rectangle(x + slide, y, Width, RibbonH);
+            Rectangle cardRect = new Rectangle(x + slide, y + RibbonH, Width, CardH);
 
-            // We don't have a per-toast alpha-scaled draw of the card; render
-            // it at full opacity. (The card is already a calm visual; the
-            // life-cycle is short enough that the missing fade-out doesn't
-            // jar the player.)
+            DrawRibbon(sb, ribbonRect, t.Segment.PromotionReason);
+
             double avg = store?.LifetimeAvgMsPerTick(t.Segment.Family, t.Segment.Key) ?? 0d;
             int samples = store?.LifetimeSampleCount(t.Segment.Family, t.Segment.Key) ?? 0;
-            SegmentCard.Draw(sb, rect, t.Segment, avg, samples);
+            SegmentCard.Draw(sb, cardRect, t.Segment, avg, samples);
 
-            // Promotion-reason ribbon on the top edge.
-            DrawRibbon(sb, rect, t.Segment.PromotionReason);
-
-            y -= CardH + Gap;
+            y -= ToastH + Gap;
         }
     }
 
@@ -133,12 +144,12 @@ internal static class RetrospectiveToast
     {
         int screenW = Main.screenWidth;
         int screenH = Main.screenHeight;
-        int y = screenH - MarginY - CardH;
+        int y = screenH - MarginY - ToastH;
         int x = screenW - MarginX - Width;
 
         for (int i = 0; i < _live.Count; i++)
         {
-            var rect = new Rectangle(x, y, Width, CardH);
+            var rect = new Rectangle(x, y, Width, ToastH);
             if (rect.Contains(screenX, screenY))
             {
                 Toast t = _live[i];
@@ -146,15 +157,13 @@ internal static class RetrospectiveToast
                 _live[i] = t;
                 return true;
             }
-            y -= CardH + Gap;
+            y -= ToastH + Gap;
         }
         return false;
     }
 
-    private static void DrawRibbon(SpriteBatch sb, Rectangle card, string reason)
+    private static void DrawRibbon(SpriteBatch sb, Rectangle ribbon, string reason)
     {
-        if (string.IsNullOrEmpty(reason)) return;
-
         Color stripe = reason switch
         {
             "boss-kill" => ProfilerTheme.Good,
@@ -166,10 +175,16 @@ internal static class RetrospectiveToast
             "bookmark"  => ProfilerTheme.Text,
             _ => ProfilerTheme.TextMuted,
         };
-        ProfilerTheme.FillRect(sb, new Rectangle(card.X, card.Y, card.Width, 3), stripe);
 
-        OverlayDraw.Text(sb, reason.ToUpperInvariant(),
-            new Vector2(card.X + 8, card.Y + 4),
-            stripe, OverlayLayoutCurrent.TextScaleBody);
+        // Filled ribbon band darkened with the stripe colour as accent.
+        ProfilerTheme.FillRect(sb, ribbon, ProfilerTheme.Header);
+        ProfilerTheme.FillRect(sb, new Rectangle(ribbon.X, ribbon.Y, ribbon.Width, 2), stripe);
+
+        if (!string.IsNullOrEmpty(reason))
+        {
+            OverlayDraw.Text(sb, reason.ToUpperInvariant(),
+                new Vector2(ribbon.X + 8, ribbon.Y + 3),
+                stripe, OverlayLayoutCurrent.TextScaleBody);
+        }
     }
 }

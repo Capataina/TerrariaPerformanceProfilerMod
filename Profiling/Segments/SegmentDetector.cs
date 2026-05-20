@@ -103,7 +103,14 @@ internal sealed class SegmentDetector
         _activeBiome.Clear();
         for (int i = 0; i < BiomeRegistry.Count; i++)
         {
-            if (ctx.Biomes.IsSet(i)) _activeBiome.Add(i);
+            if (!ctx.Biomes.IsSet(i)) continue;
+            // Skip "no-zone default" biomes (Purity is the always-on
+            // not-in-evil-biome marker; segmenting it just produces a
+            // shadow of every other biome segment). Forest is left in
+            // because it tracks a real "I'm on the surface" zone that
+            // closes when the player descends.
+            if (IsNoZoneDefault(i)) continue;
+            _activeBiome.Add(i);
         }
 
         _activeWeather.Clear();
@@ -444,6 +451,19 @@ internal sealed class SegmentDetector
     private static long Compose(SegmentFamily family, int key)
     {
         return ((long)(byte)family << 56) | (uint)key;
+    }
+
+    /// <summary>
+    /// True when the biome at <paramref name="bitIndex"/> is a "default no-zone"
+    /// marker — currently just "Purity", which is on in every area that
+    /// isn't corruption/crimson/hallow. Without this skip the Timeline would
+    /// show a Purity segment paralleling every other biome segment.
+    /// </summary>
+    private static bool IsNoZoneDefault(int bitIndex)
+    {
+        if (bitIndex < 0 || bitIndex >= BiomeRegistry.Biomes.Count) return false;
+        string name = BiomeRegistry.Biomes[bitIndex].DisplayName;
+        return name == "Purity";
     }
 }
 

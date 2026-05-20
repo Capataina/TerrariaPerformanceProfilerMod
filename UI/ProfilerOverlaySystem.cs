@@ -128,9 +128,15 @@ public sealed class ProfilerOverlaySystem : ModSystem
         return true;
     }
 
-    /// <summary>Always-on toast layer. Pumps the segment store and renders cards bottom-right.</summary>
+    /// <summary>
+    /// Always-on layer combining the live Now-Playing widget (top-left) and
+    /// the retrospective toasts (bottom-right). Both surfaces are visible
+    /// regardless of whether the F9 overlay is open, but each is independently
+    /// togglable via <see cref="ProfilerConfig"/>.
+    /// </summary>
     private static bool DrawToasts()
     {
+        NowPlayingPanel.DrawFloating(Main.spriteBatch);
         RetrospectiveToast.Pump();
         RetrospectiveToast.Draw(Main.spriteBatch);
         return true;

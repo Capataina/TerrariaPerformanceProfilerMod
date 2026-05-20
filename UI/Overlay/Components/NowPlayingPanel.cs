@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
+using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Segments;
@@ -11,14 +12,26 @@ using PerformanceProfiler.UI;
 namespace PerformanceProfiler.UI.Overlay.Components;
 
 /// <summary>
-/// "Now playing" live panel — sits at the top of the Overview tab and
-/// shows every currently-open <see cref="OpenSegment"/> as one row, with
-/// a live elapsed timer and the top mod-during-segment so far.
+/// Always-visible "Now Playing" widget — a compact floating panel anchored
+/// near the top-left of the screen showing every currently-open
+/// <see cref="OpenSegment"/> as one row, with a live elapsed timer and the
+/// top mod-during-segment so far.
 ///
 /// <para>
-/// Compact by design. Each row is a single horizontal strip. The panel
-/// reports zero height when no segments are open (gracefully invisible
-/// in the menu / between worlds / right after world-load).
+/// v0.7.1: hoisted out of the Overview tab into its own always-on layer
+/// (similar to <see cref="RetrospectiveToast"/>). Two reasons:
+/// </para>
+/// <list type="bullet">
+///   <item>Stops the Overview tab from overflowing the screen on 1080p+
+///         when many segments are open.</item>
+///   <item>Visible even with the F9 overlay closed — the live segment
+///         state is the kind of thing the player wants glanceable, not
+///         hidden behind a panel toggle.</item>
+/// </list>
+///
+/// <para>
+/// Gated by <c>ProfilerConfig.EnableNowPlayingPanel</c>. Renders zero
+/// pixels when no segments are open or the player isn't in a world.
 /// </para>
 /// </summary>
 internal static class NowPlayingPanel
@@ -27,31 +40,25 @@ internal static class NowPlayingPanel
     private const int HeaderH = 14;
     private const int PaddingY = 6;
     private const int MaxRows = 6;
+    private const int Width = 380;
+    private const int MarginX = 18;
+    private const int MarginY = 30;
 
-    /// <summary>Height the panel will actually consume this frame; 0 when no segments are open.</summary>
-    public static float MeasureHeight()
+    /// <summary>Always-on draw entry. Called from <see cref="ProfilerOverlaySystem"/>'s float-layer.</summary>
+    public static void DrawFloating(SpriteBatch sb)
     {
+        // Config gate.
+        ProfilerConfig? cfg = ModContent.GetInstance<ProfilerConfig>();
+        if (cfg != null && !cfg.EnableNowPlayingPanel) return;
+
+        // Only show inside a live world (Main.LocalPlayer.active is the cheap check).
+        if (Main.gameMenu) return;
+
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
         SegmentDetector? det = sys?.Segments;
-        if (det == null) return 0f;
-        int rows = det.OpenSegments.Count;
-        if (rows == 0) return 0f;
-        if (rows > MaxRows) rows = MaxRows;
-        return HeaderH + RowH * rows + PaddingY;
-    }
+        if (det == null || det.OpenSegments.Count == 0) return;
 
-    /// <summary>
-    /// Render into <paramref name="area"/> (X/Y/Width consumed; Height ignored
-    /// — we compute and return our own consumed height). Returns 0 when no
-    /// segments are open (caller skips the gap).
-    /// </summary>
-    public static int Draw(SpriteBatch sb, Rectangle area, MetricCollector collector)
-    {
-        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        SegmentDetector? det = sys?.Segments;
-        if (det == null || det.OpenSegments.Count == 0) return 0;
-
-        // Snapshot + sort: bosses/invasions/weather first (high-signal), biomes after.
+        // Snapshot + sort: most interesting first.
         var ordered = new List<OpenSegment>(det.OpenSegments);
         ordered.Sort((a, b) => FamilyWeight(a.Family).CompareTo(FamilyWeight(b.Family)));
         if (ordered.Count > MaxRows) ordered.RemoveRange(MaxRows, ordered.Count - MaxRows);
@@ -59,46 +66,48 @@ internal static class NowPlayingPanel
         int rows = ordered.Count;
         int totalH = HeaderH + rows * RowH + PaddingY;
 
-        Rectangle outer = new Rectangle(area.X, area.Y, area.Width, totalH - PaddingY);
-        ProfilerTheme.DrawPanel(sb, outer, ProfilerTheme.SurfaceElevated, ProfilerTheme.Border);
+        int x = MarginX;
+        int y = MarginY;
+        Rectangle outer = new Rectangle(x, y, Width, totalH);
+        ProfilerTheme.FillRect(sb, outer, ProfilerTheme.SurfaceElevated);
+        ProfilerTheme.DrawBorder(sb, outer, ProfilerTheme.Border);
 
         float bodyScale = OverlayLayoutCurrent.TextScaleBody;
         float rowScale = OverlayLayoutCurrent.TextScaleRow;
 
-        // Header strip
+        // Header.
         OverlayDraw.Text(sb, "NOW PLAYING",
-            new Vector2(area.X + 8, area.Y + 1),
+            new Vector2(x + 8, y + 1),
             ProfilerTheme.TextMuted, bodyScale);
-        OverlayDraw.Text(sb, rows + " open segment" + (rows == 1 ? "" : "s"),
-            new Vector2(area.Right - 110, area.Y + 1),
+        OverlayDraw.Text(sb, rows + " open",
+            new Vector2(x + Width - 60, y + 1),
             ProfilerTheme.TextMuted, bodyScale);
 
-        long tickNow = (long)Terraria.Main.GameUpdateCount;
         long unixMs = Time.UnixMsNow();
         string[] modNames = HookInterceptor.ProfiledModNames;
 
-        int y = area.Y + HeaderH;
+        int rowY = y + HeaderH;
         for (int i = 0; i < rows; i++)
         {
             OpenSegment seg = ordered[i];
 
-            // Family colour stripe.
+            // Family stripe.
             Color marker = FamilyColor(seg.Family);
-            ProfilerTheme.FillRect(sb, new Rectangle(area.X + 6, y + 3, 4, RowH - 6), marker);
+            ProfilerTheme.FillRect(sb, new Rectangle(x + 6, rowY + 3, 4, RowH - 6), marker);
 
-            // Name (left)
+            // Name.
             OverlayDraw.Text(sb, seg.Name,
-                new Vector2(area.X + 16, y + 1),
+                new Vector2(x + 16, rowY + 1),
                 ProfilerTheme.Text, rowScale);
 
-            // Elapsed (centre)
+            // Elapsed.
             long durMs = unixMs - seg.StartUnixMs;
             string dur = SegmentCard.FormatDuration(durMs);
             OverlayDraw.Text(sb, dur,
-                new Vector2(area.X + area.Width / 2 - 24, y + 1),
+                new Vector2(x + Width / 2 - 16, rowY + 1),
                 ProfilerTheme.TextMuted, bodyScale);
 
-            // Top mod-during-segment so far (right) — find best
+            // Top mod-during-segment.
             int bestId = -1;
             double bestMs = 0d;
             for (int m = 0; m < seg.PerModMs.Length; m++)
@@ -113,16 +122,14 @@ internal static class NowPlayingPanel
             }
             else
             {
-                right = "...";
+                right = "…";
             }
             OverlayDraw.Text(sb, right,
-                new Vector2(area.Right - 150, y + 1),
+                new Vector2(x + Width - 160, rowY + 1),
                 ProfilerTheme.TextMuted, bodyScale);
 
-            y += RowH;
+            rowY += RowH;
         }
-
-        return totalH;
     }
 
     private static int FamilyWeight(SegmentFamily f) => f switch

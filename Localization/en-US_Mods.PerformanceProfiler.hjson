@@ -18,6 +18,16 @@ Configs: {
 			Label: Panel width override (px, 0 = mode default)
 			Tooltip: ""
 		}
+
+		EnableRetrospectiveToasts: {
+			Label: Retrospective pop-up cards
+			Tooltip: Slide-in cards in the bottom-right when a segment closes (boss kill, death, blood moon, etc). Off = silent. Segments still land in the Timeline tab.
+		}
+
+		EnableNowPlayingPanel: {
+			Label: Now-Playing widget
+			Tooltip: Top-left widget showing currently-open segments (biome you're in, alive bosses, weather events). Visible even with F9 closed.
+		}
 	}
 
 	OverlayMode: {

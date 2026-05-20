@@ -65,6 +65,23 @@ public sealed class ProfilerConfig : ModConfig
     public int PanelWidthOverride { get; set; } = 0;
 
     /// <summary>
+    /// Corner pop-up cards that fire when a segment closes (boss kill,
+    /// death, invasion end, blood moon, etc). Off = silent; segments still
+    /// land in the Timeline tab regardless. Default on.
+    /// </summary>
+    [DefaultValue(true)]
+    public bool EnableRetrospectiveToasts { get; set; } = true;
+
+    /// <summary>
+    /// Always-visible "Now Playing" widget showing currently-open segments
+    /// (which biome you're in, which boss is alive, weather events, etc).
+    /// Anchored top-left of the screen; visible even with the F9 overlay
+    /// closed. Default on.
+    /// </summary>
+    [DefaultValue(true)]
+    public bool EnableNowPlayingPanel { get; set; } = true;
+
+    /// <summary>
     /// Called by tModLoader whenever the user changes a value in the config
     /// menu. Pushes mode + default tab into <see cref="OverlayState"/> so the
     /// open overlay reflects the new preference immediately.

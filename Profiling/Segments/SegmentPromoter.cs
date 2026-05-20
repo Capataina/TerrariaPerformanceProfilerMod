@@ -61,10 +61,21 @@ internal static class SegmentPromoter
             }
         }
 
-        // Drama signals — any of these promote the card.
-        if (seg.DeathCount > 0) return new PromotionResult(true, "death");
-        if (seg.StallCount > 0) return new PromotionResult(true, "stall");
-        if (seg.SpikeCount > 0) return new PromotionResult(true, "spike");
+        // Drama signals (spike/stall/death) only promote for "interesting"
+        // families — Boss, Combat, DeathBracket. Biome / Weather / Hardmode
+        // segments are noisy: a player who dies once in Forest+Purity+Rain
+        // would otherwise fire four near-identical death toasts. The death
+        // already gets its own DeathBracket retrospective, which IS the
+        // right surface for "what cost you that life".
+        bool dramaEligible = seg.Family is SegmentFamily.Boss
+            or SegmentFamily.Combat
+            or SegmentFamily.DeathBracket;
+        if (dramaEligible)
+        {
+            if (seg.DeathCount > 0) return new PromotionResult(true, "death");
+            if (seg.StallCount > 0) return new PromotionResult(true, "stall");
+            if (seg.SpikeCount > 0) return new PromotionResult(true, "spike");
+        }
 
         // Outlier check — needs at least 5 prior samples of this segment type.
         if (lifetimeSampleCount >= 5 && lifetimeAvgMsPerTick > 0d)

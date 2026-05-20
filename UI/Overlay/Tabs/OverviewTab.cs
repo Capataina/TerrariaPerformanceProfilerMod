@@ -127,7 +127,6 @@ internal sealed class OverviewTab : IOverlayTab
         float footerH = 14f;
 
         return OverlayLayoutCurrent.ChromeHeight
-             + NowPlayingPanel.MeasureHeight()
              + donutH + SectionGap
              + sparkH + SectionGap
              + chipsH
@@ -194,10 +193,10 @@ internal sealed class OverviewTab : IOverlayTab
         int contentRight = area.Right - (int)OverlayLayoutCurrent.PanelPaddingX;
         int contentWidth = contentRight - contentLeft;
 
-        // ---- Region 0: "Now playing" live segments panel ----
-        int nowPlayingH = NowPlayingPanel.Draw(sb,
-            new Rectangle(contentLeft, contentTop, contentWidth, 0), collector);
-        contentTop += nowPlayingH;
+        // v0.7.1: NowPlayingPanel moved out of the Overview tab into its own
+        // floating layer (top-left of screen, always-on, regardless of which
+        // tab is active). Keeps Overview's content height bounded so the
+        // dashboard fits on a 1080p screen.
 
         // ---- Region 1: city skyline + contributors strip ----
         // Skyline takes 65% of the width — needs the room to render 12 bars
