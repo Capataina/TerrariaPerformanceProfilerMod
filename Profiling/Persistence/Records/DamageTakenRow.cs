@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -22,7 +23,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// </list>
 /// </para>
 /// </summary>
-public sealed class DamageTakenRow
+public sealed class DamageTakenRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 1;
@@ -46,4 +47,23 @@ public sealed class DamageTakenRow
 
     /// <summary>Buff type ids active when the hurt fired.</summary>
     public List<int> ActiveBuffs { get; set; } = new();
+
+    /// <summary>
+    /// Reset every mutable field for pool reuse. Called by
+    /// <see cref="RowPool{T}.Return"/> on the writer thread after the LiteDB
+    /// Upsert completes. The Id field is freshly assigned per Rent (we never
+    /// reuse the same ObjectId across renters; the next Rent will assign a
+    /// new one at emit-fill time).
+    /// </summary>
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 1;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        SourceKind = "unknown"; SourceId = 0; SourceName = "";
+        DamageRaw = 0; DamageDealt = 0; Pvp = false; Crit = false;
+        HpBefore = 0; HpAfter = 0; MaxHp = 0;
+        ActiveBuffs.Clear();
+    }
 }

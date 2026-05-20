@@ -1,6 +1,7 @@
 #nullable enable
 
 using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Profiling.Pools;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
@@ -79,16 +80,16 @@ internal sealed class InteractionItem : GlobalItem
 
     private static void Emit(Persistence.SessionRecorder recorder, Item item, string sourceContext, string contextCategory)
     {
-        recorder.OnItemCreated(new ItemCreatedRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            ItemType = item.type,
-            ItemName = LangNameCache.Item(item.type),
-            OwningMod = ModOwnerCache.ForItem(item.type),
-            SourceContext = sourceContext,
-            ContextCategory = contextCategory,
-            Stack = item.stack,
-        });
+        // v0.6.1: pooled row.
+        var row = RowPool<ItemCreatedRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.ItemType = item.type;
+        row.ItemName = LangNameCache.Item(item.type);
+        row.OwningMod = ModOwnerCache.ForItem(item.type);
+        row.SourceContext = sourceContext;
+        row.ContextCategory = contextCategory;
+        row.Stack = item.stack;
+        recorder.OnItemCreated(row);
     }
 }

@@ -1,6 +1,7 @@
 #nullable enable
 
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -13,7 +14,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// vanilla, and every future spawning mod surface identically. Per
 /// Invariant 5 we never match on a mod's name.
 /// </summary>
-public sealed class NpcSpawnRow
+public sealed class NpcSpawnRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 1;
@@ -37,4 +38,15 @@ public sealed class NpcSpawnRow
     public float TileX { get; set; }
     public float TileY { get; set; }
     public bool IsBoss { get; set; }
+
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 1;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        NpcType = 0; NpcName = ""; OwningMod = "";
+        SourceCategory = "unknown"; SourceContext = "";
+        TileX = 0f; TileY = 0f; IsBoss = false;
+    }
 }

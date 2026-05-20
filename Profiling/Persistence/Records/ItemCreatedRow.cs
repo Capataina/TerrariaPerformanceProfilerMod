@@ -1,6 +1,7 @@
 #nullable enable
 
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -17,7 +18,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// (schema = 1) default to <c>SourceContext = "Create"</c> in migration —
 /// the only surface that fired in v0.5.
 /// </summary>
-public sealed class ItemCreatedRow
+public sealed class ItemCreatedRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 2;
@@ -46,4 +47,15 @@ public sealed class ItemCreatedRow
     public string ContextCategory { get; set; } = "unknown";
 
     public int Stack { get; set; }
+
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 2;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        ItemType = 0; ItemName = ""; OwningMod = "";
+        SourceContext = "Create"; ContextCategory = "unknown";
+        Stack = 0;
+    }
 }

@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -18,7 +19,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// generically is the only Invariant-5-compliant path.
 /// </para>
 /// </summary>
-public sealed class LoadoutSnapshotRow
+public sealed class LoadoutSnapshotRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 1;
@@ -37,6 +38,18 @@ public sealed class LoadoutSnapshotRow
 
     /// <summary>Stable fingerprint of (held item + every slot's item type) — used as a key for change detection + insight correlation.</summary>
     public string Fingerprint { get; set; } = "";
+
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 1;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        Reason = "change";
+        HeldItemType = 0; HeldItemName = "";
+        Slots.Clear();      // preserves capacity for next renter
+        Fingerprint = "";
+    }
 }
 
 /// <summary>One occupied loadout slot.</summary>

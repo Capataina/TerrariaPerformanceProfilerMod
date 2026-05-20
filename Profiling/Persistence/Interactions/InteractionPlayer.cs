@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Profiling.Pools;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ModLoader;
@@ -90,22 +91,24 @@ internal sealed class InteractionPlayer : ModPlayer
         if (recorder == null || Player.whoAmI != Main.myPlayer) return;
 
         var (kind, id, name) = ClassifyDeathReason(info.DamageSource);
-        var row = new DamageTakenRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            SourceKind = kind,
-            SourceId = id,
-            SourceName = name,
-            DamageRaw = info.SourceDamage,
-            DamageDealt = info.Damage,
-            Pvp = info.PvP,
-            Crit = false,                                  // Player.HurtInfo doesn't expose a Crit flag in tML 1.4.4
-            HpBefore = Player.statLife + info.Damage,
-            HpAfter = Player.statLife,
-            MaxHp = Player.statLifeMax2,
-            ActiveBuffs = SnapshotActiveBuffTypes(),
-        };
+        // v0.6.1: Rent pooled row instead of `new DamageTakenRow`. The
+        // writer thread's DamageTakenStream.Apply returns it to the pool
+        // after Upsert; in steady state the same handful of instances cycle
+        // forever and zero heap allocation per damage event.
+        var row = RowPool<DamageTakenRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.SourceKind = kind;
+        row.SourceId = id;
+        row.SourceName = name;
+        row.DamageRaw = info.SourceDamage;
+        row.DamageDealt = info.Damage;
+        row.Pvp = info.PvP;
+        row.Crit = false;   // Player.HurtInfo doesn't expose a Crit flag in tML 1.4.4
+        row.HpBefore = Player.statLife + info.Damage;
+        row.HpAfter = Player.statLife;
+        row.MaxHp = Player.statLifeMax2;
+        row.ActiveBuffs = SnapshotActiveBuffTypes();
         recorder.OnDamageTaken(row);
     }
 
@@ -114,19 +117,19 @@ internal sealed class InteractionPlayer : ModPlayer
         var recorder = ResolveRecorder();
         if (recorder == null || Player.whoAmI != Main.myPlayer) return;
 
-        recorder.OnDamageDealt(new DamageDealtRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            Path = "melee",
-            ItemId = 0,
-            ProjectileId = 0,
-            NpcType = target.type,
-            NpcName = LangNameCache.Npc(target.type),
-            DamageDealt = damageDone,
-            Crit = hit.Crit,
-            LoadoutFingerprint = _lastLoadoutFingerprint,
-        });
+        // v0.6.1: pooled row. See OnHurt for the cycle explanation.
+        var row = RowPool<DamageDealtRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.Path = "melee";
+        row.ItemId = 0;
+        row.ProjectileId = 0;
+        row.NpcType = target.type;
+        row.NpcName = LangNameCache.Npc(target.type);
+        row.DamageDealt = damageDone;
+        row.Crit = hit.Crit;
+        row.LoadoutFingerprint = _lastLoadoutFingerprint;
+        recorder.OnDamageDealt(row);
     }
 
     public override void OnHitNPCWithItem(Item item, NPC target, NPC.HitInfo hit, int damageDone)
@@ -134,19 +137,18 @@ internal sealed class InteractionPlayer : ModPlayer
         var recorder = ResolveRecorder();
         if (recorder == null || Player.whoAmI != Main.myPlayer) return;
 
-        recorder.OnDamageDealt(new DamageDealtRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            Path = "item",
-            ItemId = item?.type ?? 0,
-            ProjectileId = 0,
-            NpcType = target.type,
-            NpcName = LangNameCache.Npc(target.type),
-            DamageDealt = damageDone,
-            Crit = hit.Crit,
-            LoadoutFingerprint = _lastLoadoutFingerprint,
-        });
+        var row = RowPool<DamageDealtRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.Path = "item";
+        row.ItemId = item?.type ?? 0;
+        row.ProjectileId = 0;
+        row.NpcType = target.type;
+        row.NpcName = LangNameCache.Npc(target.type);
+        row.DamageDealt = damageDone;
+        row.Crit = hit.Crit;
+        row.LoadoutFingerprint = _lastLoadoutFingerprint;
+        recorder.OnDamageDealt(row);
     }
 
     public override void OnHitNPCWithProj(Projectile proj, NPC target, NPC.HitInfo hit, int damageDone)
@@ -160,19 +162,18 @@ internal sealed class InteractionPlayer : ModPlayer
         // time (we don't track that yet) — for now we record the projectile
         // and leave the originating item to be cross-referenced from the
         // loadout snapshot via the LoadoutFingerprint.
-        recorder.OnDamageDealt(new DamageDealtRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            Path = "projectile",
-            ItemId = 0,
-            ProjectileId = proj?.type ?? 0,
-            NpcType = target.type,
-            NpcName = LangNameCache.Npc(target.type),
-            DamageDealt = damageDone,
-            Crit = hit.Crit,
-            LoadoutFingerprint = _lastLoadoutFingerprint,
-        });
+        var row = RowPool<DamageDealtRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.Path = "projectile";
+        row.ItemId = 0;
+        row.ProjectileId = proj?.type ?? 0;
+        row.NpcType = target.type;
+        row.NpcName = LangNameCache.Npc(target.type);
+        row.DamageDealt = damageDone;
+        row.Crit = hit.Crit;
+        row.LoadoutFingerprint = _lastLoadoutFingerprint;
+        recorder.OnDamageDealt(row);
     }
 
     public override void PostUpdateBuffs()
@@ -333,23 +334,24 @@ internal sealed class InteractionPlayer : ModPlayer
         // Was: try { Lang.GetBuffName } catch + OwningModName(BuffLoader.GetBuff).
         // Both lookups are now id-keyed array reads, populated once at
         // PostSetupContent. Allocation + lookup cost dropped to near-zero.
-        string name = LangNameCache.Buff(buffType);
-        string owner = ModOwnerCache.ForBuff(buffType);
-        recorder.OnBuffEvent(new BuffEventRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            Edge = edge,
-            BuffType = buffType,
-            BuffName = name,
-            OwningMod = owner,
-            DurationTicks = -1,
-        });
+        // v0.6.1: pooled BuffEventRow.
+        var row = RowPool<BuffEventRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.Edge = edge;
+        row.BuffType = buffType;
+        row.BuffName = LangNameCache.Buff(buffType);
+        row.OwningMod = ModOwnerCache.ForBuff(buffType);
+        row.DurationTicks = -1;
+        recorder.OnBuffEvent(row);
     }
 
     private LoadoutSnapshotRow CaptureLoadout(string reason)
     {
-        var slots = new List<EquipmentSlotEntry>(Player.armor.Length);
+        // v0.6.1: pooled row. The row's Slots list is also pooled (cleared
+        // on Return via IPoolReset.Reset, keeping its backing array).
+        var row = RowPool<LoadoutSnapshotRow>.Rent();
+        var slots = row.Slots;  // reuse the pooled list (already cleared by Reset)
         int armorEnd = 3; // vanilla armor slots 0..2
         for (int i = 0; i < Player.armor.Length; i++)
         {
@@ -379,16 +381,13 @@ internal sealed class InteractionPlayer : ModPlayer
         foreach (var s in slots) sb.Append(s.Kind[0]).Append(s.Index).Append(':').Append(s.ItemType).Append('|');
         string fp = sb.ToString();
 
-        return new LoadoutSnapshotRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            Reason = reason,
-            HeldItemType = Player.HeldItem?.type ?? 0,
-            HeldItemName = Player.HeldItem?.Name ?? "",
-            Slots = slots,
-            Fingerprint = fp,
-        };
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.Reason = reason;
+        row.HeldItemType = Player.HeldItem?.type ?? 0;
+        row.HeldItemName = Player.HeldItem?.Name ?? "";
+        row.Fingerprint = fp;
+        return row;
     }
 
     private List<int> SnapshotActiveBuffTypes()

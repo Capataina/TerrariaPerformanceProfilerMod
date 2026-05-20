@@ -1,6 +1,7 @@
 #nullable enable
 
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -11,7 +12,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// hooks go quiet. The triple gives an insight detector everything it
 /// needs to spot event-conditional cost.
 /// </summary>
-public sealed class BuffEventRow
+public sealed class BuffEventRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 1;
@@ -29,4 +30,15 @@ public sealed class BuffEventRow
 
     /// <summary>Duration the buff was on for, in ticks. Only filled on the "off" edge; -1 on the "on" edge.</summary>
     public int DurationTicks { get; set; } = -1;
+
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 1;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        Edge = "on";
+        BuffType = 0; BuffName = ""; OwningMod = "";
+        DurationTicks = -1;
+    }
 }

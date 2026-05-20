@@ -1,6 +1,7 @@
 #nullable enable
 
 using LiteDB;
+using PerformanceProfiler.Profiling.Pools;
 
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
@@ -21,7 +22,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 /// Together these three paths answer the "is it the sword, the projectile,
 /// or an accessory damage chain" question from a single damage event.
 /// </summary>
-public sealed class DamageDealtRow
+public sealed class DamageDealtRow : IPoolReset
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
     [BsonField("_schema")] public int Schema { get; set; } = 1;
@@ -42,4 +43,16 @@ public sealed class DamageDealtRow
 
     /// <summary>Fingerprint of the player's loadout at hit time (links to a LoadoutSnapshotRow).</summary>
     public string LoadoutFingerprint { get; set; } = "";
+
+    public void Reset()
+    {
+        Id = ObjectId.NewObjectId();
+        Schema = 1;
+        SessionId = ObjectId.Empty;
+        Tick = 0; UnixMs = 0;
+        Path = "melee"; ItemId = 0; ProjectileId = 0;
+        NpcType = 0; NpcName = "";
+        DamageDealt = 0; Crit = false;
+        LoadoutFingerprint = "";
+    }
 }

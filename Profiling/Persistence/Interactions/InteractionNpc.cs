@@ -1,6 +1,7 @@
 #nullable enable
 
 using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Profiling.Pools;
 using Terraria;
 using Terraria.DataStructures;
 using Terraria.ID;
@@ -31,18 +32,18 @@ internal sealed class InteractionNpc : GlobalNPC
         string sourceContext = source?.Context ?? "";
         string owningMod = ModOwnerCache.ForNpc(npc.type);
 
-        recorder.OnNpcSpawn(new NpcSpawnRow
-        {
-            Tick = (long)Main.GameUpdateCount,
-            UnixMs = Time.UnixMsNow(),
-            NpcType = npc.type,
-            NpcName = LangNameCache.Npc(npc.type),
-            OwningMod = owningMod,
-            SourceCategory = sourceCategory,
-            SourceContext = sourceContext,
-            TileX = npc.position.X / 16f,
-            TileY = npc.position.Y / 16f,
-            IsBoss = npc.boss || (npc.type >= NPCID.None && npc.type < NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]),
-        });
+        // v0.6.1: pooled row.
+        var row = RowPool<NpcSpawnRow>.Rent();
+        row.Tick = (long)Main.GameUpdateCount;
+        row.UnixMs = Time.UnixMsNow();
+        row.NpcType = npc.type;
+        row.NpcName = LangNameCache.Npc(npc.type);
+        row.OwningMod = owningMod;
+        row.SourceCategory = sourceCategory;
+        row.SourceContext = sourceContext;
+        row.TileX = npc.position.X / 16f;
+        row.TileY = npc.position.Y / 16f;
+        row.IsBoss = npc.boss || (npc.type >= NPCID.None && npc.type < NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]);
+        recorder.OnNpcSpawn(row);
     }
 }
