@@ -65,4 +65,85 @@ internal static class OverlayLayout
     /// <see cref="IOverlayTab.MeasurePanelHeight"/>.
     /// </summary>
     public const float ChromeHeight    = RowsTopOffset;
+
+    // ---- UI overhaul Phase 0 additions ---------------------------------------
+    //
+    // New constants for the upcoming UI rewrite. Sit alongside the existing
+    // values (which Phase 2's chrome rewrite will retire in favour of these).
+    // Adding them now means the Phase 1 component library can be built and
+    // tested against the final geometry without each component re-deriving
+    // sizes from magic numbers.
+    //
+    // The header, tab strip, and row heights are larger than the current
+    // values because the audit-driven feedback was "the UI is too small and
+    // hard to read". Stat blocks become raised cards instead of a flat row
+    // of label/value pairs. The PROFILER HEALTH band becomes its own card
+    // so the self-footprint line we added in the relativity batch has room
+    // to breathe.
+
+    /// <summary>Default panel width post-overhaul. Stored once here; the chrome reads it at construction.</summary>
+    public const float PanelWidthDefault = 880f;
+
+    /// <summary>Minimum panel width after Phase 7's resize handle ships.</summary>
+    public const float PanelWidthMin = 720f;
+
+    /// <summary>Maximum panel width; chosen so even ultra-wide users keep the panel manageable.</summary>
+    public const float PanelWidthMax = 1400f;
+
+    /// <summary>Header strip height for the new chrome. Larger than the current 28 px to give the title room and improve readability.</summary>
+    public const float HeaderHeightV2 = 32f;
+
+    /// <summary>Tab strip height for the new chrome.</summary>
+    public const float TabStripHeightV2 = 28f;
+
+    /// <summary>Width of each tab pill in the new strip. Sized to fit "INSIGHTS" / "SUMMARY" comfortably at the new typography scale.</summary>
+    public const float TabWidthV2 = 102f;
+
+    /// <summary>Gap between adjacent tab pills.</summary>
+    public const float TabGapV2 = 6f;
+
+    /// <summary>Height of a single raised stat card. Carries one label + value at the new H2 scale.</summary>
+    public const float StatCardHeight = 48f;
+
+    /// <summary>Horizontal gap between adjacent stat cards.</summary>
+    public const float StatCardGap = 6f;
+
+    /// <summary>Outer horizontal padding inside the panel; cards and rows align to this.</summary>
+    public const float PanelPaddingX = 12f;
+
+    /// <summary>Outer vertical padding inside the panel.</summary>
+    public const float PanelPaddingY = 8f;
+
+    /// <summary>Height of the PROFILER HEALTH card in the new chrome.</summary>
+    public const float ProfilerHealthCardHeight = 56f;
+
+    /// <summary>Vertical gap between the chrome regions (header → tabs → stats → health).</summary>
+    public const float ChromeRegionGap = 6f;
+
+    /// <summary>Row heights at the new scale tier.</summary>
+    public const float RowHeightV2 = 22f;
+    public const float SubRowHeightV2 = 20f;
+    public const float HookRowHeightV2 = 18f;
+
+    /// <summary>Bar heights for the new HeatBar component.</summary>
+    public const int BarH_ModV2 = 12;
+    public const int BarH_CatV2 = 10;
+    public const int BarH_HookV2 = 8;
+
+    /// <summary>Card title strip height; sits on top of the card body.</summary>
+    public const float CardTitleStripHeight = 18f;
+
+    // ---- Typography scale tiers (see plan §6) --------------------------------
+
+    /// <summary>H1: panel title, tab headers.</summary>
+    public const float TextScaleH1 = 0.92f;
+
+    /// <summary>H2: section titles, stat block values.</summary>
+    public const float TextScaleH2 = 0.78f;
+
+    /// <summary>Row: primary row text (mod name, hook name).</summary>
+    public const float TextScaleRow = 0.72f;
+
+    /// <summary>Body: secondary row text (annotations, units, captions).</summary>
+    public const float TextScaleBody = 0.62f;
 }

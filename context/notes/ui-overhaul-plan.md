@@ -35,7 +35,7 @@ These guide every individual decision below. If a proposed UI element doesn't sa
 
 5. **Resizable, persistent.** Panel size is a user preference, persisted across sessions. Default is bigger than today; corner-drag resize within sane bounds.
 
-6. **Modern surface treatment.** Rounded corners (small radius, 4 px), one elevated surface tier (cards), subtle gradient highlights on actives, no skeuomorphism.
+6. **Modern surface treatment via tiered surfaces, not rounded corners.** One elevated surface tier (cards) plus subtle gradient highlights on actives; corners stay sharp because rounded edges would require shipping a texture asset or hand-rolling polygon math, neither of which earns its keep when the same visual hierarchy can be achieved with surface contrast. Decided 2026-05-20.
 
 7. **The overlay can never be the cause of player lag.** Every UI decision has a hot-path cost; we ship within the existing per-frame budget. New chart drawing batches geometry, runs at 1 Hz refresh like the existing tabs.
 
@@ -90,7 +90,6 @@ ChromeHeight          = HeaderHeight + TabStripHeight + StatCardHeight + Profile
 RowHeight             = 22f     (was 18f)
 SubRowHeight          = 20f     (was 16f)
 HookRowHeight         = 18f     (was 14f)
-CornerRadius          = 4f
 ```
 
 Result: more vertical real estate per row (text scale increases proportionally), but the chrome occupies more pixels too. Net effect is fewer rows visible on a screen — solved by the panel growing wider, and by users resizing height upward when they want a deeper view.
@@ -99,17 +98,9 @@ Result: more vertical real estate per row (text scale increases proportionally),
 
 These are the new primitives. Each lives in `UI/Overlay/Components/`. Every tab consumes them.
 
-### 4.1 `RoundedSurface`
+### 4.1 `ProfilerCard`
 
-Draws a filled rounded rectangle. Implementation: 8x8 pre-baked corner texture (one small asset added at `Assets/RoundedCorner.png`), 4 corner sprites + 4 edges (FillRect) + 1 centre fill. ~10 SpriteBatch draw calls per surface; the chrome + ~12 cards per frame is ~130 draws — well below the spritebatch budget. Border variant adds 4 more edges of border-coloured pixels.
-
-```csharp
-ProfilerSurface.Draw(sb, area, fill, border, cornerRadius: 4);
-```
-
-### 4.2 `ProfilerCard`
-
-A titled raised surface. Title strip on top in panel-fill, body in elevated-fill. Used for stat blocks, PROFILER HEALTH, sections within tabs.
+A titled raised surface. Title strip on top in panel-fill, body in elevated-fill, sharp corners with a 1 px border. Built from the existing `FillRect` + `DrawBorder` helpers — no new primitives, no asset. Used for stat blocks, PROFILER HEALTH, sections within tabs.
 
 ```csharp
 ProfilerCard.Begin(sb, area, "this tick", titleColor);
@@ -117,7 +108,7 @@ ProfilerCard.Begin(sb, area, "this tick", titleColor);
 ProfilerCard.End(sb);
 ```
 
-### 4.3 `HeatBar`
+### 4.2 `HeatBar`
 
 Horizontal bar where the fill colour comes from `ProfilerTheme.CostColor(fraction)` and the fill width comes from `value / max`. Used for every mod/hook cost row.
 
@@ -125,7 +116,7 @@ Horizontal bar where the fill colour comes from `ProfilerTheme.CostColor(fractio
 HeatBar.Draw(sb, area, value, max, height: 10);   // colour derived
 ```
 
-### 4.4 `Sparkline`
+### 4.3 `Sparkline`
 
 Mini line chart over a fixed-length series. Two implementations:
 - **Filled area** (frame time over 30 s)
@@ -137,7 +128,7 @@ Drawn as primitive-batch line strips (cheap; ~30 vertices per sparkline). Refres
 Sparkline.DrawFilled(sb, area, valuesRing, fillColor, lineColor);
 ```
 
-### 4.5 `DonutChart`
+### 4.4 `DonutChart`
 
 Pie chart with hole. Sectors drawn as triangle fans via `GraphicsDevice.DrawUserPrimitives`. Centre hole reserved for a hero stat (total ms / top contributor / etc).
 
@@ -149,11 +140,11 @@ DonutChart.Draw(sb, gd, centre, outerR, innerR, slices, centreStat, centreLabel)
 
 Slice limit: top 8 by value, ninth slice is "others" lumping the tail. Hover highlights the slice and shows the mod name; click expands its detail in the side panel.
 
-### 4.6 `Pill`
+### 4.5 `Pill`
 
-Already exists as `Toggle`. Modernised: 6 px rounded corners, optional leading dot for status, two-row variant for "label / value" pairs. Same hit-test API.
+Already exists as `Toggle`. Modernised: optional leading dot for status, two-row variant for "label / value" pairs, slightly larger hit-target. Sharp corners, same hit-test API.
 
-### 4.7 `StatBlock`
+### 4.6 `StatBlock`
 
 Label/value pair with consistent hierarchy. Title in muted small caps, value in primary larger, optional unit suffix in muted, optional delta indicator (↑/↓ + arrow colour).
 
@@ -161,11 +152,11 @@ Label/value pair with consistent hierarchy. Title in muted small caps, value in 
 StatBlock.Draw(sb, position, "this tick", "1.25 ms", deltaPercent: -8.3);
 ```
 
-### 4.8 `SeverityBadge`
+### 4.7 `SeverityBadge`
 
 Pill variant that takes a severity enum and renders the appropriate colour + label. One implementation handles spike severity, stall severity, confidence, evidence scope, self-health severity — the colour mapping table lives in one place.
 
-### 4.9 `TimelineStrip`
+### 4.8 `TimelineStrip`
 
 A horizontal time axis showing where events landed in the session. Tick marks for boundaries, dots for events, hover shows event detail. Used at the top of the LAG tab to give "when did things happen" context above the row list.
 
@@ -396,9 +387,7 @@ Total: roughly 8 commits over the work. Estimated 1500–2500 LOC across UI/Over
 
 ## 10. Risks and open questions
 
-1. **Asset addition.** The rounded-corner texture is the first non-code asset the mod ships. `build.txt`'s `buildIgnore` may need a sibling include rule. Verify the asset survives `.tmod` packaging during Phase 1.
-
-2. **DonutChart performance.** `DrawUserPrimitives` per slice per frame is fine at 60 Hz with 8 slices — that's ~1500 triangles/sec, MonoGame eats this. But we should 1 Hz-cadence the geometry rebuild (only the vertex positions; the draw call itself is always fresh). Confirm with the profiler's own measurement after Phase 3.
+1. **DonutChart performance.** `DrawUserPrimitives` per slice per frame is fine at 60 Hz with 8 slices — that's ~1500 triangles/sec, MonoGame eats this. But we should 1 Hz-cadence the geometry rebuild (only the vertex positions; the draw call itself is always fresh). Confirm with the profiler's own measurement after Phase 3.
 
 3. **Resizable panel + persisted size.** Adds the first `ModConfig` to the mod. Trivial in tModLoader but it's a milestone we should be deliberate about (does our config get its own JSON file? where is it surfaced in the mods menu?).
 
@@ -420,4 +409,15 @@ Deliberate omissions, listed so they don't get sneaked in:
 
 ---
 
-**Next step:** Caner reviews this, marks decisions on the open questions in §10, and I begin Phase 0.
+## 12. Decisions log
+
+| Date | Question | Decision |
+|---|---|---|
+| 2026-05-20 | Rounded corners? | **No.** Sharp corners; visual hierarchy comes from surface tiers + heat ramp + tiered typography. Texture-asset and procedural-polygon approaches both rejected as cost-not-worth-it. |
+| 2026-05-20 | Pin-default-tab scope | Global. One preference across all modlists. |
+| 2026-05-20 | Compact mode behaviour | Keep cards just smaller, modern style stays. Cheaper revert-to-flat path discarded. |
+| 2026-05-20 | SELF tab visibility | Always visible. PROFILER HEALTH in the chrome is the glance, SELF tab is the detail. |
+| 2026-05-20 | OVERVIEW → SUMMARY rename | Yes. |
+| 2026-05-20 | SUMMARY hidden-low filter default | Off. Show every mod always; filter pill exists, defaults off. |
+
+**Next step:** Phase 0 (layout constants + theme palette additions, zero visible change).
