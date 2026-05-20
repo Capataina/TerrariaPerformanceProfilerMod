@@ -142,6 +142,38 @@ public sealed class ProfilerDatabase : IDisposable
     public void Checkpoint() => _db.Checkpoint();
 
     /// <summary>
+    /// Drain the writer queue, checkpoint the DB, and truncate the journal.
+    /// Called at <c>OnWorldUnload</c> in addition to <see cref="Dispose"/>,
+    /// because tModLoader doesn't always fire <c>Mod.Unload</c> on
+    /// quit-to-desktop (especially on macOS); world-unload is the most
+    /// reliable signal that a session ended cleanly.
+    ///
+    /// Safe to call multiple times; the writer simply re-flushes whatever
+    /// has arrived since the last drain. The writer thread itself stays
+    /// alive — only the queue contents drain and the journal truncates.
+    /// </summary>
+    public void DrainAndTruncateJournalForSessionEnd()
+    {
+        try
+        {
+            // Best-effort wait for the writer thread to drain whatever the
+            // recorder enqueued at session-end.
+            int spins = 0;
+            while (_writer.ApproxQueueDepth > 0 && spins < 100)
+            {
+                System.Threading.Thread.Sleep(20);
+                spins++;
+            }
+            _db.Checkpoint();
+            _journal.TruncateOnCleanShutdown();
+        }
+        catch (Exception ex)
+        {
+            _log("ProfilerDatabase: drain-and-truncate at session-end failed", ex);
+        }
+    }
+
+    /// <summary>
     /// Compact the DB: <c>Checkpoint()</c> first (per LiteDB issue #2152),
     /// then <c>Rebuild()</c>. Caller must guarantee no live world.
     /// </summary>

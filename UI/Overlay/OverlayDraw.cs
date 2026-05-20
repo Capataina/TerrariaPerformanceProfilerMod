@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
@@ -16,11 +17,44 @@ internal static class OverlayDraw
 {
     /// <summary>
     /// Draws a string with the bordered-text style the overlay uses
-    /// throughout. Thin wrapper over <see cref="Utils.DrawBorderString"/>
-    /// so we don't have to repeat the call shape in every drawing method.
+    /// throughout. Two crispness defences layered on top of vanilla
+    /// <see cref="Utils.DrawBorderString"/>:
+    ///
+    /// <list type="number">
+    /// <item><b>Integer pixel snap</b> — the position is rounded to whole
+    /// pixels before the draw. Sub-pixel positions force the GPU to
+    /// bilinear-sample the glyph atlas, which produces the fuzzy halo
+    /// players noticed on macOS HiDPI panels. Snapping costs one
+    /// <see cref="MathF.Round"/> per axis and lands every glyph on a
+    /// pixel boundary.</item>
+    /// <item><b>Scale quantisation</b> — fractional scales like 0.55 or
+    /// 0.65 don't map cleanly to pixel grids; rounding to the nearest
+    /// 0.05 step keeps the glyph atlas sampling closer to its native
+    /// resolution. Vanilla DrawBorderString accepts arbitrary scale; the
+    /// fuzz comes from us passing weird values.</item>
+    /// </list>
+    ///
+    /// The vanilla <c>Utils.DrawBorderString</c> contract draws the glyph
+    /// four times at ±1 px offsets in <see cref="Color.Black"/> + once at
+    /// the fill colour. The black outline is what makes text legible on
+    /// every panel/heat-bar/donut background; without it, gray-on-gray
+    /// becomes unreadable (the Insights tab problem).
     /// </summary>
-    public static void Text(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale) =>
+    public static void Text(SpriteBatch spriteBatch, string text, Vector2 position, Color color, float scale)
+    {
+        // Snap to integer pixels — kills bilinear-sampling blur on
+        // sub-pixel positions.
+        position.X = MathF.Round(position.X);
+        position.Y = MathF.Round(position.Y);
+
+        // Quantise scale to 0.05 steps so we don't render at e.g. 0.5499.
+        // Below the floor we clamp — anything smaller is unreadable on
+        // 1470x923 panels anyway.
+        scale = MathF.Round(scale * 20f) / 20f;
+        if (scale < 0.5f) scale = 0.5f;
+
         Utils.DrawBorderString(spriteBatch, text, position, color, scale);
+    }
 
     /// <summary>
     /// Draws a "label   value" pair: muted label on the left, value in its

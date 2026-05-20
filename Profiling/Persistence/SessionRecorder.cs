@@ -284,7 +284,14 @@ public sealed class SessionRecorder
         {
             HookDescriptor desc = hooks[hookId];
             double avgMs = hookId < hookAvg.Count ? hookAvg[hookId] : 0d;
-            if (avgMs <= 0d && hookAvgBytes == null) continue;
+            double avgBytes = (hookAvgBytes != null && hookId < hookAvgBytes.Count) ? hookAvgBytes[hookId] : 0d;
+
+            // Skip silent hooks regardless of allocation tracking — writing
+            // a row per zero-ms zero-byte hook is what blew the DB up to
+            // 5.8 MB in a 3-minute session (10,250 hooks × ~200 B row).
+            // With this gate the per-session-hook batch carries only the
+            // hooks that actually fired.
+            if (avgMs <= 0d && avgBytes <= 0d) continue;
 
             result.Add(new PerSessionHookAggregate
             {
@@ -296,7 +303,7 @@ public sealed class SessionRecorder
                 AvgMs = avgMs,
                 PeakMs = avgMs,
                 TotalMs = avgMs * _ticksObserved,
-                AvgBytes = (hookAvgBytes != null && hookId < hookAvgBytes.Count) ? hookAvgBytes[hookId] : 0d,
+                AvgBytes = avgBytes,
                 CallCount = 0,
             });
         }

@@ -28,8 +28,13 @@ internal sealed class InsightsTab : IOverlayTab
     public string Label => "INSIGHTS";
 
     private const int VisibleCards = 6;
-    private const float CardHeight = 72f;
-    private const float CardHeightCompact = 56f;
+    // Card grew 72 -> 88 so subject (Y+4), body (Y+22), and badges
+    // (Y+44) each get a clear 14-16 px row without overlap. The previous
+    // 72px body squeezed badges to bodyRect.Bottom-18 = Y+32 which
+    // intersected the body text at Y+22..Y+34 (the "low" / "this run"
+    // pill overlap visible in the 2026-05-20 screenshots).
+    private const float CardHeight = 88f;
+    private const float CardHeightCompact = 68f;
     private const float CardGap = 6f;
     private const int RefreshIntervalTicks = 60;
 
@@ -132,24 +137,31 @@ internal sealed class InsightsTab : IOverlayTab
         if (rec.Subject.HookId >= 0 && rec.Subject.HookId < PerModAttribution.Hooks.Count)
             subject += " · " + PerModAttribution.Hooks[rec.Subject.HookId].DisplayName;
 
+        // Three distinct vertical rows inside the card body — no overlap:
+        //   row 1 (Y+4)   subject (mod · hook), heading scale
+        //   row 2 (Y+22)  body string, muted
+        //   row 3 (Y+44)  confidence + scope pills (left) + evidence (right)
+        //
+        // The body string and the pills used to occupy overlapping Y
+        // ranges, which made gray-text-under-gray-pill unreadable. Pills
+        // now have a dedicated row beneath the body line; evidence sits
+        // on the same row right-aligned.
+
         OverlayDraw.Text(sb, OverlayDraw.Truncate(subject, 64),
             new Vector2(bodyRect.X + 8, bodyRect.Y + 4),
             ProfilerTheme.Text,
             OverlayLayoutCurrent.TextScaleRow);
 
-        // Body string on the next line.
         OverlayDraw.Text(sb, body,
             new Vector2(bodyRect.X + 8, bodyRect.Y + 22),
             ProfilerTheme.TextMuted,
             OverlayLayoutCurrent.TextScaleBody);
 
-        // Bottom row: confidence + scope badges, plus evidence summary on the right.
-        int badgeY = bodyRect.Bottom - 18;
+        int badgeY = bodyRect.Y + 44;
         SeverityBadge.DrawConfidence(sb, new Vector2(bodyRect.X + 8, badgeY), rec.Confidence);
         int scopeX = bodyRect.X + 8 + SeverityBadge.MeasureWidth(rec.Confidence.ToString().ToLowerInvariant()) + 4;
         SeverityBadge.DrawScope(sb, new Vector2(scopeX, badgeY), rec.Scope);
 
-        // Evidence summary on the right of the bottom row.
         string evidence = $"share {rec.Magnitude.RatioOrDelta:F2} · pAdj {rec.Evidence.PValueAdjusted:F2}";
         OverlayDraw.Text(sb, evidence,
             new Vector2(bodyRect.Right - evidence.Length * 6 - 8, badgeY + 2),

@@ -251,8 +251,11 @@ internal sealed class OverviewTab : IOverlayTab
         // Centre stat: top contributor name + share + composite ms, stacked vertically.
         if (_topModId >= 0 && _topModId < _truncatedNames.Length)
         {
-            string name = _truncatedNames[_topModId];
-            if (name.Length > 12) name = name.Substring(0, 12);
+            // Donut centre has limited width; the truncate helper adds ".."
+            // when over budget so the reader sees the name was clipped
+            // (was a silent Substring before — "CheatSheet" rendered fine
+            // but "PerformanceProfile" silently dropped the trailing r).
+            string name = OverlayDraw.Truncate(_truncatedNames[_topModId], 14);
             string sharePct = $"{_topModShare * 100d:F0}%";
             string composite = $"{_topModComposite:F1} ms";
             float bodyScale = OverlayLayoutCurrent.TextScaleBody;
@@ -271,12 +274,72 @@ internal sealed class OverviewTab : IOverlayTab
         // The neighbouring TOP CONTRIBUTORS card already shows the same
         // top-N ranking with bars + values. Don't duplicate it inside the
         // donut card — that produced two ranking lists side by side.
+        //
+        // The right half of the IMPACT SHARE card was previously empty
+        // (the v0.2 screenshots showed a large blank band). Fill it with
+        // a compact slice legend: per-slice colour swatch + name + share
+        // percentage. This is *not* a second ranking — it's the donut's
+        // own legend, anchored to the donut's colour assignment, so a
+        // reader can map a slice back to its mod without squinting at the
+        // hue.
 
-        // Legend bar at the bottom under the donut.
+        DrawSliceLegend(sb, body, (int)(centre.X + outerR + 18));
+
+        // Legend bar at the bottom under the donut — the per-axis hue key
+        // (cpu / alloc / spike), distinct from the per-slice list to the
+        // right.
         int legendY = body.Bottom - legendBandHeight + 2;
         DrawLegendDot(sb, body.X + 12, legendY, ProfilerTheme.CpuDominant, "cpu");
         DrawLegendDot(sb, body.X + 12 + 56, legendY, ProfilerTheme.AllocDominant, "alloc");
         DrawLegendDot(sb, body.X + 12 + 56 + 70, legendY, ProfilerTheme.SpikeDominant, "spike");
+    }
+
+    /// <summary>
+    /// Compact per-slice legend in the right half of the IMPACT SHARE card.
+    /// Five rows: colour swatch + truncated mod name + share %. Walks
+    /// <c>_slices</c> ordered as the donut sweeps; the order matches what
+    /// the eye traces around the ring.
+    /// </summary>
+    private void DrawSliceLegend(SpriteBatch sb, Rectangle body, int legendLeft)
+    {
+        if (_slicesTotal <= 0d) return;
+
+        int rowH = 16;
+        int top = body.Y + 8;
+        int maxRows = Math.Min(_slices.Count, 6);
+        float scale = OverlayLayoutCurrent.TextScaleBody;
+        int colW = body.Right - legendLeft - 12;
+
+        for (int i = 0; i < maxRows; i++)
+        {
+            var slice = _slices[i];
+            int y = top + i * rowH;
+
+            // Colour swatch matching the donut slice (outer ring hue).
+            ProfilerTheme.FillRect(sb,
+                new Rectangle(legendLeft, y + 4, 8, 8),
+                slice.SliceColor);
+
+            string label = OverlayDraw.Truncate(slice.Label ?? "?", 18);
+            OverlayDraw.Text(sb, label,
+                new Vector2(legendLeft + 14, y + 1),
+                ProfilerTheme.Text, scale);
+
+            string pct = $"{slice.Value / _slicesTotal * 100d:F1}%";
+            int pctW = pct.Length * 6;
+            OverlayDraw.Text(sb, pct,
+                new Vector2(body.Right - pctW - 12, y + 1),
+                ProfilerTheme.TextMuted, scale);
+        }
+
+        // "+ N more" if the legend was capped.
+        if (_slices.Count > maxRows)
+        {
+            int more = _slices.Count - maxRows;
+            OverlayDraw.Text(sb, $"+ {more} more",
+                new Vector2(legendLeft + 14, top + maxRows * rowH + 2),
+                ProfilerTheme.TextDim, scale);
+        }
     }
 
     private void DrawLegendDot(SpriteBatch sb, float x, float y, Color hue, string label)
@@ -317,9 +380,13 @@ internal sealed class OverviewTab : IOverlayTab
     {
         float bodyScale = OverlayLayoutCurrent.TextScaleBody;
         float rowScale = OverlayLayoutCurrent.TextScaleRow;
-        int nameLen = 18;
+        // 20 char visual budget (was 18 — "PerformanceProfiler" is 19 and was
+        // rendering as "PerformanceProfile"). Truncate via the shared helper
+        // so an over-budget name shows ".." rather than silently losing a
+        // character.
+        const int nameLen = 20;
         string name = m.ModId < _truncatedNames.Length ? _truncatedNames[m.ModId] : $"#{m.ModId}";
-        if (name.Length > nameLen) name = name.Substring(0, nameLen);
+        name = OverlayDraw.Truncate(name, nameLen);
 
         // Identity dot.
         Color identity = ProfilerTheme.ModColor(m.ModId);

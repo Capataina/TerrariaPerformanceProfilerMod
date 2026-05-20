@@ -145,11 +145,18 @@ internal static class OverlayLayout
     /// <summary>Outer vertical padding inside the panel.</summary>
     public const float PanelPaddingY = 8f;
 
-    /// <summary>Height of the PROFILER HEALTH card in default-mode chrome.</summary>
-    public const float ProfilerHealthCardHeight = 64f;
+    /// <summary>
+    /// Height of the PROFILER HEALTH card in default-mode chrome.
+    /// Bumped from 64 to 76 to give the three internal rows (top labels,
+    /// heat bar, self-footprint line) clear vertical separation; the
+    /// previous height made row 3 land flush with the bar's bottom edge
+    /// so the self-line drew on top of the bar's last pixel row (the
+    /// red-text-on-red-bar artefact visible in the 2026-05-20 screenshots).
+    /// </summary>
+    public const float ProfilerHealthCardHeight = 76f;
 
-    /// <summary>Height of the PROFILER HEALTH card in compact mode.</summary>
-    public const float ProfilerHealthCardHeightCompact = 44f;
+    /// <summary>Height of the PROFILER HEALTH card in compact mode (proportional bump 44 -> 54).</summary>
+    public const float ProfilerHealthCardHeightCompact = 54f;
 
     /// <summary>Vertical gap between the chrome regions (header → tabs → stats → health).</summary>
     public const float ChromeRegionGap = 6f;

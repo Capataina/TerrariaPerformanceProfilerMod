@@ -219,17 +219,22 @@ internal sealed class EventsTab : IOverlayTab
                 ? "events aggregator not armed (enter a world)"
                 : "no buckets yet — buckets appear once a context is active for 1 s";
             OverlayDraw.Text(sb, hint,
-                new Vector2(area.X + 18, area.Y + OverlayLayoutCurrent.ChromeHeight + 22f + 4),
+                new Vector2(area.X + 18, area.Y + OverlayLayoutCurrent.ChromeHeight + 38f),
                 ProfilerTheme.TextDim, 0.6f);
-            DrawFooter(sb, area, area.Y + OverlayLayoutCurrent.ChromeHeight + 22f + 26f);
+            DrawFooter(sb, area, area.Y + OverlayLayoutCurrent.ChromeHeight + 62f);
             return;
         }
 
         double sessionAvg = agg?.SessionAverageMs ?? 0d;
-        float rowY = area.Y + OverlayLayoutCurrent.ChromeHeight + 22f;
+        // Section header sits at divY+6; the column header used to land at
+        // ChromeHeight+8 — a 2-pixel gap which superimposed on low-res
+        // panels (the "EVENTS … bucket" overlap visible in screenshots).
+        // Bump the data-row start so the column header has its own row.
+        float rowY = area.Y + OverlayLayoutCurrent.ChromeHeight + 38f;
         int visible = Math.Min(_rowCount - _scrollOffset, VisibleRowCount);
 
-        // Column header strip.
+        // Column header strip — sits one full row below the section header,
+        // not overlapping it.
         DrawColumnHeader(sb, area, rowY - 14f);
 
         for (int i = 0; i < visible; i++)

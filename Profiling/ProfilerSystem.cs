@@ -188,6 +188,14 @@ public sealed class ProfilerSystem : ModSystem
             try
             {
                 _recorder.End(Collector, endReason: "clean");
+
+                // Drain + checkpoint + truncate the journal here instead of
+                // relying on Mod.Unload. tModLoader doesn't reliably fire
+                // Unload on quit-to-desktop, especially on macOS, which is
+                // why a 7 MB profiler.events.log survived the previous
+                // session. World-unload is the strongest "this session
+                // ended cleanly" signal we have.
+                PerformanceProfiler.Database?.DrainAndTruncateJournalForSessionEnd();
             }
             catch (Exception ex)
             {

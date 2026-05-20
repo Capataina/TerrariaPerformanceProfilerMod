@@ -534,19 +534,24 @@ internal sealed class OverlayPanel : UIElement
         float scale = OverlayLayoutCurrent.TextScaleBody;
         ProfilerSelfHealth health = collector.SelfHealth;
 
-        // Three vertical rows inside the card body:
-        //   row 1 (top)    label strip: "full X · partial Y"  + (right) "backend ilhook"
-        //   row 2 (middle) coverage heat bar
-        //   row 3 (bottom) self-footprint line + severity badge (right)
+        // Three vertical bands inside the card body. Each band's Y is
+        // computed against the body height instead of overlapping fixed
+        // offsets, so the bar's bottom never collides with row 3's top.
         //
-        // Each row is approximately a third of the body height; the bar gets
-        // the middle band so the labels above and the self-line below have
-        // room without overlapping it.
+        //   row 1 (top)    "full X · partial Y"   +  "backend ilhook"  (right)
+        //   row 2 (mid)    coverage heat bar (full body width)
+        //   row 3 (bot)    "self … MB · KB/hook · % of game"  +  severity badge (right)
+        //
+        // Vertical budget (default body ~54px after the title bar):
+        //   row1: top + 4    height ~12
+        //   bar : centred    height 8
+        //   row3: bottom - 4 height ~12
 
+        const int rowH = 12;
+        const int barH = 8;
         int row1Y = body.Y + 4;
-        int barY  = body.Y + body.Height / 2 - 4;
-        int barH  = 9;
-        int row3Y = body.Y + body.Height - 16;
+        int barY  = body.Y + (body.Height - barH) / 2;
+        int row3Y = body.Y + body.Height - rowH - 4;
 
         // Row 1 — backend + coverage-detail labels.
         string detail = $"full {fullMods}  ·  partial {partialMods}";
@@ -571,28 +576,32 @@ internal sealed class OverlayPanel : UIElement
         HeatBar.Draw(sb, barRect, coverage, 1d, coverage);
 
         // Row 3 — self-footprint + severity badge on the right.
+        //
+        // Text colour is always TextMuted regardless of severity. The
+        // severity badge to the right is the channel for "this is bad" —
+        // colouring the text Danger on a Danger-tinted bar background
+        // is the contrast collision visible in the v0.2 screenshots.
         if (health.IsInstalled)
         {
-            Color selfColor = health.Severity switch
-            {
-                SelfHealthSeverity.Severe     => ProfilerTheme.Danger,
-                SelfHealthSeverity.Concerning => ProfilerTheme.Amber,
-                _                             => ProfilerTheme.TextMuted,
-            };
             double selfMb = health.InstallDeltaBytes / (1024d * 1024d);
             double kbPerHook = health.BytesPerHook / 1024d;
             string selfLine;
             if (health.ProcessWorkingSetBytes > 0)
             {
-                double pctOfProcess = health.InstallDeltaFractionOfProcess * 100d;
-                selfLine = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook  ·  {pctOfProcess:F1}% of game";
+                double processMb = health.ProcessWorkingSetBytes / (1024d * 1024d);
+                // "self / process" is the honest framing — install-delta
+                // bytes as a fraction of the current process working set.
+                // Avoid the "% of game" label that drifts past 100% as the
+                // process grows; "X MB / Y MB" reads correctly at every
+                // ratio.
+                selfLine = $"self  {selfMb:F0} MB / {processMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
             }
             else
             {
                 selfLine = $"self  {selfMb:F0} MB  ·  {kbPerHook:F1} KB/hook";
             }
             OverlayDraw.Text(sb, selfLine, new Vector2(leftX, row3Y),
-                selfColor, scale);
+                ProfilerTheme.TextMuted, scale);
 
             string sevLabel = health.Severity.ToString().ToLowerInvariant();
             int badgeW = SeverityBadge.MeasureWidth(sevLabel);
