@@ -269,7 +269,7 @@ internal sealed class InteractionPlayer : ModPlayer
         for (int i = 0; i < Player.armor.Length; i++)
         {
             var it = Player.armor[i];
-            if (it == null || it.type == 0) continue;
+            if (it == null || it.type == Terraria.ID.ItemID.None) continue;
 
             string kind = i < armorEnd ? "armor"
                         : i < armorEnd + 7 ? "accessory"
@@ -343,9 +343,10 @@ internal sealed class InteractionPlayer : ModPlayer
         {
             return ("player", reason.SourcePlayerIndex, "player");
         }
-        if (!string.IsNullOrEmpty(reason.SourceCustomReason))
+        if (reason.CustomReason != null)
         {
-            return ("custom", -1, reason.SourceCustomReason);
+            string text = reason.CustomReason.ToString();
+            if (!string.IsNullOrEmpty(text)) return ("custom", -1, text);
         }
         return ("unknown", -1, "(unknown)");
     }

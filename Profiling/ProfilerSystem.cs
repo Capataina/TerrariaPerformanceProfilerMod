@@ -139,11 +139,27 @@ public sealed class ProfilerSystem : ModSystem
     }
 
     /// <summary>
-    /// Allocates the engine and its ring buffer once, at world entry. Paired
-    /// one-to-one with <see cref="OnWorldUnload"/> so the buffer is allocated
-    /// once and freed once (Invariant 2).
+    /// Marks the world-loaded state. v0.5 ran all the heavy construction
+    /// (MetricCollector ring + SessionRecorder + ModlistFingerprint.Compute
+    /// which reads every mod's assembly hash + the watchers + the aggregator)
+    /// inline here on the main thread; the 16:09-16:14 playtest measured the
+    /// world-enter freeze at 172 ms.
+    ///
+    /// v0.6 (mod-lifecycle dossier §4.4): set a deferred-init flag and run
+    /// the construction on the first <see cref="PostUpdateEverything"/>
+    /// call. The first tick takes the construction hit but that's during
+    /// gameplay (allowed to spike per Invariant 2's overhead budgets) rather
+    /// than during world-load (UI-blocking, no recovery for the player).
     /// </summary>
+    private bool _deferredInitPending;
+
     public override void OnWorldLoad()
+    {
+        _deferredInitPending = true;
+    }
+
+    /// <summary>Run the deferred OnWorldLoad construction. Called from the first PostUpdateEverything.</summary>
+    private void RunDeferredWorldLoadInit()
     {
         // Inject the process-singleton self-health so install-delta measurements
         // captured at PostSetupContent survive across world loads. The
@@ -290,6 +306,19 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     public override void PostUpdateEverything()
     {
+        // v0.6: lazy construction. World-load deferred the heavy allocations
+        // here to keep the world-enter UI-block under the 16:09-16:14
+        // baseline's 172 ms freeze (mod-lifecycle dossier §4.4). The first
+        // tick after world-load pays the construction cost (allowed to
+        // spike per Invariant 2 budgets) and skips the per-tick path; from
+        // tick 2 on, normal flow.
+        if (_deferredInitPending)
+        {
+            _deferredInitPending = false;
+            RunDeferredWorldLoadInit();
+            return;
+        }
+
         MetricCollector? collector = Collector;
         if (collector == null || !collector.TickOpen)
         {

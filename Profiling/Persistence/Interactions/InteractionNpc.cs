@@ -42,7 +42,7 @@ internal sealed class InteractionNpc : GlobalNPC
             SourceContext = sourceContext,
             TileX = npc.position.X / 16f,
             TileY = npc.position.Y / 16f,
-            IsBoss = npc.boss || (npc.type >= 0 && npc.type < NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]),
+            IsBoss = npc.boss || (npc.type >= NPCID.None && npc.type < NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]),
         });
     }
 }
