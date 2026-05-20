@@ -39,9 +39,9 @@ internal static class TabRegistry
         new OverviewTab(),
         new TreeTab(),
         new SpikesTab(),
-        // Two parallel agents add their tabs here, one per agent:
+        // Remaining parallel agent:
         //     new EventsTab(),
-        //     new InsightsTab(),
+        new InsightsTab(),
     };
 
     /// <summary>The tab currently shown, derived from <see cref="OverlayState.ActiveTabIndex"/>.</summary>
