@@ -3,6 +3,7 @@
 using System.Linq;
 using LiteDB;
 using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Profiling.Segments;
 using Terraria.ModLoader;
 
 namespace PerformanceProfiler.Profiling.Persistence.Commands;
@@ -197,5 +198,102 @@ public class ProfilerTailCommand : ModCommand
         caller.Reply($"Recent {lines.Count} events:");
         foreach (var (tick, text) in lines)
             caller.Reply($"  tick {tick,6}  {text}");
+    });
+}
+
+/// <summary>
+/// <c>/profiler-timeline [N]</c> — list the most-recent N closed segments
+/// in this session, newest first. Default N = 10.
+/// </summary>
+public class ProfilerTimelineCommand : ModCommand
+{
+    public override CommandType Type => CommandType.Chat;
+    public override string Command => "profiler-timeline";
+    public override string Usage => "/profiler-timeline [count]";
+    public override string Description => "Recent closed segments (biome / weather / boss / invasion / etc).";
+
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
+    {
+        var sys = ModContent.GetInstance<ProfilerSystem>();
+        var store = sys?.SegmentStore;
+        if (store == null) { caller.Reply("No segments yet — load a world first."); return; }
+
+        int n = QueryCommandBase.ParseCountArg(args, 10);
+        var snapshot = store.Recent.Take(n).ToList();
+        if (snapshot.Count == 0) { caller.Reply("No segments closed yet."); return; }
+
+        caller.Reply($"Last {snapshot.Count} segment(s):");
+        foreach (var seg in snapshot)
+        {
+            string drama = "";
+            if (seg.DeathCount > 0) drama += $" ☠{seg.DeathCount}";
+            if (seg.SpikeCount > 0) drama += $" ⚡{seg.SpikeCount}";
+            if (seg.StallCount > 0) drama += $" ⏸{seg.StallCount}";
+            if (seg.BossKillCount > 0) drama += $" ✓{seg.BossKillCount}";
+            string promo = seg.Promoted ? $" [{seg.PromotionReason}]" : "";
+            caller.Reply($"  {seg.Family,-13} {seg.Name,-26} {seg.AvgFrameMs,6:F2}ms/t  " +
+                         $"{seg.Ticks,5} ticks{drama}{promo}");
+        }
+    });
+}
+
+/// <summary>
+/// <c>/profiler-bookmark [label]</c> — open a user bookmark segment.
+/// Without a label, opens "Bookmark #N". To close it later, use
+/// <c>/profiler-bookmark-end N</c> where N is the id printed at open time.
+/// </summary>
+public class ProfilerBookmarkCommand : ModCommand
+{
+    public override CommandType Type => CommandType.Chat;
+    public override string Command => "profiler-bookmark";
+    public override string Usage => "/profiler-bookmark [label]";
+    public override string Description => "Open a named bookmark segment for retrospective.";
+
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
+    {
+        var sys = ModContent.GetInstance<ProfilerSystem>();
+        var det = sys?.Segments;
+        if (det == null) { caller.Reply("Profiler not armed — load a world first."); return; }
+
+        string? label = args.Length > 0 ? string.Join(" ", args) : null;
+        long tick = (long)Terraria.Main.GameUpdateCount;
+        long unix = Time.UnixMsNow();
+        int id = det.OpenBookmark(tick, unix, label);
+        caller.Reply($"Bookmark #{id} opened" + (label != null ? $" \"{label}\"" : "") +
+                     $". Close with /profiler-bookmark-end {id}.");
+    });
+}
+
+/// <summary>
+/// <c>/profiler-bookmark-end &lt;id&gt;</c> — close a previously-opened bookmark
+/// segment. Triggers retrospective card immediately.
+/// </summary>
+public class ProfilerBookmarkEndCommand : ModCommand
+{
+    public override CommandType Type => CommandType.Chat;
+    public override string Command => "profiler-bookmark-end";
+    public override string Usage => "/profiler-bookmark-end <id>";
+    public override string Description => "Close a bookmark segment by id (the id /profiler-bookmark returned).";
+
+    public override void Action(CommandCaller caller, string input, string[] args) =>
+        QueryCommandBase.SafeRun(caller, Command, () =>
+    {
+        if (args.Length < 1 || !int.TryParse(args[0], out int id))
+        {
+            caller.Reply("Usage: /profiler-bookmark-end <id>");
+            return;
+        }
+        var sys = ModContent.GetInstance<ProfilerSystem>();
+        var det = sys?.Segments;
+        if (det == null) { caller.Reply("Profiler not armed."); return; }
+
+        long tick = (long)Terraria.Main.GameUpdateCount;
+        long unix = Time.UnixMsNow();
+        bool closed = det.CloseBookmark(id, tick, unix);
+        caller.Reply(closed
+            ? $"Bookmark #{id} closed — see Timeline / retrospective."
+            : $"No open bookmark with id {id}.");
     });
 }

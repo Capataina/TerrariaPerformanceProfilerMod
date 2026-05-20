@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.ModLoader;
 using Terraria.UI;
+using PerformanceProfiler.UI.Overlay.Components;
 
 namespace PerformanceProfiler.UI;
 
@@ -93,16 +94,25 @@ public sealed class ProfilerOverlaySystem : ModSystem
     /// </summary>
     private static readonly GameTime _cachedGameTime = new GameTime();
 
+    private LegacyGameInterfaceLayer? _cachedToastLayer;
+
     public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
     {
-        if (!_visible || _userInterface == null)
-        {
-            return;
-        }
-
         // Sit just beneath the cursor layer: above the gameplay HUD, below the mouse.
         int cursorLayer = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Text");
         int insertAt = cursorLayer >= 0 ? cursorLayer : layers.Count;
+
+        // Toast layer is ALWAYS injected — retrospective cards must surface
+        // even when the F9 overlay is closed, so the player sees "EoC fight
+        // ended, here's the breakdown" without needing to open the panel.
+        _cachedToastLayer ??= new LegacyGameInterfaceLayer(
+            "PerformanceProfiler: Toasts",
+            DrawToasts,
+            InterfaceScaleType.UI);
+        layers.Insert(insertAt, _cachedToastLayer);
+
+        // Overlay layer is gated on _visible / userInterface.
+        if (!_visible || _userInterface == null) return;
 
         _cachedLayer ??= new LegacyGameInterfaceLayer(
             "PerformanceProfiler: Overlay",
@@ -115,6 +125,14 @@ public sealed class ProfilerOverlaySystem : ModSystem
     private bool DrawOverlay()
     {
         _userInterface?.Draw(Main.spriteBatch, _cachedGameTime);
+        return true;
+    }
+
+    /// <summary>Always-on toast layer. Pumps the segment store and renders cards bottom-right.</summary>
+    private static bool DrawToasts()
+    {
+        RetrospectiveToast.Pump();
+        RetrospectiveToast.Draw(Main.spriteBatch);
         return true;
     }
 

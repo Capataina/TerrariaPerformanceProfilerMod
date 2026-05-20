@@ -80,6 +80,13 @@ public sealed class InsightsEngine
             new LoadoutCorrelatedCostDetector(),
             new EventConditionalCostDetector(),
             new LoadoutCombinationCostDetector(),
+
+            // v0.7 segment-driven detectors. They consume SegmentStore via
+            // the ProfilerSystem singleton, so they're available the moment
+            // a world is loaded (the same gate the rest of the detectors use).
+            new SegmentOutlierDetector(),
+            new SegmentTopModDetector(),
+            new SegmentDeathCorrelationDetector(),
         };
 
         _gatedMap = BuildGatedMap(_detectors);

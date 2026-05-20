@@ -24,6 +24,10 @@ public enum PatternKey : byte
     LoadoutCorrelatedCost  = 11,
     EventConditionalCost   = 12,
     LoadoutCombinationCost = 13,
+    // v0.7 segment-driven patterns.
+    SegmentOutlier         = 14,
+    SegmentTopMod          = 15,
+    SegmentDeathCorrelation = 16,
 }
 
 /// <summary>

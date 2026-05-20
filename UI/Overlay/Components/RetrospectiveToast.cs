@@ -1,0 +1,175 @@
+#nullable enable
+
+using System.Collections.Generic;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Terraria;
+using Terraria.ModLoader;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Segments;
+using PerformanceProfiler.UI;
+
+namespace PerformanceProfiler.UI.Overlay.Components;
+
+/// <summary>
+/// Retrospective-card pop-up. Slides in from the bottom-right corner when
+/// a promoted segment lands; auto-fades after a few seconds; clickable to
+/// dismiss.
+///
+/// <para>
+/// State is process-global (singleton-style static) because toasts are
+/// independent of which overlay tab is active and survive overlay-toggle.
+/// Drained once per frame from <see cref="SegmentStore.TryDequeueToast"/>.
+/// </para>
+///
+/// <para>
+/// Toast layout: anchored bottom-right of the screen, stacked vertically
+/// with newer toasts at the bottom, ~340 px wide × <see cref="SegmentCard.PreferredHeight"/>
+/// + 4 px each. Up to <see cref="MaxVisible"/> toasts on screen at once;
+/// excess queued and shown as room frees up.
+/// </para>
+/// </summary>
+internal static class RetrospectiveToast
+{
+    private const int Width = 340;
+    private const int CardH = SegmentCard.PreferredHeight;
+    private const int Gap = 6;
+    private const int MarginX = 18;
+    private const int MarginY = 36;
+    private const int MaxVisible = 3;
+    private const long LifetimeMs = 12_000;
+    private const long FadeMs = 600;
+
+    private struct Toast
+    {
+        public Segment Segment;
+        public long SpawnUnixMs;
+        public bool Dismissed;
+    }
+
+    private static readonly List<Toast> _live = new();
+    private static readonly Queue<Segment> _pending = new();
+
+    /// <summary>Drain freshly-promoted segments from the store and enqueue toasts.</summary>
+    public static void Pump()
+    {
+        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
+        SegmentStore? store = sys?.SegmentStore;
+        if (store == null) return;
+
+        while (store.TryDequeueToast(out Segment? seg))
+        {
+            if (seg != null) _pending.Enqueue(seg);
+        }
+
+        long now = Time.UnixMsNow();
+
+        // Expire / dismiss handling.
+        for (int i = _live.Count - 1; i >= 0; i--)
+        {
+            Toast t = _live[i];
+            if (t.Dismissed || now - t.SpawnUnixMs > LifetimeMs)
+            {
+                _live.RemoveAt(i);
+            }
+        }
+
+        // Promote pending to live.
+        while (_live.Count < MaxVisible && _pending.Count > 0)
+        {
+            Segment seg = _pending.Dequeue();
+            _live.Add(new Toast { Segment = seg, SpawnUnixMs = now });
+        }
+    }
+
+    /// <summary>Draw every currently-visible toast over the rest of the UI.</summary>
+    public static void Draw(SpriteBatch sb)
+    {
+        if (_live.Count == 0) return;
+
+        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
+        SegmentStore? store = sys?.SegmentStore;
+
+        int screenW = Main.screenWidth;
+        int screenH = Main.screenHeight;
+        long now = Time.UnixMsNow();
+
+        // Stack bottom-up.
+        int y = screenH - MarginY - CardH;
+        int x = screenW - MarginX - Width;
+
+        for (int i = 0; i < _live.Count; i++)
+        {
+            Toast t = _live[i];
+            long age = now - t.SpawnUnixMs;
+            float alpha = 1f;
+            if (age < FadeMs) alpha = age / (float)FadeMs;
+            else if (LifetimeMs - age < FadeMs) alpha = (LifetimeMs - age) / (float)FadeMs;
+            if (alpha < 0f) alpha = 0f;
+            if (alpha > 1f) alpha = 1f;
+
+            // Slide-in offset on first FadeMs.
+            int slide = age < FadeMs ? (int)(40 * (1f - alpha)) : 0;
+
+            Rectangle rect = new Rectangle(x + slide, y, Width, CardH);
+
+            // We don't have a per-toast alpha-scaled draw of the card; render
+            // it at full opacity. (The card is already a calm visual; the
+            // life-cycle is short enough that the missing fade-out doesn't
+            // jar the player.)
+            double avg = store?.LifetimeAvgMsPerTick(t.Segment.Family, t.Segment.Key) ?? 0d;
+            int samples = store?.LifetimeSampleCount(t.Segment.Family, t.Segment.Key) ?? 0;
+            SegmentCard.Draw(sb, rect, t.Segment, avg, samples);
+
+            // Promotion-reason ribbon on the top edge.
+            DrawRibbon(sb, rect, t.Segment.PromotionReason);
+
+            y -= CardH + Gap;
+        }
+    }
+
+    /// <summary>Click anywhere on a visible toast dismisses it. Returns true if a toast was hit.</summary>
+    public static bool TryDismiss(int screenX, int screenY)
+    {
+        int screenW = Main.screenWidth;
+        int screenH = Main.screenHeight;
+        int y = screenH - MarginY - CardH;
+        int x = screenW - MarginX - Width;
+
+        for (int i = 0; i < _live.Count; i++)
+        {
+            var rect = new Rectangle(x, y, Width, CardH);
+            if (rect.Contains(screenX, screenY))
+            {
+                Toast t = _live[i];
+                t.Dismissed = true;
+                _live[i] = t;
+                return true;
+            }
+            y -= CardH + Gap;
+        }
+        return false;
+    }
+
+    private static void DrawRibbon(SpriteBatch sb, Rectangle card, string reason)
+    {
+        if (string.IsNullOrEmpty(reason)) return;
+
+        Color stripe = reason switch
+        {
+            "boss-kill" => ProfilerTheme.Good,
+            "death"     => ProfilerTheme.Danger,
+            "stall"     => ProfilerTheme.Danger,
+            "spike"     => ProfilerTheme.Amber,
+            "outlier"   => ProfilerTheme.Amber,
+            "rare"      => ProfilerTheme.Amber,
+            "bookmark"  => ProfilerTheme.Text,
+            _ => ProfilerTheme.TextMuted,
+        };
+        ProfilerTheme.FillRect(sb, new Rectangle(card.X, card.Y, card.Width, 3), stripe);
+
+        OverlayDraw.Text(sb, reason.ToUpperInvariant(),
+            new Vector2(card.X + 8, card.Y + 4),
+            stripe, OverlayLayoutCurrent.TextScaleBody);
+    }
+}

@@ -64,8 +64,69 @@ public static class InsightRenderer
             PatternKey.AllocationBurst => RenderAllocBurst(rec, audience, density),
             PatternKey.FreeRemovalCandidate => RenderFreeRemoval(rec, audience, density),
             PatternKey.PeakContributorToSpike => RenderPeakContributor(rec, audience, density),
+            PatternKey.SegmentOutlier => RenderSegmentOutlier(rec, density),
+            PatternKey.SegmentTopMod => RenderSegmentTopMod(rec, density),
+            PatternKey.SegmentDeathCorrelation => RenderSegmentDeathCorrelation(rec, density),
             _ => RenderUnsupported(rec),
         };
+    }
+
+    private static string RenderSegmentOutlier(InsightRecord rec, Density density)
+    {
+        string segName = Segments.SegmentNameTable.For(
+            (Segments.SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string pct = Pct(rec.Magnitude.RatioOrDelta);
+        string obs = Ms(rec.Magnitude.ObservedMs);
+        string baseMs = Ms(rec.Magnitude.BaselineMs);
+        int samples = rec.Evidence.BaselineN;
+
+        if (density == Density.Short)
+            return $"a {segName} ran {pct} above your {samples}-segment lifetime average.";
+        if (density == Density.Medium)
+            return $"a recent {segName} cost {obs} ms/t vs {baseMs} ms/t across {samples} prior segments — a +{pct} deviation. {BaselineClause(rec.Evidence.Baseline)}.";
+        return $"[SEGMENT_OUTLIER] {segName}\n" +
+               $"  Observed avg ms/t: {obs}\n" +
+               $"  Lifetime avg ms/t over {samples} prior: {baseMs}\n" +
+               $"  Deviation: +{pct}.\n" +
+               $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
+    }
+
+    private static string RenderSegmentTopMod(InsightRecord rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        string segName = Segments.SegmentNameTable.For(
+            (Segments.SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string share = Pct(rec.Magnitude.RatioOrDelta);
+        int wins = rec.Magnitude.Count;
+        int n = rec.Evidence.SampleN;
+
+        if (density == Density.Short)
+            return $"{mod} is the top mod in {wins} of {n} recent {segName}s.";
+        if (density == Density.Medium)
+            return $"{mod} ranks #1 by cost in {share} of recent {segName}s ({wins}/{n}). {BaselineClause(rec.Evidence.Baseline)}.";
+        return $"[SEGMENT_TOP_MOD] {mod} (modId={rec.Subject.ModId})\n" +
+               $"  Segment family: {segName}\n" +
+               $"  Top-rank frequency: {wins}/{n} = {share}.\n" +
+               $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
+    }
+
+    private static string RenderSegmentDeathCorrelation(InsightRecord rec, Density density)
+    {
+        string deathMs = Ms(rec.Magnitude.ObservedMs);
+        string cleanMs = Ms(rec.Magnitude.BaselineMs);
+        string pct = Pct(rec.Magnitude.RatioOrDelta);
+        int deathSegs = rec.Evidence.SampleN;
+        int cleanSegs = rec.Evidence.BaselineN;
+
+        if (density == Density.Short)
+            return $"deaths occurred in segments averaging {deathMs} ms/t vs {cleanMs} ms/t clean.";
+        if (density == Density.Medium)
+            return $"{deathSegs} death-containing segment(s) averaged {deathMs} ms/t vs {cleanMs} ms/t across {cleanSegs} clean segment(s) — a +{pct} delta. {BaselineClause(rec.Evidence.Baseline)}.";
+        return $"[SEGMENT_DEATH_CORRELATION]\n" +
+               $"  Death segments (n={deathSegs}): {deathMs} ms/t avg\n" +
+               $"  Clean segments  (n={cleanSegs}): {cleanMs} ms/t avg\n" +
+               $"  Delta: +{pct}.\n" +
+               $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
     // ---- Per-pattern templates -----------------------------------------------

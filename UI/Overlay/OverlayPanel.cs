@@ -322,6 +322,9 @@ internal sealed class OverlayPanel : UIElement
 
         // Resize handle: small diagonal grip in the bottom-right corner.
         DrawResizeHandle(spriteBatch, area);
+
+        // Toast rendering is handled by ProfilerOverlaySystem's always-on
+        // toast layer so cards surface even with the F9 overlay closed.
     }
 
     private static void DrawResizeHandle(SpriteBatch sb, Rectangle area)
