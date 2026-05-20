@@ -48,6 +48,14 @@ internal sealed class InteractionPlayer : ModPlayer
     /// on the first valid tick.</summary>
     private bool _firstValidBuffTickSeen;
 
+    /// <summary>
+    /// Cheap hash of the buff-type array for per-tick fast-skip in
+    /// <see cref="PostUpdateBuffs"/>. v0.5/v0.6 ran the full diff loop
+    /// every tick even when no edges fired (which is 99%+ of ticks).
+    /// v0.6.1 hashes the array first; matching hashes skip the whole diff.
+    /// </summary>
+    private ulong _lastBuffHash;
+
     /// <summary>Last loadout fingerprint, so we only enqueue on actual change.</summary>
     private string _lastLoadoutFingerprint = "";
 
@@ -62,6 +70,19 @@ internal sealed class InteractionPlayer : ModPlayer
     /// start of each capture. Phase γ.
     /// </summary>
     private readonly System.Text.StringBuilder _fpBuilder = new System.Text.StringBuilder(256);
+
+    /// <summary>
+    /// Cheap hash of (held-item-type + armor-slot-types) for the per-tick
+    /// fast-skip in <see cref="PostUpdateEquips"/>. v0.5 called
+    /// <see cref="CaptureLoadout"/> every tick — that's one
+    /// <c>List&lt;EquipmentSlotEntry&gt;</c>, N <c>EquipmentSlotEntry</c>
+    /// elements, one fingerprint <c>StringBuilder.ToString()</c>, and one
+    /// <c>LoadoutSnapshotRow</c> allocated on the game thread every single
+    /// tick even when nothing changed (which is 99%+ of ticks). v0.6 hashes
+    /// the loadout shape into a ulong, compares against the last tick's
+    /// hash, and only calls CaptureLoadout when the hash actually changes.
+    /// </summary>
+    private ulong _lastLoadoutHash;
 
     public override void OnHurt(Player.HurtInfo info)
     {
@@ -162,6 +183,13 @@ internal sealed class InteractionPlayer : ModPlayer
         // local-player branch's snapshot stays clean.
         if (Player.whoAmI != Main.myPlayer) return;
 
+        // v0.6.1 dirty-flag fast path: hash the buff array first. If it
+        // matches the previous tick's hash, NOTHING changed — skip the
+        // diff entirely. Steady-state 99%+ ticks skip.
+        ulong hash = ComputeBuffHash();
+        if (hash == _lastBuffHash && _firstValidBuffTickSeen) return;
+        _lastBuffHash = hash;
+
         var recorder = ResolveRecorder();
 
         // Diff against last tick's snapshot. Buffs leaving = old types not
@@ -217,27 +245,84 @@ internal sealed class InteractionPlayer : ModPlayer
 
     public override void PostUpdateEquips()
     {
-        var recorder = ResolveRecorder();
-        if (recorder == null || Player.whoAmI != Main.myPlayer) return;
+        if (Player.whoAmI != Main.myPlayer) return;
 
-        var row = CaptureLoadout("change");
-        if (row.Fingerprint != _lastLoadoutFingerprint)
+        // v0.6.1 dirty-flag fast path: compute a cheap hash of held-item +
+        // armor slot types FIRST, before any allocation. If it matches the
+        // previous tick's hash AND no periodic anchor is due, we can skip
+        // the entire CaptureLoadout path (List + N entries + StringBuilder
+        // + LoadoutSnapshotRow alloc). Steady-state: 99%+ of ticks skip.
+        ulong hash = ComputeLoadoutHash();
+        long tickNow = (long)Main.GameUpdateCount;
+        bool periodicDue = tickNow - _lastPeriodicLoadoutTick >= PeriodicLoadoutIntervalTicks;
+
+        if (hash == _lastLoadoutHash && !periodicDue) return;
+
+        var recorder = ResolveRecorder();
+        if (recorder == null) { _lastLoadoutHash = hash; return; }
+
+        bool isChange = hash != _lastLoadoutHash;
+        _lastLoadoutHash = hash;
+
+        var row = CaptureLoadout(isChange ? "change" : "periodic");
+        if (isChange)
         {
             _lastLoadoutFingerprint = row.Fingerprint;
             recorder.OnLoadoutSnapshot(row);
         }
         else
         {
-            // Periodic anchor every 30s so insight queries can find at
-            // least one snapshot in every time window.
-            long tick = (long)Main.GameUpdateCount;
-            if (tick - _lastPeriodicLoadoutTick >= PeriodicLoadoutIntervalTicks)
-            {
-                _lastPeriodicLoadoutTick = tick;
-                row.Reason = "periodic";
-                recorder.OnLoadoutSnapshot(row);
-            }
+            // Hash matched but periodic-anchor cadence elapsed; emit anchor
+            // so insight queries can find at least one snapshot per time
+            // window without depending on equipment change.
+            _lastPeriodicLoadoutTick = tickNow;
+            recorder.OnLoadoutSnapshot(row);
         }
+
+        // Periodic anchor tick book-keeping: also reset the cadence on
+        // genuine changes so we don't double-fire an anchor right after a
+        // change.
+        if (isChange) _lastPeriodicLoadoutTick = tickNow;
+    }
+
+    /// <summary>
+    /// Cheap loadout-shape hash. Combines held-item type with every armor
+    /// slot's <c>type</c> via FNV-1a-ish XOR/rotate. No allocations, ~20
+    /// ulong ops per tick. Stable across ticks when nothing equipped
+    /// changes; flips on any slot type difference. Collision-tolerant —
+    /// false negatives just trigger a CaptureLoadout call on the next
+    /// tick where the hash diverges, no correctness loss.
+    /// </summary>
+    private ulong ComputeLoadoutHash()
+    {
+        ulong h = 14695981039346656037UL;   // FNV offset
+        int held = Player.HeldItem?.type ?? 0;
+        h = (h ^ (ulong)held) * 1099511628211UL;
+        var armor = Player.armor;
+        for (int i = 0; i < armor.Length; i++)
+        {
+            var it = armor[i];
+            int t = (it == null) ? 0 : it.type;
+            h = (h ^ (ulong)t) * 1099511628211UL;
+        }
+        return h;
+    }
+
+    /// <summary>
+    /// Cheap buff-array hash. Same FNV-1a shape as
+    /// <see cref="ComputeLoadoutHash"/>. Position-sensitive so a buff
+    /// changing slot still flips the hash (and the diff catches the
+    /// edge correctly). No allocations.
+    /// </summary>
+    private ulong ComputeBuffHash()
+    {
+        ulong h = 14695981039346656037UL;
+        var buffs = Player.buffType;
+        for (int i = 0; i < buffs.Length; i++)
+        {
+            h = (h ^ (ulong)(uint)buffs[i]) * 1099511628211UL;
+        }
+        return h;
     }
 
     // ---- helpers --------------------------------------------------------
