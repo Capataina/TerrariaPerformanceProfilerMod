@@ -241,49 +241,73 @@ Up from the current `0.55-0.82` mishmash. Consistency makes scanning easier than
 
 ### 7.1 SUMMARY tab (was OVERVIEW)
 
-Renamed because "Summary" is what players say. The default landing tab; designed to answer "what do I have, and what's costing me the most" in a single glance.
+Renamed because "Summary" is what players say. The default landing tab; designed to answer "what do I have, and what's hurting me the most across CPU, allocation, and spike contribution" in a single glance.
+
+**This is explicitly a multi-dimensional view**, not a CPU-only ranking. The mod's value proposition is "performance is more than ms" — the SUMMARY tab is where that becomes visible. `ModImpactScorer` already produces `ModImpact` records carrying `CpuMs`, `SpikeMs`, `AllocMsEq` (via the self-calibrated GC heuristic), and a `Composite` score that fuses them. The previous OverviewTab consumed this data but rendered it as a single linear leaderboard. The redesign surfaces the multi-dimensional structure that's already in the data.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  ┌─ cpu share (this tick) ──┐  ┌─ top contributors ───────────────┐  │
+│  ┌─ impact share ───────────┐  ┌─ top contributors ──────────────┐  │
 │  │                          │  │                                  │  │
-│  │       ●●●●●●●            │  │ ▰▰▰▰▰▰▰▰▰▰  Calamity     45 ms  │  │
-│  │     ●  TBoR  ●            │  │ ▰▰▰▰▰▱▱▱▱▱  Fargo's      22 ms  │  │
-│  │    ●  0.84  ●             │  │ ▰▰▰▱▱▱▱▱▱▱  Thorium      12 ms  │  │
-│  │   ●  39.1ms  ●            │  │ ▰▰▱▱▱▱▱▱▱▱  Verdant       8 ms  │  │
-│  │    ●        ●             │  │ ▰▱▱▱▱▱▱▱▱▱  Arsenal       5 ms  │  │
-│  │     ●●●●●●●               │  │                                  │  │
+│  │      ●●●●●●●             │  │ ▰▰▰▰▰▰▰▰▰▰  TBoR        45.0   │  │
+│  │    ●  TBoR  ●            │  │ ░cpu 32 │ alloc 8KB │ spk 3    │  │
+│  │   ●  39%   ●             │  │ ▰▰▰▰▰▱▱▱▱▱  Fargo's     22.0   │  │
+│  │   ●  45.0  ●             │  │ ░cpu 15 │ alloc 12KB│ spk 0    │  │
+│  │    ●       ●             │  │ ▰▰▰▱▱▱▱▱▱▱  Thorium     12.0   │  │
+│  │      ●●●●●●●             │  │ ░cpu 11 │ alloc 2KB │ spk 1    │  │
+│  │                          │  │                                  │  │
+│  │  Slices = COMPOSITE %    │  │                                  │  │
+│  │  Hue = dominant axis:    │  │                                  │  │
+│  │  ● cpu ● alloc ● spike   │  │                                  │  │
 │  └──────────────────────────┘  └──────────────────────────────────┘  │
-│  ┌─ frame trend (last 30s) ───────────────────────────────────────┐  │
-│  │     /\/\___/\__/\_____/\__/\______/\/\______/\_                │  │
+│  ┌─ session trend (last 30s) ─────────────────────────────────────┐  │
+│  │ cpu    /\/\___/\__/\_____/\__/\______/\/\______/\_             │  │
+│  │ alloc  ___/\____/\\__________/\___________/\____               │  │
+│  │ spike  │           │       │           │                       │  │
 │  └────────────────────────────────────────────────────────────────┘  │
-│  ┌─ all mods ─────────────────────────────────────  [sort: cpu ▾] ┐  │
-│  │  1  ▰▰▰▰▰▰▰▰▰▰  TheBindingOfRarria   39.1 ms  ●●●  100%       │  │
-│  │  2  ▰▰▰▰▰▰▰▰▱▱  Verdant               8.2 ms  ●●   100%       │  │
-│  │  3  ▰▰▰▰▰▰▱▱▱▱  Arsenal_Mod           5.4 ms  ●●   100%       │  │
-│  │  ... every single mod, sorted, no hidden-low filter ...        │  │
+│  ┌─ all mods ─────────────────────────────  [sort: composite ▾]  ┐  │
+│  │ 1  ▰▰▰▰▰▰▰▰▰▰  TheBindingOfRarria       45.0  cpu+alloc+spk │  │
+│  │    ░░░░░░░░░ cpu 32│░░░░░░░ alloc 8KB│░░░ spk 3              │  │
+│  │ 2  ▰▰▰▰▰▱▱▱▱▱  Verdant                   8.2  cpu            │  │
+│  │    ░░░░░░ cpu 7│░ alloc <1KB│— spk 0                          │  │
+│  │ ... every single mod, no hidden-low filter ...                │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Three regions:
+Four regions:
 
-1. **Donut chart (top-left).** CPU share by mod for the current tick (or 30 s avg, follows the chrome NOW/AVG toggle). Top 8 slices + "others". Centre stat: top contributor name + percent + ms. Slice colours from the mod palette; heat-coloured ring around each slice indicates that mod's own intensity band.
+1. **Donut chart (top-left).** Slice size = **mod's share of total COMPOSITE impact**, not CPU. Centre stat: top contributor's name + composite percentage + absolute composite value. Top 8 slices + "others" lumping the tail. **Slice hue encodes the dominant component** for that mod — blue for CPU-dominant, purple for alloc-dominant, amber for spike-dominant. The legend lives below the donut. This is the visual identity of the tab: a glance tells you not just who's heavy, but WHY they're heavy.
 
-2. **Top contributors strip (top-right).** Top 5 mods by current sort, with horizontal heat bars. Lives next to the donut so the visual share and the textual ranking line up.
+2. **Top contributors strip (top-right).** Top 5 mods by current sort (defaults to composite). Each entry is two lines:
+   - Line 1: heat-coloured composite bar + mod name + composite value
+   - Line 2: three small component indicators (cpu ms / alloc bytes / spike count) in muted text
+   
+   This makes the component breakdown legible at the top of the tab without requiring a click-to-expand.
 
-3. **Frame trend (full width).** Filled sparkline of frame time over the last 30 s. Colour gradient by frame value (cool when normal, warm during the spikes).
+3. **Session trend (full width).** **Three stacked sparklines** sharing an x-axis:
+   - CPU frame time (filled, heat-coloured by value)
+   - Allocation rate (filled, separate y-axis)
+   - Spike-tick markers (vertical lines at spike positions)
+   
+   A glance shows "where did spikes line up with allocation bursts" — the prerequisite for "the LiteDB version will tell you it was a GC trigger".
 
-4. **All-mods ranking (bottom, primary area).** Every loaded mod, no filter. Three columns: heat bar, name + ms, severity dots + coverage pct. Sort dropdown ("composite / cpu / spike / alloc / alloc rate") replaces the current sort-chip strip.
+4. **All-mods ranking (bottom, primary area).** Every loaded mod, no filter. Two lines per row:
+   - Line 1: heat composite bar + name + composite value + "cpu+alloc+spike" tags showing which axes contribute meaningfully (>10% share)
+   - Line 2: three component mini-bars + their values
+   
+   Sort dropdown drives the ranking ("composite / cpu / spike / alloc / alloc rate / coverage"). Click row → expand inline (future: side panel).
 
 ### Changes from current OverviewTab
 
 | Out | In |
 |---|---|
-| Hardcoded `<1 ms / 1–4 ms / >4 ms` bands | Bands derived from `Baseline.FrameMsMedian × {0.5, 1.0, 1.5}` |
-| `_hideLowImpact = true` default | Filter pill exists but defaults OFF (show all, in line with the user's expectation) |
-| Inline component breakdown on expand (cpu / spike / alloc bars) | Click row → side panel with per-mod detail (sparkline, top-5 hooks, alloc rate). Side panel is a future addition; for now, expand-in-place stays |
-| `ImpactSortMode` chips at top | Sort dropdown |
+| Hardcoded `<1 ms / 1–4 ms / >4 ms` impact bands | Bands derived from `Baseline.FrameMsMedian × {0.5, 1.0, 1.5}` |
+| `_hideLowImpact = true` default | Filter pill exists but defaults OFF — every mod always shown |
+| Single linear leaderboard rendered from already-multi-dimensional `ModImpact` data | Multi-dimensional surface: donut hue + component sub-bars expose the cpu/alloc/spike breakdown the scorer already computes |
+| CPU-only donut spec (my first draft of this plan) | Composite donut with dominant-component hue encoding |
+| Single frame sparkline | Stacked cpu + alloc + spike-marker sparklines on a synchronised axis |
+| `ImpactSortMode` chips at top | Sort dropdown with the same modes |
 
 ### 7.2 TREE tab
 
