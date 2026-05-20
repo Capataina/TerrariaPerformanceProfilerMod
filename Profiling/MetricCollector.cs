@@ -309,14 +309,20 @@ public sealed class MetricCollector
         _tickStartTimestamp = Stopwatch.GetTimestamp();
         _gcPauseMsAtTickStart = GcPauseMilliseconds();
 
-        // Stall detection runs HERE, before BeginTick clears the per-mod
-        // accumulator. The detector compares this tick's BeginTick stamp
-        // against the previous one; if the wall gap exceeds the baseline
-        // multiplier, it emits a StallEvent with full GC/CPU/heap deltas.
+        // Stall detection runs HERE. At this point the per-mod accumulator
+        // still holds any hook samples that fired between the previous
+        // EndTick and now — typically draw-thread hooks during the inter-tick
+        // gap. If a stall fires, those samples are the closest thing we have
+        // to per-mod attribution for the gap (the gap itself contains no
+        // BeginTick/EndTick window we could measure inside).
         long nowUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         _stallDetector.OnBeginTick(_tickStartTimestamp, tickIndex, nowUnixMs, _baseline);
 
-        PerModAttribution.BeginTick();
+        // Note: PerModAttribution accumulator is NOT cleared here anymore.
+        // The clear moved to EndTick (after harvest) so that draw-thread
+        // hooks firing in the gap between EndTick and the next BeginTick
+        // get their samples included in the next harvest instead of dropped.
+        // See the "draw-thread attribution leak" finding from the audit.
     }
 
     /// <summary>
@@ -440,6 +446,13 @@ public sealed class MetricCollector
         // costs nothing on 59 of every 60 ticks. The 60th tick pays one
         // proc_pidinfo + one GC.GetTotalMemory read.
         _selfHealth.Refresh(frame.TickIndex);
+
+        // Clear the per-mod accumulator AFTER harvest. Anything that writes
+        // into it after this (draw-thread hooks during the gap, the next
+        // PreUpdateEntities firing late) accumulates into a clean buffer
+        // and is included in the next EndTick's harvest. The old design
+        // cleared at BeginTick which dropped every gap write on the floor.
+        PerModAttribution.BeginTick();
 
         _sampleSlot++;
         if (_sampleSlot == _historyCapacity)
