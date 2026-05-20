@@ -71,6 +71,18 @@
     <Compile Include="..\Profiling\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
 
+    <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
+         depend on Terraria.ModLoader so they are NOT lifted; their verification
+         is via in-game playtest at wrap-up. The runtime-independent helpers
+         (Time, RowPool, ListPool, BoolIndex, EnumStringTable) get exercised
+         by xUnit so the per-tick zero-alloc contract is testable. -->
+    <Compile Include="..\Profiling\Time.cs" Link="Source\Time.cs" />
+    <Compile Include="..\Profiling\Pools\IPoolReset.cs" Link="Source\Pools\IPoolReset.cs" />
+    <Compile Include="..\Profiling\Pools\RowPool.cs" Link="Source\Pools\RowPool.cs" />
+    <Compile Include="..\Profiling\Pools\ListPool.cs" Link="Source\Pools\ListPool.cs" />
+    <Compile Include="..\Profiling\Util\BoolIndex.cs" Link="Source\Util\BoolIndex.cs" />
+    <Compile Include="..\Profiling\EnumStringTable.cs" Link="Source\EnumStringTable.cs" />
+
     <!-- Persistence sources. These reference LiteDB only (no tModLoader),
          so they lift cleanly into the test runner. ProfilerDatabase,
          every stream, the writer thread, the journal, all records. -->

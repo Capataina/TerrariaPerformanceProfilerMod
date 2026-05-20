@@ -84,6 +84,17 @@ public sealed class ProfilerSystem : ModSystem
 
     public override void PostSetupContent()
     {
+        // v0.6 Phase α: capture the wall-clock origin once, here. Every
+        // subsequent Time.UnixMsNow() call is a Stopwatch read + a multiply.
+        // Cross-allocations dossier §3.1.
+        Time.Reset();
+
+        // v0.6 Phase α: pre-resolve every Lang.GetXxx name into a flat
+        // string[] indexed by type id. PostSetupContent fires after every
+        // modded id is registered, so the resolution captures vanilla +
+        // every loaded mod's content. Cross-allocations dossier §3.2.
+        LangNameCache.Populate();
+
         // Capture the managed-heap baseline immediately before our install
         // pass. ProfilerSelfHealth forces a Gen2 here so transient content-
         // load junk doesn't end up counted against us. Cost: ~50-150 ms once.
