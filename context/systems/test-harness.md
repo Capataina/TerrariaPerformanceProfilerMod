@@ -92,8 +92,9 @@ The "verify zero tModLoader references" step is the load-bearing one. The whole 
 | `RankingScorerTests.cs` | A 90% share now outranks a 40% share (the audit's insights-engine #1 finding). The 10× ratio still beats the 2× ratio. Ratios below 1 collapse to zero magnitude (unchanged knee). |
 | `InsightStoreTests.cs` | An untested record (`PValueAdjusted = 1`) never promotes past Low regardless of confirmation count. A tested record (`PValueAdjusted = 0.01`) reaches High at 4 confirmations. Submit dedup. |
 | `RingBufferTests.cs` | Wrap-around semantics that the 30s history and 50-window spike retainer depend on. |
+| `BaselineTests.cs` | Per-session baseline service used by the relative spike threshold (added in commit `cdbe762`, alongside the spike threshold refactor that derived from a shared baseline rather than a hard-coded 5 ms floor). |
 
-10/10 passing in ~16 ms as of commit `14fac59`.
+10/10 passing in ~16 ms as of commit `14fac59`; `BaselineTests.cs` added in `cdbe762` brings the total higher (re-run `dotnet test` for the current count).
 
 ## Key Interfaces / Data Flow
 
