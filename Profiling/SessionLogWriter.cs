@@ -34,9 +34,14 @@ internal sealed class SessionLogFailureException : Exception
 /// </summary>
 public sealed class SessionLogWriter : IDisposable
 {
-    // Schema 4: adds the `insights` block (live + history records, gated detector
-    // map) so the agent-readable surface matches the in-game Insights tab.
-    private const int SchemaVersion = 4;
+    // Schema 5: adds three new top-level blocks — `stalls` (between-tick
+    // freezes with full GC/CPU/heap attribution), `selfHealth` (the
+    // profiler's own resident footprint, install-delta, bytes-per-hook), and
+    // `baseline` (the per-session medians every detector now derives its
+    // thresholds from). Together they make the relativity principle visible
+    // in the JSON: every threshold value is recorded so a reader can verify
+    // what counted as a "spike" or "stall" on the player's machine.
+    private const int SchemaVersion = 5;
     private const int TimelineIntervalTicks = 60 * 60;
     private const int TimelineTopMods = 10;
     private const int SpikeTopMods = 10;
@@ -143,6 +148,9 @@ public sealed class SessionLogWriter : IDisposable
             coverage = Coverage(),
             timeline = _timeline,
             spikes = SpikeObjects(collector),
+            stalls = StallObjects(collector),
+            baseline = BaselineBlock(collector),
+            selfHealth = SelfHealthBlock(),
             insights = InsightsBlock(),
             final = final && collector != null ? FinalSummary(collector) : null,
         };
@@ -338,6 +346,109 @@ public sealed class SessionLogWriter : IDisposable
     {
         if (collector == null) return Array.Empty<object>();
         return SpikeWindowsJson(collector);
+    }
+
+    /// <summary>
+    /// Renders captured stalls — wall-clock gaps between consecutive BeginTicks
+    /// that exceeded the baseline by the configured multiplier. Each entry
+    /// carries the full diagnostic context the <see cref="StallDetector"/>
+    /// captured at detection time (GC pause delta, Gen0/1/2 counts, heap
+    /// before/after, process CPU delta, classified cause and perceptual
+    /// severity). Always present in the output even when zero stalls fired,
+    /// so consumers don't need to branch on absence.
+    /// </summary>
+    private static object[] StallObjects(MetricCollector? collector)
+    {
+        if (collector == null) return Array.Empty<object>();
+        IReadOnlyList<StallEvent> stalls = collector.Stalls;
+        object[] rows = new object[stalls.Count];
+        for (int i = 0; i < stalls.Count; i++)
+        {
+            StallEvent s = stalls[i];
+            rows[i] = new
+            {
+                startTickIndex = s.StartTickIndex,
+                endTickIndex = s.EndTickIndex,
+                startTimestampUnixMs = s.StartTimestampUnixMs,
+                tickPeriodMs = s.TickPeriodMs,
+                baselineMs = s.BaselineMs,
+                excessOverBaselineMs = s.ExcessOverBaselineMs,
+                gcPauseDurationMs = s.GcPauseDurationMs,
+                processCpuTimeDeltaMs = s.ProcessCpuTimeDeltaMs,
+                gen0Collections = s.Gen0Collections,
+                gen1Collections = s.Gen1Collections,
+                gen2Collections = s.Gen2Collections,
+                heapSizeBeforeBytes = s.HeapSizeBeforeBytes,
+                heapSizeAfterBytes = s.HeapSizeAfterBytes,
+                heapDeltaBytes = s.HeapSizeAfterBytes - s.HeapSizeBeforeBytes,
+                cause = s.Cause.ToString(),
+                severity = s.Severity.ToString(),
+                warming = s.Warming,
+            };
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// The per-session baseline values every detector now derives its
+    /// threshold from. Surfacing this in the JSON lets a cold reader verify
+    /// what counted as "above baseline" on the player's machine — a 50 ms
+    /// spike on a 120 fps player is wildly different from a 50 ms spike on a
+    /// 25 fps player, and the JSON used to leave that distinction implicit.
+    /// </summary>
+    private static object BaselineBlock(MetricCollector? collector)
+    {
+        if (collector == null)
+        {
+            return new
+            {
+                calibrated = false,
+                frameMsMedian = 0d,
+                frameMsMad = 0d,
+                tickPeriodMsMedian = 0d,
+                tickPeriodMsMad = 0d,
+                allocBytesPerTickMedian = 0d,
+                spikeThresholdMs = 0d,
+                stallThresholdMs = 0d,
+            };
+        }
+        Baseline b = collector.Baseline;
+        return new
+        {
+            calibrated = b.IsCalibrated,
+            frameMsMedian = b.FrameMsMedian,
+            frameMsMad = b.FrameMsMad,
+            tickPeriodMsMedian = b.TickPeriodMsMedian,
+            tickPeriodMsMad = b.TickPeriodMsMad,
+            allocBytesPerTickMedian = b.AllocBytesPerTickMedian,
+            // The effective thresholds at session end — what an "above
+            // baseline" reading actually was for this player.
+            spikeThresholdMs = b.FrameMsMedian * SpikeDetector.DefaultThresholdMultiplier,
+            stallThresholdMs = b.TickPeriodMsMedian * StallDetector.DefaultThresholdMultiplier,
+        };
+    }
+
+    /// <summary>
+    /// The profiler's own resource cost. Lets a reader cross-check our
+    /// install-delta footprint against tModLoader's own per-mod RAM estimate
+    /// in <c>client.log</c> and see whether we've drifted heavier between
+    /// versions.
+    /// </summary>
+    private static object SelfHealthBlock()
+    {
+        ProfilerSelfHealth h = ProfilerSystem.SelfHealth;
+        return new
+        {
+            installed = h.IsInstalled,
+            installDeltaBytes = h.InstallDeltaBytes,
+            installedHookCount = h.InstalledHookCount,
+            bytesPerHook = h.BytesPerHook,
+            processWorkingSetBytes = h.ProcessWorkingSetBytes,
+            processManagedHeapBytes = h.ProcessManagedHeapBytes,
+            managedFractionOfWorkingSet = h.ManagedFractionOfWorkingSet,
+            installDeltaFractionOfProcess = h.InstallDeltaFractionOfProcess,
+            severity = h.Severity.ToString(),
+        };
     }
 
     /// <summary>
