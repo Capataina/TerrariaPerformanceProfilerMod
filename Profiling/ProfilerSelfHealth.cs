@@ -70,7 +70,15 @@ public sealed class ProfilerSelfHealth
     private const double ConcerningFraction = 0.10; // 10-20% → amber
 
     private readonly Process _self;
-    private long _lastRefreshTickIndex = long.MinValue;
+    private long _lastRefreshTickIndex;
+    // Tracked explicitly instead of via "_lastRefreshTickIndex = long.MinValue":
+    // the cadence-guard subtraction (currentTickIndex - _lastRefreshTickIndex)
+    // signed-overflows on the first call when the sentinel is MinValue,
+    // producing a negative result that's always < the cadence interval. The
+    // first refresh then never fires and ProcessWorkingSetBytes stays at 0
+    // for the whole session — the exact bug that left the v5 selfHealth
+    // block reading severity=Healthy at a 527 MB install delta.
+    private bool _hasEverRefreshed;
 
     /// <summary>Captured at install start; the heap baseline we measure against.</summary>
     public long ManagedHeapAtInstallStartBytes { get; private set; }
@@ -162,7 +170,11 @@ public sealed class ProfilerSelfHealth
     public void Refresh(long currentTickIndex)
     {
         if (!IsInstalled) return;
-        if (currentTickIndex - _lastRefreshTickIndex < RefreshIntervalTicks) return;
+        // Cadence guard via explicit "have we ever refreshed" flag — see the
+        // signed-overflow note on _hasEverRefreshed for why a sentinel value
+        // was wrong here.
+        if (_hasEverRefreshed && currentTickIndex - _lastRefreshTickIndex < RefreshIntervalTicks) return;
+        _hasEverRefreshed = true;
         _lastRefreshTickIndex = currentTickIndex;
 
         try
@@ -192,7 +204,8 @@ public sealed class ProfilerSelfHealth
     /// <summary>Resets the measurement so a fresh session starts clean.</summary>
     public void Reset()
     {
-        _lastRefreshTickIndex = long.MinValue;
+        _lastRefreshTickIndex = 0L;
+        _hasEverRefreshed = false;
         ManagedHeapAtInstallStartBytes = 0L;
         ManagedHeapAtInstallEndBytes = 0L;
         InstalledHookCount = 0;
