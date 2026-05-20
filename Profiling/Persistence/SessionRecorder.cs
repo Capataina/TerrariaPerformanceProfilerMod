@@ -18,6 +18,19 @@ namespace PerformanceProfiler.Profiling.Persistence;
 /// returns immediately or enqueues onto the writer thread's queue. Nothing
 /// here blocks on disk.
 /// </summary>
+/// <summary>
+/// Internal struct backing <see cref="SessionRecorder._recentDamageRing"/>.
+/// Mutable on purpose — entries are overwritten in place by the ring.
+/// </summary>
+internal struct RecentDamageEntry
+{
+    public long UnixMs;
+    public string SourceKind;
+    public int SourceId;
+    public string SourceName;
+    public int DamageDealt;
+}
+
 public sealed class SessionRecorder
 {
     private readonly ProfilerDatabase _db;
@@ -49,6 +62,24 @@ public sealed class SessionRecorder
 
     /// <summary>Stall events with unix-ms gaps larger than this break the cluster (start a new one).</summary>
     private const long ClusterIdleMs = 2000;
+
+    /// <summary>
+    /// Fixed-size ring of recent damage taken events, populated alongside
+    /// <see cref="OnDamageTaken"/>. Used by <see cref="AggregateRecentDamage"/>
+    /// at the death edge to compute the damage-weighted killer over a window,
+    /// replacing the v0.5 last-hit-credit LiteDB query (which was the only
+    /// game-thread DB read in the hot lifecycle path).
+    ///
+    /// Sized at 64 because a 10-second window at 60 FPS rarely sees more
+    /// than ~30 distinct damage events even in heavy combat; 64 gives
+    /// headroom without paying for it. Entries past the window cutoff are
+    /// ignored by the aggregator rather than evicted.
+    /// </summary>
+    private readonly RecentDamageEntry[] _recentDamageRing = new RecentDamageEntry[64];
+    private int _recentDamageNext;
+
+    /// <summary>Window over which damage is aggregated for killer attribution.</summary>
+    public const int DamageAttributionWindowSeconds = 10;
 
     public ObjectId SessionId => _sessionId;
     public DateTime StartedUtc => _startedUtc;
@@ -153,6 +184,65 @@ public sealed class SessionRecorder
     {
         row.SessionId = _sessionId;
         _db.Writer.Enqueue(DbWriteOp.DamageTaken(row));
+
+        // Mirror into the in-RAM ring for damage-weighted death attribution.
+        // The ring is local to this recorder (same lifecycle), so we don't
+        // need an explicit clear on world unload — the recorder is replaced.
+        ref var slot = ref _recentDamageRing[_recentDamageNext];
+        slot.UnixMs = row.UnixMs;
+        slot.SourceKind = row.SourceKind;
+        slot.SourceId = row.SourceId;
+        slot.SourceName = row.SourceName;
+        slot.DamageDealt = row.DamageDealt;
+        _recentDamageNext = (_recentDamageNext + 1) & 63;   // 64-slot mask
+    }
+
+    /// <summary>
+    /// Aggregate damage taken in the last <paramref name="windowSeconds"/>
+    /// seconds (relative to <paramref name="referenceUnixMs"/>) into a
+    /// damage-weighted contributor list, sorted descending by total damage.
+    /// Returns an empty list if no damage in the window. Allocates the
+    /// returned list and its contributors — called once per death edge, so
+    /// the alloc cost is event-frequency not per-tick.
+    /// </summary>
+    public List<DeathDamageContributor> AggregateRecentDamage(long referenceUnixMs, int windowSeconds = DamageAttributionWindowSeconds)
+    {
+        long cutoff = referenceUnixMs - (long)windowSeconds * 1000L;
+        // Walk the whole 64-slot ring; uninitialised slots have UnixMs = 0
+        // which is unconditionally below cutoff. No filtering branch needed
+        // for "empty" slots beyond the cutoff check.
+        var byKey = new Dictionary<(string, int), DeathDamageContributor>();
+        int totalDamage = 0;
+        for (int i = 0; i < _recentDamageRing.Length; i++)
+        {
+            ref readonly var e = ref _recentDamageRing[i];
+            if (e.UnixMs < cutoff) continue;
+            var key = (e.SourceKind, e.SourceId);
+            if (!byKey.TryGetValue(key, out var c))
+            {
+                c = new DeathDamageContributor
+                {
+                    SourceKind = e.SourceKind,
+                    SourceId = e.SourceId,
+                    SourceName = e.SourceName,
+                };
+                byKey[key] = c;
+            }
+            c.TotalDamage += e.DamageDealt;
+            c.HitCount++;
+            totalDamage += e.DamageDealt;
+        }
+
+        if (byKey.Count == 0) return new List<DeathDamageContributor>();
+
+        var list = new List<DeathDamageContributor>(byKey.Values);
+        list.Sort((a, b) => b.TotalDamage.CompareTo(a.TotalDamage));
+        if (totalDamage > 0)
+        {
+            float inv = 1f / totalDamage;
+            for (int i = 0; i < list.Count; i++) list[i].Fraction = list[i].TotalDamage * inv;
+        }
+        return list;
     }
 
     public void OnDamageDealt(DamageDealtRow row)

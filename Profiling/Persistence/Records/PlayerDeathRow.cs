@@ -15,7 +15,7 @@ namespace PerformanceProfiler.Profiling.Persistence.Records;
 public sealed class PlayerDeathRow
 {
     [BsonId] public ObjectId Id { get; set; } = ObjectId.NewObjectId();
-    [BsonField("_schema")] public int Schema { get; set; } = 1;
+    [BsonField("_schema")] public int Schema { get; set; } = 2;
 
     public ObjectId SessionId { get; set; } = ObjectId.Empty;
     public long Tick { get; set; }
@@ -35,6 +35,24 @@ public sealed class PlayerDeathRow
     /// <summary>Display name of the deepest-HP boss active at death time, or "(no boss)".</summary>
     public string PrimaryBoss { get; set; } = "(no boss)";
 
-    /// <summary>Free-form summary string (e.g. "killed by Eye of Cthulhu in Forest at (3500, 240)").</summary>
+    /// <summary>
+    /// Full damage-weighted breakdown over the death window (v0.6, schema 2):
+    /// every source that hit the player within
+    /// <see cref="DamageAttributionWindowSeconds"/> of death, sorted by total
+    /// damage descending. The first entry is the killer by damage weight (not
+    /// last-hit credit, which over-credits whichever source delivered the
+    /// final blow on a softened player). Empty on schema-1 rows (read-time
+    /// default for v0.5 data).
+    /// </summary>
+    public List<DeathDamageContributor> DamageWeighting { get; set; } = new();
+
+    /// <summary>
+    /// Window the attribution was computed against, in seconds. Persisted so
+    /// future analysis knows what the row was computed against if the
+    /// window is later tuned.
+    /// </summary>
+    public int DamageAttributionWindowSeconds { get; set; } = 10;
+
+    /// <summary>Free-form summary string (e.g. "killed by Eye of Cthulhu (78%) + Vulture (22%) in Forest at (3500, 240)").</summary>
     public string Summary { get; set; } = string.Empty;
 }
