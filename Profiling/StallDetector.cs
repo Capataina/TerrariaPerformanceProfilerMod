@@ -30,29 +30,30 @@ public enum StallCause : byte
 }
 
 /// <summary>
-/// Perceptual-severity ladder for stall badging. Used by the overlay and
-/// session JSON to communicate "how bad the freeze actually looked" to the
-/// player, independent of whether it was a real outlier relative to their
-/// session baseline (the trigger uses the relative comparison; this is purely
-/// for display).
+/// Severity ladder for stall badging, expressed as multiples of the
+/// player's session baseline tick period. Used by the overlay and the
+/// session report to communicate "how bad relative to *this player's*
+/// normal frame" the stall was.
 ///
 /// <para>
-/// The ladder values are absolute wall time of the stall. The eye doesn't
-/// know about FPS — a 500 ms freeze looks like a 500 ms freeze whether the
-/// player normally runs at 25 fps or 120 fps. macOS's beach ball cursor
-/// appears at roughly the <see cref="Freeze"/> threshold; that's the band
-/// the player will actually report as "the game stopped".
+/// Absolute ms thresholds are wrong here: a 100 ms hitch on a 120 fps
+/// player (12× their normal 8.3 ms frame) is appalling; the same 100 ms
+/// hitch on a 30 fps modded player (3× their normal 33 ms frame) is
+/// barely noticeable. The same goes for every other detector / log
+/// threshold in this codebase — see <see cref="StallDetector.SeverityFor"/>
+/// for the band mapping and <c>context/notes/decisions.md</c> for the
+/// "everything relative" decision.
 /// </para>
 /// </summary>
 public enum StallSeverity : byte
 {
-    /// <summary>Below 100 ms of total tick period. A perceptible hitch on a high-refresh display, barely noticeable on a slower one.</summary>
+    /// <summary>Below ~3× baseline. A perceptible hitch on a high-refresh display, lost in noise on a heavy modlist.</summary>
     Minor = 0,
-    /// <summary>100 to 250 ms. The player saw a frame stutter.</summary>
+    /// <summary>~3–8× baseline. The player saw a frame stutter relative to their own normal.</summary>
     Noticeable = 1,
-    /// <summary>250 to 500 ms. Disruptive — most players notice and remember.</summary>
+    /// <summary>~8–20× baseline. Disruptive — the player will remember this freeze.</summary>
     Disruptive = 2,
-    /// <summary>500 ms or more. A visible freeze — macOS shows the spinning beach ball at roughly this threshold.</summary>
+    /// <summary>≥ 20× baseline. A visible freeze the player will report as "the game stopped".</summary>
     Freeze = 3,
 }
 
@@ -165,14 +166,30 @@ public sealed class StallDetector
     /// <summary>Number of ticks at session start where stalls are badged "warming" (JIT compile, content load follow-up).</summary>
     public const int WarmupTicks = 600;
 
-    /// <summary>Severity threshold (ms) for <see cref="StallSeverity.Noticeable"/>.</summary>
-    public const double SeverityNoticeableMs = 100;
+    // ---- Severity multipliers ------------------------------------------------
+    // All severity thresholds are multiples of the player's session baseline
+    // tick period. Bands chosen so that, at a typical 60 fps baseline
+    // (~16.7 ms), they map to roughly the old absolute thresholds (50 / 130 /
+    // 330 ms) — close to "what the eye perceives at 60fps" — but on a 30 fps
+    // modded player they correctly scale up. See enum doc + decisions.md.
 
-    /// <summary>Severity threshold (ms) for <see cref="StallSeverity.Disruptive"/>.</summary>
-    public const double SeverityDisruptiveMs = 250;
+    /// <summary>Multiplier on baseline tick period at which a stall becomes <see cref="StallSeverity.Noticeable"/>.</summary>
+    public const double SeverityNoticeableMultiplier = 3.0;
 
-    /// <summary>Severity threshold (ms) for <see cref="StallSeverity.Freeze"/>; matches the macOS beach-ball window.</summary>
-    public const double SeverityFreezeMs = 500;
+    /// <summary>Multiplier on baseline tick period at which a stall becomes <see cref="StallSeverity.Disruptive"/>.</summary>
+    public const double SeverityDisruptiveMultiplier = 8.0;
+
+    /// <summary>Multiplier on baseline tick period at which a stall becomes <see cref="StallSeverity.Freeze"/>.</summary>
+    public const double SeverityFreezeMultiplier = 20.0;
+
+    // ---- Classifier multipliers ---------------------------------------------
+    // Boundaries between cause buckets, all relative to baseline.
+
+    /// <summary>Cluster check rejects stalls longer than this × baseline — beyond this they're real freezes, not menu blocking.</summary>
+    public const double UiOverlayClusterMaxMultiplier = 30.0;
+
+    /// <summary>Lone CPU-starved stalls longer than this × baseline classify as unambiguous OS suspends.</summary>
+    public const double LongSuspendMultiplier = 50.0;
 
     private readonly RingBuffer<StallEvent> _events = new RingBuffer<StallEvent>(50);
     private readonly StallEventsView _view;
@@ -296,8 +313,8 @@ public sealed class StallDetector
             Gen2Collections = g2,
             HeapSizeBeforeBytes = _prevHeapBytes,
             HeapSizeAfterBytes = heapNow,
-            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta, recentInLast5s),
-            Severity = ClassifySeverity(tickPeriodMs),
+            Cause = ClassifyCause(tickPeriodMs, gcDelta, g2, cpuDelta, recentInLast5s, baselineMs),
+            Severity = ClassifySeverity(tickPeriodMs, baselineMs),
             Warming = _ticksSeen <= WarmupTicks,
         };
         CaptureTopContributors(perModSmoothedMs, ref ev);
@@ -382,9 +399,19 @@ public sealed class StallDetector
     /// </summary>
     public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
         int recentStallsInLast5s)
+        => ClassifyCause(wallMs, gcMs, gen2Delta, cpuMs, recentStallsInLast5s, baselineMs: 16.67d);
+
+    /// <summary>
+    /// Cluster-shape + baseline-aware classifier. All thresholds are
+    /// multiples of <paramref name="baselineMs"/> so a 30 fps player and
+    /// a 120 fps player both get correct buckets without retuning constants.
+    /// </summary>
+    public static StallCause ClassifyCause(double wallMs, double gcMs, int gen2Delta, double cpuMs,
+        int recentStallsInLast5s, double baselineMs)
     {
         // Defensive: a zero-wall stall is degenerate; report unknown.
         if (wallMs <= 0d) return StallCause.Unknown;
+        if (baselineMs <= 0d) baselineMs = 16.67d;  // safety fallback to 60 fps
 
         // First priority: an unambiguous OS suspension. Long wall, CPU
         // barely advanced, lone event. GC counters can look high because
@@ -393,7 +420,7 @@ public sealed class StallDetector
         // CPU-vs-wall ratio as the deciding signal for this case.
         bool cpuStarved = cpuMs < wallMs * 0.2d;
         bool isLone = recentStallsInLast5s <= 2;
-        if (cpuStarved && isLone && wallMs >= 800d)
+        if (cpuStarved && isLone && wallMs >= baselineMs * LongSuspendMultiplier)
             return StallCause.ProcessSuspended;
 
         // GC pause is at least half the stall — the heap was the bottleneck.
@@ -402,13 +429,15 @@ public sealed class StallDetector
             return gen2Delta > 0 ? StallCause.MajorGc : StallCause.MinorGc;
 
         // Sustained cluster of medium-duration stalls → UI/main-thread
-        // blocking. Threshold tuned against the CheatSheet NPC-spawn menu
-        // playtest: 47 consecutive 100-220ms gaps over 13 seconds.
-        if (recentStallsInLast5s >= 5 && wallMs < 500d)
+        // blocking. "Medium" relative to the player's own baseline, not an
+        // absolute ms ceiling. CheatSheet NPC-spawn menu playtest: 47
+        // consecutive 6-13× baseline gaps over 13 seconds.
+        if (recentStallsInLast5s >= 5 && wallMs < baselineMs * UiOverlayClusterMaxMultiplier)
             return StallCause.UiOverlayBlocking;
 
-        // Lone CPU-starved event that didn't meet the long-wall threshold
-        // above — still suspended, just shorter (cmd-tab for half a second).
+        // Lone CPU-starved event below the long-suspend bar — still
+        // suspended, just shorter (cmd-tab for half a baseline-relative
+        // window).
         if (cpuStarved && isLone)
             return StallCause.ProcessSuspended;
 
@@ -419,16 +448,24 @@ public sealed class StallDetector
     }
 
     /// <summary>
-    /// Maps total tick period to a perceptual severity bucket. Absolute
-    /// thresholds because the player's eye doesn't know about FPS.
+    /// Maps tick period to a severity bucket as a multiple of the player's
+    /// session baseline. A 100 ms hitch on a 120 fps player (12× baseline)
+    /// is disruptive; the same 100 ms hitch on a 30 fps modded player
+    /// (3× baseline) is barely noticeable. Always pass the live baseline.
     /// </summary>
-    public static StallSeverity ClassifySeverity(double tickPeriodMs)
+    public static StallSeverity ClassifySeverity(double tickPeriodMs, double baselineMs)
     {
-        if (tickPeriodMs >= SeverityFreezeMs) return StallSeverity.Freeze;
-        if (tickPeriodMs >= SeverityDisruptiveMs) return StallSeverity.Disruptive;
-        if (tickPeriodMs >= SeverityNoticeableMs) return StallSeverity.Noticeable;
+        if (baselineMs <= 0d) baselineMs = 16.67d;
+        double mult = tickPeriodMs / baselineMs;
+        if (mult >= SeverityFreezeMultiplier) return StallSeverity.Freeze;
+        if (mult >= SeverityDisruptiveMultiplier) return StallSeverity.Disruptive;
+        if (mult >= SeverityNoticeableMultiplier) return StallSeverity.Noticeable;
         return StallSeverity.Minor;
     }
+
+    /// <summary>Back-compat overload: assumes 60 fps baseline. Prefer the two-arg variant.</summary>
+    public static StallSeverity ClassifySeverity(double tickPeriodMs)
+        => ClassifySeverity(tickPeriodMs, baselineMs: 16.67d);
 
     /// <summary>Resets the detector. Called from <see cref="MetricCollector"/> at world unload via spike-flush analogue.</summary>
     public void Reset()

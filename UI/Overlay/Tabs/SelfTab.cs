@@ -1,6 +1,5 @@
 #nullable enable
 
-using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
@@ -11,16 +10,18 @@ namespace PerformanceProfiler.UI.Overlay.Tabs;
 /// <summary>
 /// SELF — the profiler's own diagnostics tab. Surfaces what
 /// <see cref="ProfilerSelfHealth"/> measures: install delta, hook count,
-/// bytes-per-hook, process working set, severity bucket. Also projects
-/// the cost at bigger-modlist scales so the player can see whether the
-/// profiler would be untenable in a Calamity / Fargo's / Thorium setup.
+/// bytes-per-hook, process working set, severity bucket.
 ///
 /// <para>
 /// Aimed at the modder / power-user audience but always visible — the
 /// glance value is in the chrome's PROFILER HEALTH line; this tab is the
-/// detail view. The implementation is intentionally small for now;
-/// future expansion (heap sparkline over time, hook-per-mod histogram)
-/// extends the cards in place.
+/// detail view. Two cards: install footprint, process context. There was
+/// previously a third "projection" card extrapolating cost at hypothetical
+/// modlist sizes (Calamity-standalone, kitchen-sink, etc.) — removed in
+/// v0.4 hygiene pass: hardcoded hook counts and a "500 MB severe" curve
+/// dressed up an estimate as a measurement. Players care about their own
+/// modlist's actual numbers, not hypotheticals. If we want scaling
+/// guidance later, we'll add a per-mod hook-count histogram instead.
 /// </para>
 /// </summary>
 internal sealed class SelfTab : IOverlayTab
@@ -33,7 +34,8 @@ internal sealed class SelfTab : IOverlayTab
 
     public float MeasurePanelHeight(MetricCollector collector)
     {
-        return OverlayLayoutCurrent.ChromeHeight + 320f;
+        // Two cards × ~90 px each + chrome.
+        return OverlayLayoutCurrent.ChromeHeight + 200f;
     }
 
     public void HandleClick(float localX, float localY, MetricCollector collector) { }
@@ -59,19 +61,11 @@ internal sealed class SelfTab : IOverlayTab
         Rectangle card2 = new Rectangle(contentLeft, y, contentWidth, 78);
         Rectangle body2 = ProfilerCard.Draw(sb, card2, "PROCESS CONTEXT", null);
         DrawProcessContext(sb, body2, h);
-
-        y += 84;
-
-        // ---- Card 3: scale projection ----
-        Rectangle card3 = new Rectangle(contentLeft, y, contentWidth, 110);
-        Rectangle body3 = ProfilerCard.Draw(sb, card3, "PROJECTION  ·  AT LARGER MODLIST SIZES", null);
-        DrawScaleProjection(sb, body3, h);
     }
 
     private static void DrawInstallFootprint(SpriteBatch sb, Rectangle body, ProfilerSelfHealth h)
     {
         float rowScale = OverlayLayoutCurrent.TextScaleRow;
-        float bodyScale = OverlayLayoutCurrent.TextScaleBody;
 
         if (!h.IsInstalled)
         {
@@ -106,7 +100,7 @@ internal sealed class SelfTab : IOverlayTab
             "SEVERITY", h.Severity.ToString().ToUpperInvariant(),
             sevColor,
             footer: h.ProcessWorkingSetBytes > 0
-                ? $"{h.InstallDeltaFractionOfProcess * 100d:F1}% of game"
+                ? $"{h.InstallDeltaBytes / (1024d * 1024d):F0} MB / {h.ProcessWorkingSetBytes / (1024d * 1024d):F0} MB"
                 : "refreshing...");
     }
 
@@ -124,6 +118,7 @@ internal sealed class SelfTab : IOverlayTab
         double wsMb = h.ProcessWorkingSetBytes / (1024d * 1024d);
         double heapMb = h.ProcessManagedHeapBytes / (1024d * 1024d);
         double managedFraction = h.ManagedFractionOfWorkingSet;
+        double instMb = h.InstallDeltaBytes / (1024d * 1024d);
 
         StatBlock.Draw(sb,
             new Rectangle(body.X, body.Y, body.Width / 3, body.Height),
@@ -135,74 +130,14 @@ internal sealed class SelfTab : IOverlayTab
             "MANAGED HEAP TOTAL", $"{heapMb:F0} MB", ProfilerTheme.Text,
             footer: $"{managedFraction * 100d:F0}% of working set");
 
+        // "Our share" is now the honest ratio rendering (install MB / process
+        // MB), not the misleading "% of game" that drifts past 100%.
         StatBlock.Draw(sb,
             new Rectangle(body.X + body.Width * 2 / 3, body.Y, body.Width / 3, body.Height),
-            "OUR SHARE", $"{h.InstallDeltaFractionOfProcess * 100d:F1}%",
+            "OUR SHARE", $"{instMb:F0} / {wsMb:F0} MB",
             h.Severity == SelfHealthSeverity.Severe ? ProfilerTheme.Danger
             : h.Severity == SelfHealthSeverity.Concerning ? ProfilerTheme.Amber
             : ProfilerTheme.Good,
-            footer: "install delta ÷ working set");
-    }
-
-    private static void DrawScaleProjection(SpriteBatch sb, Rectangle body, ProfilerSelfHealth h)
-    {
-        if (!h.IsInstalled || h.InstalledHookCount == 0)
-        {
-            OverlayDraw.Text(sb, "projection unavailable until install completes",
-                new Vector2(body.X + 8, body.Y + 8),
-                ProfilerTheme.TextMuted,
-                OverlayLayoutCurrent.TextScaleBody);
-            return;
-        }
-
-        // Approximate hook counts for hypothetical modlists. The numbers
-        // here are estimates from the design conversation, not measured.
-        (string label, int hooks)[] scenarios =
-        {
-            ("THIS MODLIST",                        h.InstalledHookCount),
-            ("CALAMITY (standalone)",               6000),
-            ("CALAMITY + FARGO'S + THORIUM + 10",   17000),
-            ("KITCHEN-SINK (40 mods)",              30000),
-        };
-
-        float rowScale = OverlayLayoutCurrent.TextScaleRow;
-        float bodyScale = OverlayLayoutCurrent.TextScaleBody;
-        int rowY = body.Y + 6;
-        int rowH = (body.Height - 12) / scenarios.Length;
-
-        // Find max projected MB for the heat-bar scale.
-        double maxProjMb = 0d;
-        for (int i = 0; i < scenarios.Length; i++)
-        {
-            double mb = (long)scenarios[i].hooks * h.BytesPerHook / (1024d * 1024d);
-            if (mb > maxProjMb) maxProjMb = mb;
-        }
-        if (maxProjMb < 1d) maxProjMb = 1d;
-
-        for (int i = 0; i < scenarios.Length; i++)
-        {
-            double projMb = (long)scenarios[i].hooks * h.BytesPerHook / (1024d * 1024d);
-            // Heat-bar fraction relative to a "500 MB is severe" threshold.
-            double sev = System.Math.Min(1d, projMb / 1000d);
-
-            OverlayDraw.Text(sb, scenarios[i].label,
-                new Vector2(body.X + 8, rowY + (rowH - 14) / 2),
-                ProfilerTheme.TextMuted, bodyScale);
-
-            int barX = body.X + 240;
-            int barW = body.Width - 240 - 90;
-            HeatBar.Draw(sb,
-                new Rectangle(barX, rowY + (rowH - 8) / 2, barW, 8),
-                projMb, maxProjMb, sev);
-
-            Color valueColor = sev >= 0.5d ? ProfilerTheme.Danger
-                             : sev >= 0.25d ? ProfilerTheme.Amber
-                             : ProfilerTheme.Good;
-            OverlayDraw.Text(sb, $"{projMb:F0} MB",
-                new Vector2(body.Right - 70, rowY + (rowH - 14) / 2),
-                valueColor, bodyScale);
-
-            rowY += rowH;
-        }
+            footer: "install delta of process");
     }
 }

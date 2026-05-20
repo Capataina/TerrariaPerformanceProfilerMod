@@ -69,11 +69,23 @@ public class StallClassifierTests
     }
 
     [Fact]
-    public void Severity_Buckets_Correct()
+    public void Severity_Buckets_Are_Relative_To_Baseline()
     {
-        Assert.Equal(StallSeverity.Minor,      StallDetector.ClassifySeverity(50));
-        Assert.Equal(StallSeverity.Noticeable, StallDetector.ClassifySeverity(120));
-        Assert.Equal(StallSeverity.Disruptive, StallDetector.ClassifySeverity(300));
-        Assert.Equal(StallSeverity.Freeze,     StallDetector.ClassifySeverity(700));
+        // Same wall ms reads differently for different player baselines.
+        // 100 ms hitch:
+        //   on 60 fps (16.67 ms baseline) is 6× → Noticeable
+        //   on 120 fps (8.33 ms baseline) is 12× → Disruptive
+        //   on 30 fps modded (33 ms baseline) is 3× → Noticeable (3× is the threshold)
+        Assert.Equal(StallSeverity.Noticeable, StallDetector.ClassifySeverity(100, 16.67));
+        Assert.Equal(StallSeverity.Disruptive, StallDetector.ClassifySeverity(100, 8.33));
+        Assert.Equal(StallSeverity.Noticeable, StallDetector.ClassifySeverity(100, 33));
+
+        // 500 ms freeze on any baseline ≥ 20× → Freeze.
+        // 500 ms on 16.67 baseline = 30× → Freeze.
+        // 500 ms on 33 baseline = 15× → Disruptive (not Freeze!) — the
+        // 30 fps player perceives a 500 ms hitch as less freeze-y because
+        // their normal frame is already long; correct.
+        Assert.Equal(StallSeverity.Freeze,     StallDetector.ClassifySeverity(500, 16.67));
+        Assert.Equal(StallSeverity.Disruptive, StallDetector.ClassifySeverity(500, 33));
     }
 }

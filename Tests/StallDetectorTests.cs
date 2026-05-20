@@ -79,28 +79,42 @@ public class StallDetectorTests
         Assert.Equal(StallCause.ProcessSuspended, c);
     }
 
-    // ---- ClassifySeverity: perceptual ladder -------------------------------
+    // ---- ClassifySeverity: relative-to-baseline ladder ---------------------
 
     [Theory]
-    [InlineData(50, StallSeverity.Minor)]
-    [InlineData(99, StallSeverity.Minor)]
-    [InlineData(100, StallSeverity.Noticeable)]
-    [InlineData(200, StallSeverity.Noticeable)]
-    [InlineData(250, StallSeverity.Disruptive)]
-    [InlineData(450, StallSeverity.Disruptive)]
-    [InlineData(500, StallSeverity.Freeze)]
-    [InlineData(1200, StallSeverity.Freeze)]
-    public void ClassifySeverity_FollowsAbsolutePerceptualLadder(double wallMs, StallSeverity expected)
+    // At a 10 ms baseline so the multiplier math is exact (no floating-
+    // point boundary cases). < 3× = Minor; 3–8× = Noticeable;
+    // 8–20× = Disruptive; ≥ 20× = Freeze.
+    [InlineData(20, 10, StallSeverity.Minor)]
+    [InlineData(30, 10, StallSeverity.Noticeable)]
+    [InlineData(79, 10, StallSeverity.Noticeable)]
+    [InlineData(80, 10, StallSeverity.Disruptive)]
+    [InlineData(199, 10, StallSeverity.Disruptive)]
+    [InlineData(200, 10, StallSeverity.Freeze)]
+    [InlineData(1200, 10, StallSeverity.Freeze)]
+    public void ClassifySeverity_FollowsRelativeLadder(double wallMs, double baselineMs, StallSeverity expected)
     {
-        Assert.Equal(expected, StallDetector.ClassifySeverity(wallMs));
+        Assert.Equal(expected, StallDetector.ClassifySeverity(wallMs, baselineMs));
     }
 
     [Fact]
-    public void ClassifySeverity_IsAbsoluteNotRelative()
+    public void ClassifySeverity_Adapts_To_HighFps_Player()
     {
-        // The point of perceptual severity: a 600 ms freeze is Freeze for
-        // every player, regardless of whether their baseline is 8 ms (75x)
-        // or 40 ms (15x). The eye doesn't care about the multiplier.
-        Assert.Equal(StallSeverity.Freeze, StallDetector.ClassifySeverity(600));
+        // 120 fps player has 8.33 ms baseline. A 100 ms hitch is 12× baseline =
+        // Disruptive. The old absolute ladder said 100 ms = "only Noticeable",
+        // which under-reports how bad it actually felt to that player.
+        Assert.Equal(StallSeverity.Disruptive, StallDetector.ClassifySeverity(100, 8.33));
+    }
+
+    [Fact]
+    public void ClassifySeverity_Adapts_To_LowFps_Player()
+    {
+        // 30 fps modded player has ~33 ms baseline. A 100 ms hitch is only
+        // 3× baseline = Noticeable. The old absolute ladder said 100 ms =
+        // Noticeable too, which happens to coincide here — but a 250 ms
+        // hitch on the same player is 7.5× = still Noticeable, where the
+        // old ladder would have flagged it Disruptive and over-reported.
+        Assert.Equal(StallSeverity.Noticeable, StallDetector.ClassifySeverity(100, 33));
+        Assert.Equal(StallSeverity.Noticeable, StallDetector.ClassifySeverity(250, 33));
     }
 }

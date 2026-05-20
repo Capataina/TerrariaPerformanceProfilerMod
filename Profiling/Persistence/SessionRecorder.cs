@@ -210,9 +210,14 @@ public sealed class SessionRecorder
             };
             _db.Writer.Enqueue(DbWriteOp.Spike(row));
 
-            // Inline narration to client.log for spikes ≥ 100ms — what the
-            // player perceives as a hitch. Skip warming-window noise.
-            if (w.WorstFrameMs >= 100d && !w.Warming && PerformanceProfiler.LoggerOrNull != null)
+            // Inline narration to client.log for spikes that are at least
+            // SpikeLogMultiplier × the captured baseline — what the player
+            // perceives as a hitch relative to their *own* normal frame.
+            // A 30 fps modded player and a 120 fps player both get the
+            // right log volume without retuning constants. Skip
+            // warming-window noise.
+            const double SpikeLogMultiplier = 6.0;
+            if (w.WorstFrameMs >= w.BaselineMs * SpikeLogMultiplier && !w.Warming && PerformanceProfiler.LoggerOrNull != null)
             {
                 string topName = row.TopContributors.Count > 0 ? row.TopContributors[0].Name : "(no attribution)";
                 double topMs = row.TopContributors.Count > 0 ? row.TopContributors[0].Ms : 0d;
@@ -297,8 +302,12 @@ public sealed class SessionRecorder
 
             // Inline narration to client.log so a log-only inspection later
             // (the workflow we just had to do manually) doesn't need the DB.
-            // Threshold is 500ms = perceptible-to-the-player.
-            if (s.TickPeriodMs >= 500d && PerformanceProfiler.LoggerOrNull != null)
+            // Threshold = StallDetector.SeverityFreezeMultiplier × baseline,
+            // i.e. only the "the game stopped" tier gets a log line. A 30
+            // fps modded player needs higher absolute ms than a 120 fps
+            // player to hit this; using baseline as the divisor makes the
+            // threshold honest for both.
+            if (s.TickPeriodMs >= s.BaselineMs * StallDetector.SeverityFreezeMultiplier && PerformanceProfiler.LoggerOrNull != null)
             {
                 string top = topContribs.Count > 0 ? topContribs[0].Name : "(no attribution)";
                 PerformanceProfiler.LoggerOrNull.Info(

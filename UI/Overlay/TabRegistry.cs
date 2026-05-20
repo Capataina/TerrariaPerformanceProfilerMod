@@ -42,7 +42,7 @@ internal static class TabRegistry
         new SpikesTab(),       // Renders as "LAG" (spikes + stalls unified feed).
         new EventsTab(),
         new InsightsTab(),
-        new SelfTab(),         // The profiler's own diagnostics: install delta, scaling projection.
+        new SelfTab(),         // The profiler's own diagnostics: install delta + process context.
     };
 
     // Reused buffer for the visible-tab list so the per-frame chrome path

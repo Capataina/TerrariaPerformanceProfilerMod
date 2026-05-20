@@ -220,8 +220,12 @@ internal sealed class SpikesTab : IOverlayTab
     {
         int duration = (int)(w.EndTick - w.StartTick + 1);
         double multiplier = w.BaselineMs > 0d ? w.WorstFrameMs / w.BaselineMs : 0d;
-        Color severityColor = w.WorstFrameMs >= 32d ? ProfilerTheme.Danger
-                            : w.WorstFrameMs >= 16d ? ProfilerTheme.Amber
+        // Colour bucket is purely relative to the player's baseline — was
+        // an absolute "32 ms = Danger / 16 ms = Amber" before, which broke
+        // for 30-fps modded players (16ms is their normal frame, not Amber)
+        // and for 120-fps players (32ms is 4× their normal, Danger not Amber).
+        Color severityColor = multiplier >= 4d ? ProfilerTheme.Danger
+                            : multiplier >= 2d ? ProfilerTheme.Amber
                             : ProfilerTheme.Text;
 
         // Kind glyph: bullet for spikes. Coloured to match severity so the
