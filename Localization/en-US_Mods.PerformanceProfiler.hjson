@@ -1,1 +1,36 @@
 Keybinds.ToggleOverlay.DisplayName: Toggle Overlay
+
+Configs: {
+	ProfilerConfig: {
+		DisplayName: Profiler Config
+
+		DefaultMode: {
+			Label: Default overlay mode
+			Tooltip: Default = generous "stand-in-base" view (1120 px). Compact = tight HUD view for active combat (720 px).
+		}
+
+		DefaultTabIndex: {
+			Label: Default tab on open
+			Tooltip: 0=SUMMARY, 1=TREE, 2=LAG, 3=EVENTS, 4=INSIGHTS, 5=SELF.
+		}
+
+		PanelWidthOverride: {
+			Label: Panel width override (px, 0 = mode default)
+			Tooltip: ""
+		}
+	}
+
+	OverlayMode: {
+		Tooltip: ""
+
+		Default: {
+			Label: Default
+			Tooltip: ""
+		}
+
+		Compact: {
+			Label: Compact
+			Tooltip: ""
+		}
+	}
+}

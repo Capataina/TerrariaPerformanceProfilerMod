@@ -1,119 +1,113 @@
 #nullable enable
 
-using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Terraria.GameContent;
 
 namespace PerformanceProfiler.UI.Overlay.Components;
 
 /// <summary>
-/// One sector of a <see cref="DonutChart"/>. Value drives sector arc
+/// One sector of an impact-share visualisation. Value drives sector arc
 /// length; identity colour drives slice hue (from
 /// <see cref="ProfilerTheme.ModColor"/>); dominant colour optionally tints
-/// the inner edge of the ring to encode which axis (cpu / alloc / spike)
+/// the inner edge of the slice to encode which axis (cpu / alloc / spike)
 /// the mod is most heavy on.
 /// </summary>
 internal struct DonutSlice
 {
     public double Value;
     public Color SliceColor;
-    public Color DominantHue;    // tint applied to the inner edge of the slice
+    public Color DominantHue;
     public string? Label;
 }
 
 /// <summary>
-/// Sectored donut chart. Drawn as many thin rotated rectangles ("wedges")
-/// stitched into each slice's arc — about 1° per wedge — so the whole
-/// chart goes through <see cref="SpriteBatch"/> without needing raw
-/// <c>DrawUserPrimitives</c> or any SpriteBatch state juggling.
+/// Impact-share visualiser. Originally drawn as a donut (sectored ring), but
+/// the rotation-based wedge rendering produced off-screen artifacts on tested
+/// hardware (long parallel diagonal lines, see Caner's screenshot
+/// 2026-05-20). Replaced with a SAFE stacked-horizontal-bar layout: zero
+/// rotation, only <c>FillRect</c> primitives, identical information density.
 ///
 /// <para>
-/// At 60 Hz with 8-slice donuts that's ~360 wedges per frame. Cheap on a
-/// modern GPU; well under the SpriteBatch budget. We can refresh-cadence
-/// the donut to 1 Hz later if the per-frame redraw shows up in our own
-/// profiling.
+/// Two-band per slice:
 /// </para>
+/// <list type="bullet">
+///   <item>Top 65% of the bar height — identity colour (which mod)</item>
+///   <item>Bottom 35% — dominant-axis tint (cpu blue / alloc purple /
+///         spike amber) so a glance shows WHY each mod is heavy.</item>
+/// </list>
 ///
 /// <para>
-/// Each slice paints in two layers: the SliceColor at its identity hue
-/// covering the outer two-thirds of the ring, then the DominantHue tinted
-/// over the inner third. The result reads as "which mod" by hue identity
-/// + "what's it heavy on" by the inner-edge wash. The legend caller is
-/// responsible for labelling.
+/// We keep the type name <c>DonutChart</c> so call sites don't churn; the
+/// header docstring of any future tab makes the actual shape clear.
 /// </para>
 /// </summary>
 internal static class DonutChart
 {
     /// <summary>
-    /// Draws the donut centred at <paramref name="centre"/> with the given
-    /// outer/inner radii. Slices are drawn clockwise starting at 12 o'clock.
-    /// Values are normalised against the sum of all slice values; pass a
-    /// zero-total slice list as a no-op.
+    /// Renders the share bar inside the supplied area. Slices are drawn
+    /// left-to-right in the order supplied; values normalised against the
+    /// sum of all slice values. Zero-total input is a no-op.
     /// </summary>
-    public static void Draw(SpriteBatch sb, Vector2 centre, float outerR, float innerR,
-        IReadOnlyList<DonutSlice> slices)
+    public static void Draw(SpriteBatch sb, Rectangle area, IReadOnlyList<DonutSlice> slices)
     {
-        if (slices.Count == 0 || outerR <= innerR) return;
+        if (slices.Count == 0 || area.Width < 4 || area.Height < 8) return;
 
         double total = 0d;
         for (int i = 0; i < slices.Count; i++) total += slices[i].Value;
         if (total <= 0d) return;
 
-        Texture2D pixel = TextureAssets.MagicPixel.Value;
-        const float TwoPi = (float)(Math.PI * 2d);
-        // Angular resolution: one wedge every ~1° gives a smooth-looking ring
-        // at 100-px radii; smaller resolutions look chunky on outer edges.
-        const float WedgeStepRad = (float)(Math.PI / 180d);
+        // Track background.
+        ProfilerTheme.FillRect(sb, area, ProfilerTheme.Border);
 
-        float startAngle = -MathHelper.PiOver2; // 12 o'clock
-        float midR = (outerR + innerR) * 0.5f;
-        float thickness = outerR - innerR;
-        // Split into outer 70% (identity colour) and inner 30% (dominant tint).
-        float identityRadius = innerR + thickness * 0.30f;
-        float identityThickness = outerR - identityRadius;
-        float dominantThickness = identityRadius - innerR;
-        float identityMidR = (outerR + identityRadius) * 0.5f;
-        float dominantMidR = (identityRadius + innerR) * 0.5f;
+        // Two-band split (identity on top, dominant tint on bottom).
+        int identityH = (int)(area.Height * 0.65f);
+        int dominantH = area.Height - identityH;
+        int identityY = area.Y;
+        int dominantY = area.Y + identityH;
 
+        // Track running x position; ensure we always exactly fill the area
+        // by snapping the last slice to area.Right.
+        float cursor = 0f;
+        int x = area.X;
         for (int i = 0; i < slices.Count; i++)
         {
-            float sweep = (float)(TwoPi * slices[i].Value / total);
-            if (sweep <= 0f) continue;
-            int wedgeCount = System.Math.Max(2, (int)System.Math.Ceiling(sweep / WedgeStepRad));
-            float wedgeStep = sweep / wedgeCount;
+            DonutSlice s = slices[i];
+            double frac = s.Value / total;
+            cursor += (float)(area.Width * frac);
+            int rightX = i == slices.Count - 1
+                ? area.Right
+                : area.X + (int)cursor;
+            int w = rightX - x;
+            if (w <= 0) { x = rightX; continue; }
 
-            for (int w = 0; w < wedgeCount; w++)
-            {
-                float a = startAngle + (w + 0.5f) * wedgeStep;
-                float cos = (float)Math.Cos(a);
-                float sin = (float)Math.Sin(a);
+            // Identity band.
+            ProfilerTheme.FillRect(sb, new Rectangle(x, identityY, w, identityH), s.SliceColor);
+            // Dominant tint band.
+            ProfilerTheme.FillRect(sb, new Rectangle(x, dominantY, w, dominantH), s.DominantHue);
+            // Thin vertical divider between slices.
+            if (i > 0)
+                ProfilerTheme.FillRect(sb, new Rectangle(x, area.Y, 1, area.Height), ProfilerTheme.Panel);
 
-                // Identity-coloured outer band.
-                {
-                    Vector2 pos = centre + new Vector2(cos * identityMidR, sin * identityMidR);
-                    float arcLen = wedgeStep * identityMidR + 1.5f;
-                    sb.Draw(pixel, pos, null, slices[i].SliceColor,
-                        a + MathHelper.PiOver2,
-                        new Vector2(0.5f, 0.5f),
-                        new Vector2(arcLen, identityThickness),
-                        SpriteEffects.None, 0f);
-                }
-                // Dominant-tinted inner band.
-                {
-                    Vector2 pos = centre + new Vector2(cos * dominantMidR, sin * dominantMidR);
-                    float arcLen = wedgeStep * dominantMidR + 1.5f;
-                    Color tinted = slices[i].DominantHue;
-                    sb.Draw(pixel, pos, null, tinted,
-                        a + MathHelper.PiOver2,
-                        new Vector2(0.5f, 0.5f),
-                        new Vector2(arcLen, dominantThickness),
-                        SpriteEffects.None, 0f);
-                }
-            }
-
-            startAngle += sweep;
+            x = rightX;
         }
+    }
+
+    /// <summary>
+    /// Convenience overload that draws the bar centred inside a rectangular
+    /// area roughly proportional to a donut's outer bounding box. Used by the
+    /// SUMMARY tab where the donut centre stat is rendered separately.
+    /// </summary>
+    public static void Draw(SpriteBatch sb, Vector2 centre, float outerR, float innerR, IReadOnlyList<DonutSlice> slices)
+    {
+        // Convert the donut bounding box into a horizontal-bar area centred at the same point.
+        int barH = (int)(outerR * 0.45f);
+        int barW = (int)(outerR * 2.4f);
+        Rectangle area = new Rectangle(
+            (int)centre.X - barW / 2,
+            (int)centre.Y - barH / 2,
+            barW,
+            barH);
+        Draw(sb, area, slices);
     }
 }

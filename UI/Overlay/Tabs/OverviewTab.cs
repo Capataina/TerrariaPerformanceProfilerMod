@@ -231,33 +231,34 @@ internal sealed class OverviewTab : IOverlayTab
             return;
         }
 
-        // Centre the donut in the body.
-        float donutOuterR = Math.Min(body.Width, body.Height) * 0.42f;
-        float donutInnerR = donutOuterR * 0.58f;
-        Vector2 centre = new Vector2(body.Center.X, body.Center.Y);
-        DonutChart.Draw(sb, centre, donutOuterR, donutInnerR, _slices);
-
-        // Centre stat: top contributor name + share.
+        // Top contributor summary, large in the upper portion of the card.
         if (_topModId >= 0 && _topModId < _truncatedNames.Length)
         {
             string name = _truncatedNames[_topModId];
             string sharePct = $"{_topModShare * 100d:F0}%";
             string composite = $"{_topModComposite:F1} ms";
-            float textScale = OverlayLayoutCurrent.TextScaleH2;
             float bodyScale = OverlayLayoutCurrent.TextScaleBody;
-            OverlayDraw.Text(sb, name, new Vector2(centre.X - name.Length * 3f, centre.Y - 18),
-                ProfilerTheme.Text, bodyScale);
-            OverlayDraw.Text(sb, sharePct, new Vector2(centre.X - sharePct.Length * 5f, centre.Y - 4),
-                ProfilerTheme.Accent, textScale);
-            OverlayDraw.Text(sb, composite, new Vector2(centre.X - composite.Length * 3f, centre.Y + 14),
-                ProfilerTheme.TextMuted, bodyScale);
+            float rowScale = OverlayLayoutCurrent.TextScaleRow;
+            float h2Scale = OverlayLayoutCurrent.TextScaleH2;
+            OverlayDraw.Text(sb, "TOP", new Vector2(body.X + 12, body.Y + 6), ProfilerTheme.TextMuted, bodyScale);
+            OverlayDraw.Text(sb, name, new Vector2(body.X + 12, body.Y + 22), ProfilerTheme.Text, rowScale);
+            OverlayDraw.Text(sb, sharePct, new Vector2(body.X + 12, body.Y + 44), ProfilerTheme.Accent, h2Scale);
+            OverlayDraw.Text(sb, composite, new Vector2(body.X + 12, body.Y + 68), ProfilerTheme.TextMuted, bodyScale);
         }
 
-        // Legend in the bottom-left of the body: three coloured dots + axis labels.
-        float legendY = body.Bottom - 14;
-        DrawLegendDot(sb, body.X + 8, legendY, ProfilerTheme.CpuDominant, "cpu");
-        DrawLegendDot(sb, body.X + 8 + 56, legendY, ProfilerTheme.AllocDominant, "alloc");
-        DrawLegendDot(sb, body.X + 8 + 56 + 70, legendY, ProfilerTheme.SpikeDominant, "spike");
+        // Stacked share bar across the lower portion of the card.
+        int barTop = body.Y + body.Height - 50;
+        int barLeft = body.X + 12;
+        int barRight = body.Right - 12;
+        int barHeight = 28;
+        Rectangle barArea = new Rectangle(barLeft, barTop, barRight - barLeft, barHeight);
+        DonutChart.Draw(sb, barArea, _slices);
+
+        // Legend below the bar.
+        int legendY = barArea.Bottom + 6;
+        DrawLegendDot(sb, body.X + 12, legendY, ProfilerTheme.CpuDominant, "cpu");
+        DrawLegendDot(sb, body.X + 12 + 56, legendY, ProfilerTheme.AllocDominant, "alloc");
+        DrawLegendDot(sb, body.X + 12 + 56 + 70, legendY, ProfilerTheme.SpikeDominant, "spike");
     }
 
     private void DrawLegendDot(SpriteBatch sb, float x, float y, Color hue, string label)
