@@ -91,24 +91,28 @@ public static class LangNameCache
         _populated = true;
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static string Buff(int buffType)
     {
         if ((uint)buffType < (uint)_buffNames.Length) return _buffNames[buffType];
         return "buff-" + buffType;
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static string Item(int itemType)
     {
         if ((uint)itemType < (uint)_itemNames.Length) return _itemNames[itemType];
         return "item-" + itemType;
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static string Projectile(int projType)
     {
         if ((uint)projType < (uint)_projectileNames.Length) return _projectileNames[projType];
         return "proj-" + projType;
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static string Npc(int npcType)
     {
         if ((uint)npcType < (uint)_npcNames.Length) return _npcNames[npcType];

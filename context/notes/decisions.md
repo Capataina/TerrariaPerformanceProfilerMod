@@ -2,6 +2,30 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-05-20 — v0.6.1 hot-path follow-through
+
+The v0.6 playtest showed all five user-visible wins worked (world-unload stall 8.5 s → 0.5 s = 16× reduction; world-enter freeze 172 ms → ~110 ms; itemCreatedEvents capturing 21 rows in 3 min vs v0.5's 0; damage-weighted death attribution with `"killed by Demon Eye"`; buffEvents correctly sparse for a no-potion session) but **PerformanceProfiler's own per-tick cost barely moved** (0.27 → 0.31 ms/tick, within noise but the wrong direction). The user's complaint: "we did 40+ optimisations and seems like the overall performance is the same".
+
+Root cause: most of the v0.6 wins were on cold paths or per-event paths. The actual per-tick hot code on the game thread was still doing the same per-tick allocations + scans as v0.5.
+
+v0.6.1 fixes the hot path. Six commits:
+
+- **Dirty-flag PostUpdateEquips + PostUpdateBuffs**: the single biggest per-tick allocation. v0.5/v0.6 ran `CaptureLoadout` and the buff diff loop EVERY tick on the game thread, allocating a fresh `List<EquipmentSlotEntry>` + N entries + a `StringBuilder.ToString()` + a `LoadoutSnapshotRow` even when nothing changed (99%+ of ticks). v0.6.1 computes a 20-op FNV-1a hash of armor types / buff types FIRST; matching hash → return immediately (~20 ns total). The periodic 30-second anchor still fires when due.
+
+- **Incremental histogram baseline (metric-collection §4.6 [H])**: v0.5/v0.6 ran four full 1800-frame ring scans per tick in `Baseline.Recompute` — ~13,600 ops/tick. v0.6.1 maintains persistent histograms + shadow ring buffers; OnFramePushed is +1 the new bucket / -1 the evicted bucket / store / advance head. ~6 array ops/tick + a 512-bucket median scan. MAD recomputed every 30 ticks via amortisation. ~13,600 → ~518 ops/tick. Resync detection keeps the existing batched-push test path correct.
+
+- **Power-of-two retention windows in PerTickAttributionRing**: rounds 1800 → 2048 and 120 → 128, replaces `% _historyTicks` with `& _historyTicksMask` at 8 call sites in Push + GetPerMod* + GetPerModCat*. ~15-25 ns/tick saved on the Push path. Spike-detection §4.3.
+
+- **HookSurfaceCache (mod-lifecycle §4.6 ε9)**: both backends called `AssemblyManager.GetLoadableTypes(mod.Code)` per mod independently — duplicate work × duplicate retained reflection state. New `Profiling/HookSurfaceCache.cs` is a process-scoped `Dictionary<int, Type[]>` cache; HookInterceptor populates, ILHookInterceptor reads. Estimated 80-150 MB install-RAM saving per the dossier.
+
+- **AggressiveInlining on every LangNameCache lookup**: the four per-event hot-path methods (`Buff` / `Item` / `Projectile` / `Npc`) are array indexer accesses that should fold into the call site. Tightens the per-event emit path further.
+
+- **Fall-damage naming fix**: the v0.6 playtest showed `PlayerDeathRow.Summary = "killed by other-0"` for a fall through a self-dug shaft. `PlayerDeathReason.ByOther(0)` is reached by the fall-damage path that doesn't carry the `Fall_TooHigh = 1` tag. `OtherIndexName(0)` now returns `"Fall"`. Plus `StallClusterRow` added to `BsonShortNames` mapping (was missed in the v0.6 sweep — was still writing long-name BSON).
+
+Expected per-tick cost reduction: ~26 µs/tick combined, on a v0.6 baseline of 270 µs/tick = ~10% per-tick improvement. Not the dramatic 50%+ promised by the master plan, but **finally directionally correct**. The bigger wins still on the table (BSON numeric blobs + FK swap + struct union + binary journal + InsertBulk + Cecil ILContext dispose + full row pool Rent/Return + full per-tab overlay format caching) ride larger refactors and are tracked for v0.6.2+.
+
+Bumped `build.txt` 0.6 → 0.6.1.
+
 ## 2026-05-20 — v0.6 autonomous performance pass
 
 Caner's framing: spawn 11 per-system + 3 cross-system Opus background research agents (plus a self code-health audit), produce a master plan, then implement end-to-end. Hard constraint: pure perf upgrade — no scope cuts, no feature lightening, no capture-surface reduction. "Optimisation = doing what we already do at maximum efficiency. It is not = doing less" (philosophy.md). Full design lives in `context/perf-pass/` — baseline.md, coherence.md, master-plan.md, verification.md, and research/*.md (15 files, ~16,300 lines).
