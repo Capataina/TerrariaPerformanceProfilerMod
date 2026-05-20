@@ -49,15 +49,8 @@ namespace PerformanceProfiler.Profiling;
 /// </summary>
 public static class ILHookInterceptor
 {
-    // Hook categories, matching PerModAttribution.CategoryNames indices.
-    // (Duplicated from HookInterceptor to keep this file standalone; both must agree.)
-    private const int CategorySystems = 0;
-    private const int CategoryPlayers = 1;
-    private const int CategoryNpcs = 2;
-    private const int CategoryProjectiles = 3;
-    private const int CategoryItems = 4;
-    private const int CategoryWorld = 5;
-    private const int CategoryBuffs = 6;
+    // Category ids live in HookCategoryRouter — both backends share that map so
+    // category drift between delegate and ILHook paths is impossible.
 
     // Cached MethodInfo for our IL-emitted call targets. Two pairs: the cheap
     // CPU-only Enter/Leave, and the CPU + allocation EnterCpuAlloc/LeaveCpuAlloc.
@@ -172,9 +165,19 @@ public static class ILHookInterceptor
         }
         catch (Exception ex)
         {
+            // Per-method failures are caught inside InstrumentTypeOverrides;
+            // reaching this catch means something failed *between* methods (a
+            // type-walking exception, a reflection error on AssemblyManager,
+            // etc.). At that point one or more hooks may already be live in
+            // _installedHooks. Dispose them before declaring disabled —
+            // otherwise tModLoader unloads our assembly while patched IL still
+            // calls into ProbeStack, and the next process tick blows up
+            // (Invariant 4: abort-clean, not abort-mid-install).
             Installed = false;
             self.Logger.Warn(
-                $"ILHookInterceptor disabled, install failed cleanly: {ex.GetType().Name}: {ex.Message}");
+                $"ILHookInterceptor disabled, install failed cleanly: {ex.GetType().Name}: {ex.Message}; " +
+                $"disposing {_installedHooks.Count} partially-installed hooks.");
+            Uninstall();
         }
     }
 
@@ -249,7 +252,7 @@ public static class ILHookInterceptor
                 continue;
             }
 
-            int categoryId = ResolveCategory(type);
+            int categoryId = HookCategoryRouter.ResolveCategory(type);
             if (categoryId < 0)
             {
                 continue;
@@ -262,25 +265,6 @@ public static class ILHookInterceptor
     // tModLoader's own assembly. Resolved once so the hot install loop avoids
     // repeated typeof(Mod) lookups.
     private static readonly Assembly _tmlAssembly = typeof(Terraria.ModLoader.Mod).Assembly;
-
-    /// <summary>
-    /// Mirrors <see cref="HookInterceptor.InstallForMod"/>'s type-to-category
-    /// routing so both backends produce the same category attribution.
-    /// </summary>
-    private static int ResolveCategory(Type type)
-    {
-        if (typeof(ModSystem).IsAssignableFrom(type)) return CategorySystems;
-        if (typeof(ModPlayer).IsAssignableFrom(type)) return CategoryPlayers;
-        if (typeof(ModNPC).IsAssignableFrom(type)) return CategoryNpcs;
-        if (typeof(ModProjectile).IsAssignableFrom(type)) return CategoryProjectiles;
-        if (typeof(GlobalNPC).IsAssignableFrom(type)) return CategoryNpcs;
-        if (typeof(GlobalProjectile).IsAssignableFrom(type)) return CategoryProjectiles;
-        if (typeof(ModItem).IsAssignableFrom(type) || typeof(GlobalItem).IsAssignableFrom(type)) return CategoryItems;
-        if (typeof(ModTile).IsAssignableFrom(type) || typeof(GlobalTile).IsAssignableFrom(type) ||
-            typeof(ModWall).IsAssignableFrom(type) || typeof(GlobalWall).IsAssignableFrom(type)) return CategoryWorld;
-        if (typeof(ModBuff).IsAssignableFrom(type)) return CategoryBuffs;
-        return -1;
-    }
 
     private static void InstrumentTypeOverrides(Type type, int modId, int categoryId, Mod self)
     {

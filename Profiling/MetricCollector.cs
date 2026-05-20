@@ -229,6 +229,15 @@ public sealed class MetricCollector
     /// <summary>The coalesced spike windows detected this session, oldest first.</summary>
     public IReadOnlyList<SpikeWindow> Spikes => _spikeDetector.Windows;
 
+    /// <summary>
+    /// Force-close any spike window that's still open. Called by
+    /// <c>ProfilerSystem.OnWorldUnload</c> before the final session report is
+    /// written so an in-progress spike that ended with the world exit is still
+    /// captured. Without this, the window stays in the detector's open-slot
+    /// scratch and never reaches the retained ring or the JSON.
+    /// </summary>
+    public void FlushSpikes() => _spikeDetector.Flush();
+
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
 

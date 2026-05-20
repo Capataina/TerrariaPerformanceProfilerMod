@@ -12,6 +12,18 @@ using System.Text.Json;
 namespace PerformanceProfiler.Profiling;
 
 /// <summary>
+/// Thrown by <see cref="SessionLogWriter.Tick"/> when a periodic write fails.
+/// The writer disables itself; <c>ProfilerSystem.PostUpdateEverything</c>
+/// catches this, drops the reference, and logs once so the per-tick path
+/// doesn't keep paying the failed-IO penalty.
+/// </summary>
+internal sealed class SessionLogFailureException : Exception
+{
+    internal SessionLogFailureException(Exception inner)
+        : base("Session log write failed; logging disabled for this world.", inner) { }
+}
+
+/// <summary>
 /// Writes one agent-readable JSON report for the current play session.
 ///
 /// This is a compact export, not long-term analytics storage. It keeps a coarse
@@ -77,7 +89,19 @@ public sealed class SessionLogWriter : IDisposable
         {
             _timeline.Add(TimelineRow(collector, latest));
             _lastTimelineTick = latest.TickIndex;
-            WriteReport(final: false, collector);
+
+            // A failed periodic write disables further writes for this world
+            // (Invariant 4: instrumentation may decline, never crash the game).
+            // The world lifecycle's wrapper logs the disablement to client.log.
+            try
+            {
+                WriteReport(final: false, collector);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                _disposed = true;
+                throw new SessionLogFailureException(ex);
+            }
         }
 
         // Spikes are owned by MetricCollector now (median-based detector with
@@ -122,10 +146,39 @@ public sealed class SessionLogWriter : IDisposable
         };
 
         string json = JsonSerializer.Serialize(report, JsonOptions);
-        File.WriteAllText(_currentPath, json, new UTF8Encoding(false));
+        AtomicWrite(_currentPath, json);
         if (final)
         {
-            File.WriteAllText(_finalPath, json, new UTF8Encoding(false));
+            AtomicWrite(_finalPath, json);
+        }
+    }
+
+    /// <summary>
+    /// Writes <paramref name="json"/> to a sibling temp file, flushes, then
+    /// renames the temp over <paramref name="destination"/>. A crash or process
+    /// kill during the write leaves either the previous complete file or the
+    /// new complete file behind — never the truncated state that
+    /// <see cref="File.WriteAllText"/> produces while writing.
+    /// <para>
+    /// <see cref="File.Replace"/> requires the destination to exist. The first
+    /// write goes through <see cref="File.Move"/> instead so the rename still
+    /// happens atomically when no prior report is on disk.
+    /// </para>
+    /// </summary>
+    private static void AtomicWrite(string destination, string json)
+    {
+        string tempPath = destination + ".tmp";
+        File.WriteAllText(tempPath, json, new UTF8Encoding(false));
+
+        if (File.Exists(destination))
+        {
+            // File.Replace gives us crash-safety: it does the unlink+rename
+            // sequence the platform considers atomic. No backup file is kept.
+            File.Replace(tempPath, destination, destinationBackupFileName: null);
+        }
+        else
+        {
+            File.Move(tempPath, destination);
         }
     }
 
@@ -383,8 +436,10 @@ public sealed class SessionLogWriter : IDisposable
 
     private static object CoverageForMod(int modId)
     {
-        int measured = modId < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[modId] : 0;
-        int total = modId < HookInterceptor.TotalHookCounts.Count ? HookInterceptor.TotalHookCounts[modId] : 0;
+        // HookCoverageView routes through the active backend's counters so the
+        // overlay's PROFILER HEALTH strip and this JSON block always agree.
+        int measured = HookCoverageView.MeasuredForMod(modId);
+        int total = HookCoverageView.TotalForMod(modId);
         IReadOnlyList<string> unsupported = modId < HookInterceptor.UnsupportedHookSamples.Count
             ? HookInterceptor.UnsupportedHookSamples[modId]
             : Array.Empty<string>();
@@ -402,6 +457,9 @@ public sealed class SessionLogWriter : IDisposable
 
     private static void CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods)
     {
+        IReadOnlyList<int> totals    = HookCoverageView.TotalHookCounts;
+        IReadOnlyList<int> measureds = HookCoverageView.MeasuredHookCounts;
+
         total = 0;
         measured = 0;
         fullMods = 0;
@@ -410,8 +468,8 @@ public sealed class SessionLogWriter : IDisposable
         int mods = HookInterceptor.ProfiledModNames.Length;
         for (int i = 0; i < mods; i++)
         {
-            int modTotal = i < HookInterceptor.TotalHookCounts.Count ? HookInterceptor.TotalHookCounts[i] : 0;
-            int modMeasured = i < HookInterceptor.MeasuredHookCounts.Count ? HookInterceptor.MeasuredHookCounts[i] : 0;
+            int modTotal = i < totals.Count ? totals[i] : 0;
+            int modMeasured = i < measureds.Count ? measureds[i] : 0;
             total += modTotal;
             measured += modMeasured;
             if (modTotal == modMeasured)
@@ -595,10 +653,22 @@ public sealed class SessionLogWriter : IDisposable
 
     private static void PruneIncompatibleLogs(string directory, string identity)
     {
-        foreach (string file in Directory.GetFiles(directory, "*.json*"))
+        // Only touch files that look like our own emissions: a 16-hex-character
+        // identity prefix followed by '-' and a UTC stamp ending in .json (with
+        // an optional .tmp suffix from an interrupted atomic write). The old
+        // `*.json*` glob would have happily deleted hand-saved backups, dev
+        // diagnostics, or anything else a future tool drops in the session
+        // directory; narrowing it preserves the writer's intended sweep without
+        // claiming ownership of the whole folder.
+        foreach (string file in Directory.GetFiles(directory, "*-*.json*"))
         {
             string name = Path.GetFileName(file);
-            if (name == "current-session.json")
+            if (name == "current-session.json" || name == "current-session.json.tmp")
+            {
+                continue;
+            }
+
+            if (!LooksLikeOurReport(name))
             {
                 continue;
             }
@@ -608,6 +678,27 @@ public sealed class SessionLogWriter : IDisposable
                 File.Delete(file);
             }
         }
+    }
+
+    /// <summary>
+    /// True if <paramref name="name"/> matches the writer's own filename shape:
+    /// 16 lowercase-hex identity characters, a dash, then a UTC stamp, ending in
+    /// <c>.json</c> or <c>.json.tmp</c>. Anything else is treated as someone
+    /// else's file and left alone.
+    /// </summary>
+    private static bool LooksLikeOurReport(string name)
+    {
+        // Minimum length: 16 hex + '-' + 16-char stamp + '.json' = 38.
+        if (name.Length < 38) return false;
+        for (int i = 0; i < 16; i++)
+        {
+            char c = name[i];
+            bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            if (!hex) return false;
+        }
+        if (name[16] != '-') return false;
+        return name.EndsWith(".json", StringComparison.Ordinal)
+            || name.EndsWith(".json.tmp", StringComparison.Ordinal);
     }
 
     private static string ComputeIdentity()

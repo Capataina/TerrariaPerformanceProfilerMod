@@ -193,15 +193,10 @@ public static class PerModAttribution
     }
 
     /// <summary>
-    /// Legacy two-arg overload: credits backend 0 with no hook breakdown.
-    /// </summary>
-    public static void Add(int modId, int categoryId, long elapsedStopwatchTicks)
-    {
-        Add(0, modId, categoryId, hookId: -1, elapsedStopwatchTicks);
-    }
-
-    /// <summary>
-    /// Legacy three-id overload: credits backend 0 (the delegate path's slot).
+    /// Three-id overload used by the delegate-path HookProbes: credits backend 0
+    /// (the delegate path's slot). Equivalent to the four-arg form with
+    /// <c>backendId: 0</c>; kept as a separate entry so the hot path's call site
+    /// is short.
     /// </summary>
     public static void Add(int modId, int categoryId, int hookId, long elapsedStopwatchTicks)
     {

@@ -444,21 +444,15 @@ internal sealed class TreeTab : IOverlayTab
 
     private static string CoverageBadge(int modId)
     {
-        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
-        IReadOnlyList<int> totals    = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
-        IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
-        int measured = modId < measureds.Count ? measureds[modId] : 0;
-        int total    = modId < totals.Count    ? totals[modId]    : 0;
+        int measured = HookCoverageView.MeasuredForMod(modId);
+        int total    = HookCoverageView.TotalForMod(modId);
         return total == measured ? "full" : measured == 0 ? "none" : $"{measured}/{total}";
     }
 
     private static Color CoverageColor(int modId)
     {
-        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
-        IReadOnlyList<int> totals    = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
-        IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
-        int    measured = modId < measureds.Count ? measureds[modId] : 0;
-        int    total    = modId < totals.Count    ? totals[modId]    : 0;
+        int    measured = HookCoverageView.MeasuredForMod(modId);
+        int    total    = HookCoverageView.TotalForMod(modId);
         double coverage = total > 0 ? measured / (double)total : 1d;
         return coverage >= 0.95d ? ProfilerTheme.Good : coverage >= 0.75d ? ProfilerTheme.Amber : ProfilerTheme.Danger;
     }

@@ -1,5 +1,7 @@
 #nullable enable
 
+using System;
+using System.IO;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
@@ -89,7 +91,21 @@ public sealed class ProfilerSystem : ModSystem
     public override void OnWorldLoad()
     {
         Collector = new MetricCollector(HistoryCapacity);
-        _sessionLog = SessionLogWriter.Create();
+
+        // Session logging is an agent surface, never a gameplay dependency. A
+        // permissions/path/IO failure here must NEVER take down the profiler
+        // lifecycle — degrade to "no session JSON for this world" and report
+        // it in client.log so the loss is observable.
+        try
+        {
+            _sessionLog = SessionLogWriter.Create();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _sessionLog = null;
+            Mod.Logger.Warn($"Session log disabled for this world ({ex.GetType().Name}: {ex.Message}); metric collection continues normally.");
+        }
+
         _contextTagger = new ContextTagger();
         _contextTagger.Reset();
         Events = new EventAggregator();
@@ -99,9 +115,22 @@ public sealed class ProfilerSystem : ModSystem
     /// <summary>Releases the engine at world exit.</summary>
     public override void OnWorldUnload()
     {
-        if (Collector != null)
+        // Force-close any open spike window so an in-progress spike that
+        // happened to coincide with the world exit still lands in the final
+        // session report. Without the flush the detector keeps the open
+        // window in scratch and the JSON misses it.
+        Collector?.FlushSpikes();
+
+        if (Collector != null && _sessionLog != null)
         {
-            _sessionLog?.End(Collector);
+            try
+            {
+                _sessionLog.End(Collector);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+                Mod.Logger.Warn($"Session log end-write failed ({ex.GetType().Name}: {ex.Message}); world unload continues.");
+            }
         }
 
         _sessionLog?.Dispose();
@@ -152,7 +181,19 @@ public sealed class ProfilerSystem : ModSystem
                 $"Δ={pct:+0.0;-0.0;0.0}% (mode={HookBackend.Mode})");
         }
 
-        _sessionLog?.Tick(collector);
+        if (_sessionLog != null)
+        {
+            try
+            {
+                _sessionLog.Tick(collector);
+            }
+            catch (SessionLogFailureException ex)
+            {
+                Mod.Logger.Warn(
+                    $"Session log disabled for this world ({ex.InnerException?.GetType().Name}: {ex.InnerException?.Message}); metric collection continues normally.");
+                _sessionLog = null;
+            }
+        }
 
         // Events: snapshot the per-tick context and feed it to the
         // per-dimension aggregator. Ordering matters — EndTick has already

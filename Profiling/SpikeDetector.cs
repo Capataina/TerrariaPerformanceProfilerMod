@@ -113,6 +113,7 @@ public sealed class SpikeDetector
     public const double DefaultAbsoluteFloorMs = 5.0;
 
     private readonly RingBuffer<SpikeWindow> _windows = new RingBuffer<SpikeWindow>(50);
+    private readonly SpikeWindowsView _windowsView;
     private readonly int _modCount;
     private readonly bool _tracksAllocations;
 
@@ -137,6 +138,7 @@ public sealed class SpikeDetector
     {
         _modCount = modCount;
         _tracksAllocations = tracksAllocations;
+        _windowsView = new SpikeWindowsView(_windows);
     }
 
     /// <summary>Relative threshold; configurable later via ModConfig.</summary>
@@ -145,8 +147,12 @@ public sealed class SpikeDetector
     /// <summary>Absolute floor; configurable later via ModConfig.</summary>
     public double AbsoluteFloorMs { get; set; } = DefaultAbsoluteFloorMs;
 
-    /// <summary>The captured spike windows in chronological order, oldest first.</summary>
-    public IReadOnlyList<SpikeWindow> Windows => new SpikeWindowsView(_windows);
+    /// <summary>
+    /// The captured spike windows in chronological order, oldest first. The
+    /// returned wrapper is constructed once at detector construction so reads
+    /// from the overlay and session writer are allocation-free.
+    /// </summary>
+    public IReadOnlyList<SpikeWindow> Windows => _windowsView;
 
     /// <summary>Number of captured spike windows currently retained.</summary>
     public int Count => _windows.Count;

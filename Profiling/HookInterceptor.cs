@@ -211,48 +211,23 @@ public static class HookInterceptor
 {
     /// <summary>
     /// Incremented every time a new batch of signature families is added to
-    /// <see cref="TryHookSupportedOverride"/>. <see cref="SessionLogWriter"/> folds
-    /// this into the session identity hash so old sessions measured with a narrower
-    /// coverage set are pruned automatically on the next load.
+    /// <see cref="TryHookSupportedOverride"/>, OR when coverage accounting
+    /// semantics change in a way that would make old session totals
+    /// non-comparable. <see cref="SessionLogWriter"/> folds this into the
+    /// session identity hash so old sessions measured with a narrower coverage
+    /// set are pruned automatically on the next load. v3 split install-failures
+    /// out of the unsupported-signature bucket.
     /// </summary>
-    public const int HookCoverageVersion = 2;
+    public const int HookCoverageVersion = 3;
 
-    // Hook categories, matching PerModAttribution.CategoryNames indices.
-    private const int CategorySystems = 0;
-    private const int CategoryPlayers = 1;
-    private const int CategoryNpcs = 2;
-    private const int CategoryProjectiles = 3;
-    private const int CategoryItems = 4;
-    private const int CategoryWorld = 5;
-    private const int CategoryBuffs = 6;
+    // Category ids live in HookCategoryRouter — both backends share that map so
+    // category drift between delegate and ILHook paths is impossible.
 
     private const int MaxUnsupportedSamplesPerMod = 12;
 
-    private static readonly string[] SystemHooks =
-    {
-        "PreUpdateEntities", "PostUpdateNPCs", "PostUpdatePlayers",
-        "PostUpdateProjectiles", "PostUpdateEverything",
-    };
-
-    private static readonly string[] SystemGameTimeHooks = { "UpdateUI" };
-
-    private static readonly string[] SystemInterfaceLayerHooks = { "ModifyInterfaceLayers" };
-
-    private static readonly string[] SystemSpriteBatchHooks = { "PostDrawInterface" };
-
-    private static readonly string[] PlayerHooks =
-    {
-        "PreUpdate", "PostUpdate", "PostUpdateEquips", "PostUpdateMiscEffects",
-    };
-
-    private static readonly string[] EntityHooks = { "AI", "PostAI" };
-
-    private static readonly string[] GlobalNpcHooks = { "AI", "PostAI" };
-
-    private static readonly string[] GlobalProjectileHooks = { "AI", "PostAI" };
-
     private static bool _sampleFailureLogged;
     private static int _unsupportedHookSignatures;
+    private static int _installFailures;
     private static int[] _measuredHookCounts = Array.Empty<int>();
     private static int[] _totalHookCounts = Array.Empty<int>();
     private static List<string>[] _unsupportedHookSamples = Array.Empty<List<string>>();
@@ -273,6 +248,16 @@ public static class HookInterceptor
 
     /// <summary>Overrides discovered but skipped because their signature is not timed yet.</summary>
     public static int UnsupportedHookSignatures => _unsupportedHookSignatures;
+
+    /// <summary>
+    /// Overrides whose signature WAS in the supported set but where
+    /// <see cref="MonoModHooks.Add"/> itself threw during install. Counted
+    /// separately from unsupported signatures because the failure mode and the
+    /// remediation are different: an unsupported signature is coverage debt
+    /// (we add the delegate pair), an install failure is a tModLoader/MonoMod
+    /// runtime issue worth surfacing in client.log and the session JSON.
+    /// </summary>
+    public static int InstallFailures => _installFailures;
 
     /// <summary>Measured hook count by ModId.</summary>
     public static IReadOnlyList<int> MeasuredHookCounts => _measuredHookCounts;
@@ -305,6 +290,7 @@ public static class HookInterceptor
         try
         {
             _unsupportedHookSignatures = 0;
+            _installFailures = 0;
             _unsupportedSignatureFrequency.Clear();
             List<Mod> profiled = new List<Mod>();
             foreach (Mod mod in ModLoader.Mods)
@@ -353,7 +339,8 @@ public static class HookInterceptor
             Installed = true;
             self.Logger.Info(
                 $"HookInterceptor[{HookBackend.Mode}]: {detours} delegate timing detours installed across {profiled.Count} mods; " +
-                $"{_unsupportedHookSignatures} overridden hooks skipped because their signature is not timed yet.");
+                $"{_unsupportedHookSignatures} overridden hooks skipped because their signature is not timed yet; " +
+                $"{_installFailures} hooks failed to install (MonoMod runtime error).");
         }
         catch (Exception ex)
         {
@@ -383,52 +370,34 @@ public static class HookInterceptor
                 continue;
             }
 
-            if (typeof(ModSystem).IsAssignableFrom(type))
+            int categoryId = HookCategoryRouter.ResolveCategory(type);
+            if (categoryId < 0)
             {
-                count += HookSupportedOverrides(type, modId, CategorySystems, self);
+                continue;
             }
-            else if (typeof(ModPlayer).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryPlayers, self);
-            }
-            else if (typeof(ModNPC).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryNpcs, self);
-            }
-            else if (typeof(ModProjectile).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryProjectiles, self);
-            }
-            else if (typeof(GlobalNPC).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryNpcs, self);
-            }
-            else if (typeof(GlobalProjectile).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryProjectiles, self);
-            }
-            else if (typeof(ModItem).IsAssignableFrom(type) || typeof(GlobalItem).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryItems, self);
-            }
-            else if (typeof(ModTile).IsAssignableFrom(type) || typeof(GlobalTile).IsAssignableFrom(type) ||
-                typeof(ModWall).IsAssignableFrom(type) || typeof(GlobalWall).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryWorld, self);
-            }
-            else if (typeof(ModBuff).IsAssignableFrom(type))
-            {
-                count += HookSupportedOverrides(type, modId, CategoryBuffs, self);
-            }
+
+            count += HookSupportedOverrides(type, modId, categoryId, self);
         }
 
         return count;
     }
 
+    /// <summary>The three outcomes <see cref="TryHookSupportedOverride"/> can produce.</summary>
+    private enum InstallOutcome
+    {
+        /// <summary>A delegate detour was installed for this override.</summary>
+        Installed,
+        /// <summary>The signature shape has no delegate pair in this interceptor.</summary>
+        UnsupportedSignature,
+        /// <summary>The signature was supported but <see cref="MonoModHooks.Add"/> threw.</summary>
+        InstallFailed,
+    }
+
     /// <summary>
     /// Installs timing detours on every override whose signature this interceptor
-    /// can wrap. Unsupported signatures are counted as coverage debt, never as
-    /// zero-cost behaviour.
+    /// can wrap. Unsupported signatures are counted as coverage debt, install
+    /// failures are tracked separately, and both increment the discovered total
+    /// so coverage shows the gap honestly.
     /// </summary>
     private static int HookSupportedOverrides(Type type, int modId, int categoryId, Mod self)
     {
@@ -448,15 +417,30 @@ public static class HookInterceptor
                 continue;
             }
 
-            if (TryHookSupportedOverride(method, type, modId, categoryId, self))
+            switch (TryHookSupportedOverride(method, type, modId, categoryId, self))
             {
-                count++;
-                _totalHookCounts[modId]++;
-                _measuredHookCounts[modId]++;
-            }
-            else
-            {
-                RecordUnsupported(modId, type, method);
+                case InstallOutcome.Installed:
+                    count++;
+                    if ((uint)modId < (uint)_totalHookCounts.Length)
+                    {
+                        _totalHookCounts[modId]++;
+                        _measuredHookCounts[modId]++;
+                    }
+                    break;
+
+                case InstallOutcome.UnsupportedSignature:
+                    RecordUnsupported(modId, type, method);
+                    break;
+
+                case InstallOutcome.InstallFailed:
+                    // Counts as discovered (so coverage shows the gap) but not
+                    // measured. Signature histogram stays clean of install errors.
+                    _installFailures++;
+                    if ((uint)modId < (uint)_totalHookCounts.Length)
+                    {
+                        _totalHookCounts[modId]++;
+                    }
+                    break;
             }
         }
 
@@ -514,7 +498,7 @@ public static class HookInterceptor
         return sb.ToString();
     }
 
-    private static bool TryHookSupportedOverride(MethodInfo method, Type type, int modId, int categoryId, Mod self)
+    private static InstallOutcome TryHookSupportedOverride(MethodInfo method, Type type, int modId, int categoryId, Mod self)
     {
         ParameterInfo[] parameters = method.GetParameters();
         Type returnType = method.ReturnType;
@@ -524,21 +508,21 @@ public static class HookInterceptor
             {
                 HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                 MonoModHooks.Add(method, new VoidHookWrapper(probe.Time));
-                return true;
+                return InstallOutcome.Installed;
             }
 
             if (parameters.Length == 0 && returnType == typeof(bool))
             {
                 HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                 MonoModHooks.Add(method, new BoolHookWrapper(probe.TimeBool));
-                return true;
+                return InstallOutcome.Installed;
             }
 
             if (parameters.Length == 0 && returnType == typeof(bool?))
             {
                 HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                 MonoModHooks.Add(method, new NullableBoolHookWrapper(probe.TimeNullableBool));
-                return true;
+                return InstallOutcome.Installed;
             }
 
             if (parameters.Length == 1)
@@ -548,91 +532,91 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new NpcHookWrapper(probe.TimeNpc));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(NPC) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolNpcHookWrapper(probe.TimeBoolNpc));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Projectile) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new ProjectileHookWrapper(probe.TimeProjectile));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Projectile) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolProjectileHookWrapper(probe.TimeBoolProjectile));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Player) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new VoidPlayerHookWrapper(probe.TimeVoidPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Player) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolPlayerHookWrapper(probe.TimeBoolPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Item) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new VoidItemHookWrapper(probe.TimeVoidItem));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Item) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolItemHookWrapper(probe.TimeBoolItem));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(GameTime) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new GameTimeHookWrapper(probe.TimeGameTime));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(List<GameInterfaceLayer>) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new InterfaceLayersHookWrapper(probe.TimeInterfaceLayers));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(SpriteBatch) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new SpriteBatchHookWrapper(probe.TimeSpriteBatch));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(int) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new IntHookWrapper(probe.TimeInt));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Color) && returnType == typeof(Color?))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new GetAlphaHookWrapper(probe.TimeGetAlpha));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 // ref Color — e.g. PreDraw(ref Color lightColor)
@@ -640,7 +624,7 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolRefColorHookWrapper(probe.TimeBoolRefColor));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
 
@@ -653,49 +637,49 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new ItemPlayerHookWrapper(probe.TimeItemPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Item) && p1 == typeof(Player) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolItemPlayerHookWrapper(probe.TimeBoolItemPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(NPC) && p1 == typeof(Player) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new NpcPlayerHookWrapper(probe.TimeNpcPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(NPC) && p1 == typeof(Player) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolNpcPlayerHookWrapper(probe.TimeBoolNpcPlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Projectile) && p1 == typeof(Player) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new ProjectilePlayerHookWrapper(probe.TimeProjectilePlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Projectile) && p1 == typeof(Player) && returnType == typeof(bool))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new BoolProjectilePlayerHookWrapper(probe.TimeBoolProjectilePlayer));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 if (p0 == typeof(Player) && p1 == typeof(bool) && returnType == typeof(void))
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new PlayerBoolHookWrapper(probe.TimePlayerBool));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
 
                 // void(NPC, ref NPC.HitModifiers) — e.g. ModifyHitNPC
@@ -703,7 +687,7 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new NpcRefHitModifiersHookWrapper(probe.TimeNpcRefHitModifiers));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
 
@@ -718,7 +702,7 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new NpcHitInfoIntHookWrapper(probe.TimeNpcHitInfoInt));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
 
@@ -735,7 +719,7 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new TileIntIntBoolRefIntHookWrapper(probe.TimeTileIntIntBoolRefInt));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
 
@@ -754,7 +738,7 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new DrawItemHookWrapper(probe.TimeDrawItem));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
 
@@ -772,17 +756,23 @@ public static class HookInterceptor
                 {
                     HookProbe probe = CreateProbe(modId, categoryId, type, method, parameters);
                     MonoModHooks.Add(method, new ShootHookWrapper(probe.TimeShoot));
-                    return true;
+                    return InstallOutcome.Installed;
                 }
             }
         }
         catch (Exception ex)
         {
+            // An install failure is a different beast from an unsupported
+            // signature: control reached past one of the supported-shape
+            // branches before MonoMod threw, so this signature WAS in the
+            // supported set. Caller counts it via the InstallFailed arm so
+            // coverage shows the gap and the signature-shape histogram stays
+            // clean of install errors.
             LogSampleHookFailure(type, method.Name, ex, self);
-            return true;
+            return InstallOutcome.InstallFailed;
         }
 
-        return false;
+        return InstallOutcome.UnsupportedSignature;
     }
 
     private static HookProbe CreateProbe(int modId, int categoryId, Type type, MethodInfo method, ParameterInfo[] parameters)
@@ -799,197 +789,6 @@ public static class HookInterceptor
             1 => $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name})",
             _ => $"{type.Name}.{method.Name}({parameters[0].ParameterType.Name}, {parameters[1].ParameterType.Name})",
         };
-    }
-
-    /// <summary>
-    /// Installs a timing detour on each parameterless hook in <paramref name="hookNames"/>
-    /// that <paramref name="type"/> actually overrides (declares itself).
-    /// </summary>
-    private static int HookOverrides(Type type, string[] hookNames, int modId, int categoryId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: Type.EmptyTypes, modifiers: null);
-
-            // Hook only a hook the mod genuinely overrides on this type
-            // (DeclaringType == type), and only the parameterless form.
-            if (method == null || method.DeclaringType != type || method.GetParameters().Length != 0)
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, categoryId, $"{type.Name}.{name}()");
-                HookProbe probe = new HookProbe(modId, categoryId, hookId);
-                MonoModHooks.Add(method, new VoidHookWrapper(probe.Time));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
-    }
-
-    /// <summary>Installs timing detours on GlobalNPC hooks with signature void Hook(NPC npc).</summary>
-    private static int HookNpcOverrides(Type type, string[] hookNames, int modId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: new[] { typeof(NPC) }, modifiers: null);
-
-            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, CategoryNpcs, $"{type.Name}.{name}(NPC)");
-                HookProbe probe = new HookProbe(modId, CategoryNpcs, hookId);
-                MonoModHooks.Add(method, new NpcHookWrapper(probe.TimeNpc));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
-    }
-
-    /// <summary>Installs timing detours on ModSystem hooks with signature void Hook(GameTime gameTime).</summary>
-    private static int HookGameTimeOverrides(Type type, string[] hookNames, int modId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: new[] { typeof(GameTime) }, modifiers: null);
-
-            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(GameTime)");
-                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
-                MonoModHooks.Add(method, new GameTimeHookWrapper(probe.TimeGameTime));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
-    }
-
-    /// <summary>Installs timing detours on ModifyInterfaceLayers hooks.</summary>
-    private static int HookInterfaceLayerOverrides(Type type, string[] hookNames, int modId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: new[] { typeof(List<GameInterfaceLayer>) }, modifiers: null);
-
-            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(layers)");
-                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
-                MonoModHooks.Add(method, new InterfaceLayersHookWrapper(probe.TimeInterfaceLayers));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
-    }
-
-    /// <summary>Installs timing detours on ModSystem hooks with signature void Hook(SpriteBatch spriteBatch).</summary>
-    private static int HookSpriteBatchOverrides(Type type, string[] hookNames, int modId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: new[] { typeof(SpriteBatch) }, modifiers: null);
-
-            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, CategorySystems, $"{type.Name}.{name}(SpriteBatch)");
-                HookProbe probe = new HookProbe(modId, CategorySystems, hookId);
-                MonoModHooks.Add(method, new SpriteBatchHookWrapper(probe.TimeSpriteBatch));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
-    }
-
-    /// <summary>Installs timing detours on GlobalProjectile hooks with signature void Hook(Projectile projectile).</summary>
-    private static int HookProjectileOverrides(Type type, string[] hookNames, int modId, Mod self)
-    {
-        int count = 0;
-        foreach (string name in hookNames)
-        {
-            MethodInfo? method = type.GetMethod(name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-                binder: null, types: new[] { typeof(Projectile) }, modifiers: null);
-
-            if (method == null || method.DeclaringType != type || method.ReturnType != typeof(void))
-            {
-                continue;
-            }
-
-            try
-            {
-                int hookId = PerModAttribution.RegisterHook(modId, CategoryProjectiles, $"{type.Name}.{name}(Projectile)");
-                HookProbe probe = new HookProbe(modId, CategoryProjectiles, hookId);
-                MonoModHooks.Add(method, new ProjectileHookWrapper(probe.TimeProjectile));
-                count++;
-            }
-            catch (Exception ex)
-            {
-                LogSampleHookFailure(type, name, ex, self);
-            }
-        }
-
-        return count;
     }
 
     private static void LogSampleHookFailure(Type type, string name, Exception ex, Mod self)

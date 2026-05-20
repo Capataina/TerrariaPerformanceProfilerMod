@@ -372,9 +372,10 @@ internal sealed class OverlayPanel : UIElement
 
     private static void CoverageTotals(out int total, out int measured, out int fullMods, out int partialMods)
     {
-        bool useILHook = HookBackend.Mode != HookBackendMode.Delegate;
-        System.Collections.Generic.IReadOnlyList<int> totals    = useILHook ? ILHookInterceptor.TotalHookCounts    : HookInterceptor.TotalHookCounts;
-        System.Collections.Generic.IReadOnlyList<int> measureds = useILHook ? ILHookInterceptor.MeasuredHookCounts : HookInterceptor.MeasuredHookCounts;
+        // Single source of truth shared with SessionLogWriter so the player and
+        // agent surfaces never disagree on which backend's counters they read.
+        System.Collections.Generic.IReadOnlyList<int> totals    = HookCoverageView.TotalHookCounts;
+        System.Collections.Generic.IReadOnlyList<int> measureds = HookCoverageView.MeasuredHookCounts;
 
         total = 0; measured = 0; fullMods = 0; partialMods = 0;
         int mods = HookInterceptor.ProfiledModNames.Length;
