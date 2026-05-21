@@ -76,6 +76,18 @@ The 2026-05-19 folder was the pre-implementation reconnaissance done before the 
 
 The full 2026-05-20 code-health audit and its implementation receipt are in `plans/code-health-audit/index.md`.
 
+## 2026-05-21 — v0.12 tab rework: Timeline / Lag / Insights end-to-end
+
+Multi-wave rework taking the three secondary tabs from flat ledger sheets to multi-panel Palantir-style dashboards. **21 substantive additions** plus 3 foundations plus a creative-visualisation patch on each tab.
+
+- **Foundations** (`F1` `ModRosterScanner`, `F2` `PerModUsageAggregator`, `F3` `PerModCostTimeSeriesAggregator`) under `Data/Collectors/` and `Data/Aggregators/`. Every per-mod observation in the rework reads through one of these via the registry.
+- **Timeline** (T1–T7): per-segment mod-attribution waterfall, lifetime delta badges, context-transition overlay track, session activity heatstrip, per-mod biome/invasion/boss attendance, 30s pre-death replay strips, factual session chronicle.
+- **Lag** (L1–L7): fingerprint clustering, cause×context heatmap, GC pressure narrative, per-segment lag density, attribution-confidence visualisation, allocation→GC causality chain, lag rhythm/periodicity detection.
+- **Insights** (I1–I7): per-mod observatory cards composing roster + usage + cost, dormant content surface, per-mod attendance breakdown, loadout influence trace, cross-cutting signal aggregation, engagement-vs-cost scatter, mod interaction correlation matrix.
+- **Visualisation patch** layered creative visuals on top of the functional layer — narrative ribbons, sunburst attendance, lag galaxies, GC tide charts, allocation Sankeys, polar rhythm plots, DNA-strand mod cards, dust-shelf dormant rows, chord-diagram interaction matrix.
+
+Locked-snapshot-contracts pattern (`Data/Contracts/RolloutContracts.cs`) let downstream agents compile against types whose implementations didn't yet exist, enabling Waves 1/2/3 to overlap. 14 background agents total. Full data-layer doc in `systems/data-pipeline.md`; v0.12 entry in `notes/decisions.md`.
+
 ## 2026-05-21 — v0.10 unified data pipeline + audit follow-up
 
 Two structural shifts landed:

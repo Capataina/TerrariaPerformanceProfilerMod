@@ -1,6 +1,45 @@
 # Data Pipeline (Unified Data Interface)
 
-Landed in v0.10 (2026-05-21). The pipeline is the brain: every number the mod produces flows through one named, typed stream; every consumer (router, exporter, future Mod.Call) looks up streams by name from `DataRegistry.Shared` instead of reaching into named subsystems.
+Landed in v0.10 (2026-05-21), expanded in v0.12 with the F1/F2/F3 foundations + 17 tab-specific Stats and Aggregators powering the reworked Timeline / Lag / Insights tabs. The pipeline is the brain: every number the mod produces flows through one named, typed stream; every consumer (router, exporter, future Mod.Call) looks up streams by name from `DataRegistry.Shared` instead of reaching into named subsystems.
+
+## v0.12 expansion — foundations + tab streams
+
+**Foundations** (`Data/Contracts/RolloutContracts.cs` holds every snapshot signature):
+
+- `Data/Collectors/ModRosterScanner.cs` — F1, install-time roster of every loaded mod's content (items, NPCs, buffs, projectiles, mounts, accessories, biomes, bosses). Scanned once from `PostSetupContent`. Stream name `"modRoster"`.
+- `Data/Aggregators/PerModUsageAggregator.cs` — F2, per-mod session usage counters fed from event streams (item creations, NPC spawns/kills, buff edges, loadout snapshots) + per-tick context fold (biome ticks, invasion edges, boss-presence diffs, accessory equipped ticks). Zero per-tick allocations. Stream name `"perModUsage"`.
+- `Data/Aggregators/PerModCostTimeSeriesAggregator.cs` — F3, 1Hz per-mod cost buckets in a 3600-bucket (one hour) ring. Per-tick callback folds `MetricCollector.PerModCategoryRawMs` into the current bucket; closes the bucket on second boundary. Stream name `"perModCostTimeSeries"`.
+
+**Timeline streams** (7):
+
+- `Data/Aggregators/Segments/SegmentLifetimeStat.cs` — `"segmentLifetime"` (T2 lifetime delta per closed segment).
+- `Data/Aggregators/Segments/SegmentModAttributionStat.cs` — `"segmentModAttribution"` (T1 per-segment per-mod ms waterfall).
+- `Data/Stats/TransitionTrackStat.cs` — `"transitionTrack"` (T3 context-transition rows projected into time domain).
+- `Data/Aggregators/SessionActivityHeatStripAggregator.cs` — `"activityHeatStrip"` (T4 minute-bucketed activity intensity).
+- `Data/Stats/PerModContextAttendanceStat.cs` — `"attendance"` (T5 per-mod biome/invasion/boss roll-up, reads F2).
+- `Data/Stats/DeathReplayStat.cs` — `"deathReplay"` (T6 30s pre-death event window per death).
+- `Data/Stats/SessionChronicleStat.cs` — `"sessionChronicle"` (T7 timestamped factual sentences; Invariant-3-guarded vocabulary).
+
+**Lag streams** (5):
+
+- `Data/Aggregators/LagFingerprintAggregator.cs` — `"lagClusters"` (L1+L2 fingerprint clusters + cause×context cell matrix).
+- `Data/Stats/GcPressureStat.cs` — `"gcPressure"` (L3 gen0/1/2 rates, paused ms, heap MB sparkline).
+- `Data/Stats/PerSegmentLagDensityStat.cs` — `"segmentLagDensity"` (L4 events/min per segment vs baseline).
+- `Data/Stats/AllocationCausalityStat.cs` — `"allocCausality"` (L6 5s-window allocation→GC chain per stall).
+- `Data/Aggregators/LagRhythmAggregator.cs` — `"lagRhythm"` (L7 inter-event interval histogram + rhythm clusters).
+
+**Insights streams** (5):
+
+- `Data/Stats/ModObservatoryStat.cs` — `"modObservatory"` (I1+I3+I4 per-mod cards composing roster + usage + cost + biome attendance + loadout influence).
+- `Data/Stats/DormantSurfaceStat.cs` — `"dormantSurface"` (I2 usage/roster ratios + dormant tier classification).
+- `Data/Stats/CrossCuttingSignalStat.cs` — `"crossCutting"` (I5 InsightRecord rollup grouped by pattern class).
+- `Data/Stats/EngagementCostScatterStat.cs` — `"engagementCost"` (I6 per-mod (usageShare, cpuShare, rosterSize) tuples).
+- `Data/Aggregators/ModInteractionAggregator.cs` — `"modInteraction"` (I7 pairwise Pearson correlation over F3 time series, cached 5s).
+
+All 17 + foundations registered in `PerformanceProfiler.RegisterDataPipeline`. Honest limitations documented in each file's class doc-comment (e.g. lag clusters lack per-event EventContext yet; ModObservatory's biome attendance is per-mod aggregate not per-biome breakdown; etc.).
+
+---
+
 
 The 12-step migration plan was deleted once the work landed in v0.11; this file is the canonical reality.
 

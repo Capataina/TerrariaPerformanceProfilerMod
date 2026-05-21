@@ -21,7 +21,7 @@ internal static partial class DashboardAssets
   padding: 0.6rem 0.9rem 1rem;
 }
 
-/* KPI strip ---------------------------------------------------------- */
+/* KPI strip — mini ring gauges -------------------------------------- */
 .ins-kpi {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem;
 }
@@ -29,15 +29,24 @@ internal static partial class DashboardAssets
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
-  padding: 0.55rem 0.75rem;
-  display: flex; flex-direction: column; gap: 0.2rem;
+  padding: 0.5rem 0.6rem;
+  display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 0.55rem;
+  align-items: center;
 }
+.ins-kpi .tile .ring-wrap { width: 60px; height: 60px; }
+.ins-kpi .tile .ring { width: 60px; height: 60px; display: block; }
+.ins-kpi .tile .ring .track { fill: none; stroke: var(--border); stroke-width: 6; }
+.ins-kpi .tile .ring .arc   { fill: none; stroke-width: 6; stroke-linecap: round;
+  transition: stroke-dasharray 0.4s ease; }
+.ins-kpi .tile .ring .ring-val {
+  fill: var(--text-bright); font-family: var(--mono); font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.ins-kpi .tile .tile-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .ins-kpi .tile .lbl {
   font-family: var(--mono); font-size: 0.7rem;
   color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
-}
-.ins-kpi .tile .val {
-  font-family: var(--mono); font-size: 1.25rem; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ins-kpi .tile .sub { font-size: 0.72rem; color: var(--dim); }
 
@@ -76,6 +85,33 @@ internal static partial class DashboardAssets
 .ins-dormant .dor-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ins-dormant .dor-row .v { color: var(--muted); text-align: right; }
 
+/* I2 dust-shelf visualisation --------------------------------------- */
+.ins-dormant .dust-shelf {
+  display: block; width: 100%; height: auto;
+  margin: 0.4rem 0 0.6rem;
+}
+.ins-dormant .dust-shelf .shelf-line {
+  stroke: var(--border); stroke-width: 1.5;
+}
+.ins-dormant .dust-shelf .plaque {
+  fill: var(--surface); stroke: var(--border); stroke-width: 0.75;
+}
+.ins-dormant .dust-shelf .dust-edge {
+  fill: #8a8170; opacity: 0.5;
+}
+.ins-dormant .dust-shelf .pl-nm {
+  fill: var(--text); font-family: var(--mono); font-size: 10px;
+}
+.ins-dormant .dust-shelf .pl-sub {
+  fill: var(--muted); font-family: var(--mono); font-size: 8.5px;
+}
+.ins-dormant .dust-shelf .dust-plaque:hover .plaque {
+  stroke: var(--accent); stroke-width: 1;
+}
+.ins-dormant .dust-empty {
+  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0; text-align: center;
+}
+
 /* I1 observatory card list ------------------------------------------ */
 .ins-obs-list {
   background: var(--panel);
@@ -113,6 +149,27 @@ internal static partial class DashboardAssets
   overflow: hidden;
 }
 .ins-obs-card .body .bar > span { display: block; height: 100%; background: var(--good); }
+/* DNA strand microvis ----------------------------------------------- */
+.ins-obs-card .body .dna {
+  position: relative;
+  height: 5px;
+  margin-top: 0.28rem;
+  background: var(--border-soft);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.ins-obs-card .body .dna.empty {
+  background: repeating-linear-gradient(45deg,
+    var(--border-soft) 0 3px,
+    transparent 3px 6px);
+  opacity: 0.6;
+}
+.ins-obs-card .body .dna .dna-tick {
+  position: absolute;
+  top: 0; bottom: 0;
+  border-right: 1px solid var(--panel);
+}
+.ins-obs-card .body .dna .dna-tick:last-child { border-right: none; }
 .ins-obs-card .ms {
   font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
 }
@@ -187,6 +244,42 @@ internal static partial class DashboardAssets
 }
 .ins-cross .cc-row .leaders .ldr .nm { color: var(--text); }
 .ins-cross .cc-row .leaders .ldr .cnt { color: var(--dim); margin-left: 0.25rem; }
+.ins-cross .cc-empty {
+  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
+}
+
+/* I5 constellation -------------------------------------------------- */
+.ins-cross .cc-constellation {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 0.3rem;
+}
+.ins-cross .cc-constellation .cc-spine {
+  stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3;
+}
+.ins-cross .cc-constellation .cc-edge {
+  stroke: var(--accent);
+  fill: none;
+}
+.ins-cross .cc-constellation .cc-sig circle {
+  fill: var(--panel-2); stroke: var(--accent); stroke-width: 1.5;
+}
+.ins-cross .cc-constellation .cc-sig-lbl {
+  fill: var(--text); font-family: var(--mono); font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.ins-cross .cc-constellation .cc-star circle {
+  fill: var(--text-bright); fill-opacity: 0.85;
+  stroke: var(--accent-line); stroke-width: 0.5;
+}
+.ins-cross .cc-constellation .cc-star:hover circle {
+  fill: var(--accent); fill-opacity: 1;
+}
+.ins-cross .cc-constellation .cc-star-lbl {
+  fill: var(--muted); font-family: var(--mono); font-size: 9px;
+  pointer-events: none;
+}
 
 /* I6 scatter --------------------------------------------------------- */
 .ins-scatter {
@@ -209,8 +302,12 @@ internal static partial class DashboardAssets
   fill: var(--dim); font-family: var(--mono); font-size: 10px;
   letter-spacing: 0.06em; text-transform: uppercase;
 }
-.ins-scatter .dot { fill: var(--good); fill-opacity: 0.55; stroke: var(--text); stroke-opacity: 0.4; stroke-width: 0.6; }
+.ins-scatter .dot { fill-opacity: 0.7; stroke: var(--text); stroke-opacity: 0.4; stroke-width: 0.6; }
 .ins-scatter .dot-label { fill: var(--muted); font-family: var(--mono); font-size: 9px; pointer-events: none; }
+.ins-scatter .dot-trail {
+  stroke: var(--accent); stroke-width: 1.2; stroke-linecap: round;
+  fill: none; pointer-events: none;
+}
 
 /* I7 matrix ---------------------------------------------------------- */
 .ins-matrix {

@@ -32,51 +32,70 @@ internal static partial class DashboardAssets
   --tl-tx-h: 26px;
 }
 
-/* ---- T4 heatstrip --------------------------------------------------- */
+/* ---- T4 heatstrip — SVG seismograph waveform ----------------------- */
 .tl-heatstrip {
-  display: flex;
-  height: var(--tl-heat-h);
+  height: 60px;
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
   overflow: hidden;
+  padding: 0;
 }
-.tl-heatstrip .tl-heatcell {
-  flex: 1 1 0;
-  min-width: 4px;
-  border-right: 1px solid var(--border-soft);
-  position: relative;
-  cursor: default;
+.tl-heatstrip .tl-seismo {
+  display: block;
+  width: 100%; height: 100%;
 }
-.tl-heatstrip .tl-heatcell:last-child { border-right: 0; }
-.tl-heatstrip .tl-heatcell .lab {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--mono); font-size: 0.65rem; color: var(--muted);
-  pointer-events: none;
+.tl-heatstrip .axis-mid {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
 }
+.tl-heatstrip .tape {
+  fill: var(--accent);
+  fill-opacity: 0.22;
+}
+.tl-heatstrip .edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.tl-heatstrip .peak {
+  fill: var(--orange);
+  stroke: var(--orange);
+  stroke-width: 0.5;
+}
+.tl-heatstrip .spike-dot { fill: var(--orange); fill-opacity: 0.85; }
+.tl-heatstrip .stall-dot { fill: var(--danger); fill-opacity: 0.85; }
+.tl-heatstrip .hot { fill: transparent; pointer-events: all; cursor: default; }
 
-/* ---- T3 transition track ------------------------------------------- */
+/* ---- T3 transition track — per-kind glyphs ------------------------- */
 .tl-transitions {
   position: relative;
   height: var(--tl-tx-h);
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
+  overflow: hidden;
 }
-.tl-transitions .tl-tx {
-  position: absolute;
-  top: 50%;
-  width: 10px; height: 10px;
-  margin-left: -5px; margin-top: -5px;
-  background: var(--accent);
-  transform: rotate(45deg);
-  border: 1px solid var(--border);
-  cursor: default;
+.tl-transitions .tl-tx-svg {
+  display: block;
+  width: 100%; height: 100%;
 }
-.tl-transitions .tl-tx[data-type^='weather'] { background: var(--amber); }
-.tl-transitions .tl-tx[data-type^='biome']   { background: var(--good); }
-.tl-transitions .tl-tx[data-type='hardmode'] { background: var(--danger); }
+.tl-transitions .tx-rail {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.tl-transitions .gx { stroke-width: 1; vector-effect: non-scaling-stroke; }
+.tl-transitions .gx.weather   { fill: var(--amber);  stroke: var(--amber); }
+.tl-transitions .gx.biome     { fill: var(--good);   stroke: var(--good); fill-opacity: 0.75; }
+.tl-transitions .gx.hardmode  { fill: var(--danger); stroke: var(--danger); }
+.tl-transitions .gx.invasion  { fill: var(--orange); stroke: var(--orange); fill-opacity: 0.85; }
+.tl-transitions .gx.subworld .ring.outer { fill: none; stroke: var(--purple); stroke-width: 1.2; }
+.tl-transitions .gx.subworld .ring.inner { fill: var(--purple); stroke: none; fill-opacity: 0.7; }
+.tl-transitions .gx.generic   { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 
 /* ---- T1+T2 swimlanes ----------------------------------------------- */
 .tl-gantt {
@@ -196,35 +215,40 @@ internal static partial class DashboardAssets
 }
 .tl-detail .det-mods .ms { text-align: right; color: var(--accent); }
 
-/* ---- T5 attendance --------------------------------------------------- */
-.tl-attendance .att-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) 5em 4em 4em;
-  gap: 0.5em; align-items: center;
-  padding: 0.15rem 0;
-  border-bottom: 1px dashed var(--border-soft);
-}
-.tl-attendance .att-row:last-child { border-bottom: 0; }
-.tl-attendance .att-row .name {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  color: var(--text-bright);
-}
-.tl-attendance .att-row .biome-bar {
-  height: 6px; background: var(--panel); border: 1px solid var(--border-soft);
-  border-radius: 1px; position: relative; overflow: hidden;
-}
-.tl-attendance .att-row .biome-bar > span {
-  position: absolute; left: 0; top: 0; bottom: 0; background: var(--good);
-}
-.tl-attendance .att-row .num {
-  text-align: right; color: var(--text); font-family: var(--mono); font-size: 0.78rem;
-}
-.tl-attendance .att-totals {
+/* ---- T5 attendance — nested treemap -------------------------------- */
+.tl-attendance .tm-totals {
   display: flex; gap: 1rem; flex-wrap: wrap;
   margin-bottom: 0.4rem;
   font-size: 0.78rem; color: var(--muted);
 }
-.tl-attendance .att-totals .v { color: var(--text-bright); }
+.tl-attendance .tm-totals .v { color: var(--text-bright); }
+.tl-attendance .tl-treemap {
+  display: block;
+  width: 100%;
+  height: calc(100% - 2.2rem);
+  min-height: 140px;
+}
+.tl-attendance .tm-cell rect { transition: fill-opacity 0.12s ease; }
+.tl-attendance .tm-cell:hover rect { fill-opacity: 0.82; }
+.tl-attendance .tm-lbl {
+  font-family: var(--mono); font-size: 11px;
+  fill: var(--text-bright);
+  pointer-events: none;
+}
+.tl-attendance .tm-sub {
+  font-family: var(--mono); font-size: 10px;
+  fill: var(--text);
+  fill-opacity: 0.78;
+  pointer-events: none;
+}
+.tl-attendance .tm-vanilla-rect {
+  fill: var(--panel);
+  stroke: var(--border-soft);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.tl-attendance .tm-vanilla .tm-lbl { fill: var(--muted); }
+.tl-attendance .tm-vanilla .tm-sub { fill: var(--muted); }
 
 /* ---- T6 death strips ------------------------------------------------- */
 .tl-deaths {
@@ -244,60 +268,137 @@ internal static partial class DashboardAssets
   margin-bottom: 0.35rem;
 }
 .tl-deaths .tl-death .head .k { color: var(--muted); margin-right: 0.3em; }
-.tl-deaths .tl-death .strip {
-  position: relative;
-  height: 22px;
+.tl-deaths .tl-death .tl-death-svg {
+  display: block;
+  width: 100%;
+  height: 32px;
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 2px;
-  overflow: hidden;
 }
-.tl-deaths .tl-death .strip .ev {
-  position: absolute; top: 2px; bottom: 2px;
-  width: 6px; margin-left: -3px;
-  border-radius: 1px;
+.tl-deaths .tl-death .ax-rail {
+  stroke: var(--border-soft);
+  stroke-width: 1;
 }
-.tl-deaths .tl-death .strip .ev[data-kind='buff-on']      { background: var(--good); }
-.tl-deaths .tl-death .strip .ev[data-kind='buff-off']     { background: var(--muted); }
-.tl-deaths .tl-death .strip .ev[data-kind='damage']       { background: var(--danger); }
-.tl-deaths .tl-death .strip .ev[data-kind='npc-spawn']    { background: var(--amber); }
-.tl-deaths .tl-death .strip .ev[data-kind='item-created'] { background: var(--cyan); }
-.tl-deaths .tl-death .strip .ev[data-kind='death']        { background: var(--text-bright); width: 3px; }
-.tl-deaths .tl-death .strip .axis {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  height: 1px; background: var(--border);
+.tl-deaths .tl-death .ax-tick {
+  stroke: var(--border);
+  stroke-width: 1;
 }
+.tl-deaths .tl-death .ax-lbl {
+  font-family: var(--mono); font-size: 7px;
+  fill: var(--muted);
+}
+.tl-deaths .tl-death .ev { vector-effect: non-scaling-stroke; }
+.tl-deaths .tl-death .ic-death rect { fill: var(--text-bright); stroke: none; }
+.tl-deaths .tl-death .ic-death .hole { fill: var(--panel); }
+.tl-deaths .tl-death .ic-death .jaw  { fill: var(--text-bright); }
+.tl-deaths .tl-death .ic-damage line {
+  stroke: var(--danger); stroke-width: 1.4; stroke-linecap: round;
+}
+.tl-deaths .tl-death .ic-spawn { fill: var(--amber); stroke: var(--amber); stroke-width: 0.5; }
+.tl-deaths .tl-death .ic-item .cap    { fill: var(--cyan); }
+.tl-deaths .tl-death .ic-item .bottle { fill: var(--cyan); fill-opacity: 0.55; stroke: var(--cyan); stroke-width: 0.8; }
+.tl-deaths .tl-death .ic-buff-on  line,
+.tl-deaths .tl-death .ic-buff-on  polyline { stroke: var(--good);  stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.tl-deaths .tl-death .ic-buff-off line,
+.tl-deaths .tl-death .ic-buff-off polyline { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.tl-deaths .tl-death .ic-generic { fill: var(--accent); }
 
-/* ---- T7 chronicle ---------------------------------------------------- */
+/* ---- T7 chronicle — horizontal narrative film-strip ribbon --------- */
 .tl-chronicle {
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
-  padding: 0.5rem 0.7rem;
-  font-family: var(--mono); font-size: 0.8rem;
-  max-height: 220px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 2px;
+  padding: 0.45rem 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-.tl-chronicle .cl-row {
-  display: grid;
-  grid-template-columns: 5.5em 6em minmax(0, 1fr);
-  gap: 0.6em;
-  padding: 0.1rem 0;
-  border-bottom: 1px dashed var(--border-soft);
+.tl-chronicle .cr-ribbon {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  min-height: 92px;
 }
-.tl-chronicle .cl-row:last-child { border-bottom: 0; }
-.tl-chronicle .cl-row .t { color: var(--muted); }
-.tl-chronicle .cl-row .kind {
-  color: var(--accent); text-transform: lowercase;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.tl-chronicle .cr-block {
+  flex: 0 0 auto;
+  width: 12rem;
+  padding: 0.4rem 0.55rem;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+  display: flex; flex-direction: column;
+  gap: 0.15rem;
+  font-family: var(--mono); font-size: 0.72rem;
+  color: var(--text);
+  position: relative;
+  overflow: hidden;
 }
-.tl-chronicle .cl-row .txt { color: var(--text); }
-.tl-chronicle .cl-row[data-kind='death']      .kind { color: var(--danger); }
-.tl-chronicle .cl-row[data-kind='spike']      .kind { color: var(--orange); }
-.tl-chronicle .cl-row[data-kind='boss-start'] .kind,
-.tl-chronicle .cl-row[data-kind='boss-end']   .kind { color: var(--danger); }
-.tl-chronicle .cl-row[data-kind='weather']    .kind { color: var(--amber); }
-.tl-chronicle .cl-row[data-kind='transition'] .kind { color: var(--good); }
+.tl-chronicle .cr-block::after {
+  /* sprocket-hole row — film-strip texture along the bottom edge */
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 5px;
+  background-image: radial-gradient(circle at 4px 50%, var(--panel-2) 1.5px, transparent 1.6px);
+  background-size: 9px 5px;
+  background-repeat: repeat-x;
+  opacity: 0.7;
+}
+.tl-chronicle .cr-sep {
+  flex: 0 0 6px;
+  background:
+    linear-gradient(to bottom,
+      var(--panel-2) 0 6px,
+      transparent 6px calc(100% - 6px),
+      var(--panel-2) calc(100% - 6px) 100%);
+  background-color: var(--panel);
+  position: relative;
+}
+.tl-chronicle .cr-sep::before,
+.tl-chronicle .cr-sep::after {
+  content: ''; position: absolute;
+  left: 1px; right: 1px;
+  height: 3px;
+  background: var(--border-soft);
+}
+.tl-chronicle .cr-sep::before { top: 1px; }
+.tl-chronicle .cr-sep::after  { bottom: 1px; }
+
+.tl-chronicle .cr-time {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+}
+.tl-chronicle .cr-kind {
+  color: var(--accent);
+  font-size: 0.7rem;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+.tl-chronicle .cr-text {
+  color: var(--text-bright);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+}
+.tl-chronicle .cr-block[data-kind='death']      { border-left-color: var(--danger); }
+.tl-chronicle .cr-block[data-kind='death']      .cr-kind { color: var(--danger); }
+.tl-chronicle .cr-block[data-kind='spike']      { border-left-color: var(--orange); }
+.tl-chronicle .cr-block[data-kind='spike']      .cr-kind { color: var(--orange); }
+.tl-chronicle .cr-block[data-kind='boss-start'],
+.tl-chronicle .cr-block[data-kind='boss-end']   { border-left-color: var(--amber); }
+.tl-chronicle .cr-block[data-kind='boss-start'] .cr-kind,
+.tl-chronicle .cr-block[data-kind='boss-end']   .cr-kind { color: var(--amber); }
+.tl-chronicle .cr-block[data-kind='weather']    { border-left-color: var(--cyan); }
+.tl-chronicle .cr-block[data-kind='weather']    .cr-kind { color: var(--cyan); }
+.tl-chronicle .cr-block[data-kind='transition'] { border-left-color: var(--good); }
+.tl-chronicle .cr-block[data-kind='transition'] .cr-kind { color: var(--good); }
+.tl-chronicle .cr-block[data-kind='summary']    { border-left-color: var(--purple); }
+.tl-chronicle .cr-block[data-kind='summary']    .cr-kind { color: var(--purple); }
+.tl-chronicle .cr-block:hover { background: var(--panel-2); }
 
 .tl-empty {
   padding: 0.5rem 0.7rem;

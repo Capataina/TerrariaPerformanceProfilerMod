@@ -276,3 +276,34 @@ Three commits (`77a99d2`, `aa914ce`, `14fac59`) landed the audit's certain findi
 - Several persistence-layer index additions (LiteDB compound indexes for stream upsert paths).
 - Detector cursor missing on GcPauseCulpritDetector / EventConditionalCostDetector (re-scan every Evaluate pass).
 - Various NIT-class findings.
+
+
+## 2026-05-21 — v0.12 tab rework + visualisation patch
+
+**21-addition tab rework landed across Timeline, Lag, Insights.** Each tab moved from a flat ledger to a multi-panel Palantir-style dashboard. The plan was decomposed into 76 atomic tasks in 6 waves and executed largely by delegated background agents:
+- Wave 0: prep (file splits + locked snapshot contracts) — main thread
+- Wave 1: 3 foundation agents in parallel (F1 ModRosterScanner, F2 PerModUsageAggregator, F3 PerModCostTimeSeriesAggregator)
+- Wave 2: 3 data-layer agents in parallel (T-data, L-data, I-data) producing 17 new Stats/Aggregators
+- Wave 3: 3 per-tab UI agents in parallel (T-UI, L-UI, I-UI) producing API endpoints, HTML, CSS, and JS renderers
+- Wave 4: 3 visualisation-patch agents in parallel enriching each tab with creative visualisations
+- Wave 5: integration (docs, tooltips, version bump)
+
+**14 background agents total** vs ~76 hours sequential; wall-clock ~25 hours. The contract-decoupling pattern (snapshot types frozen in Wave 0 = `Data/Contracts/RolloutContracts.cs`) let downstream agents compile against types whose implementations didn't yet exist, enabling Wave 2 + Wave 3 to overlap with Wave 1 + 2 respectively.
+
+**21 additions delivered:**
+
+Timeline: T1 per-segment mod-attribution waterfall, T2 lifetime comparison badges, T3 context-transition overlay track, T4 session activity heatstrip, T5 per-mod biome/invasion attendance roll-up, T6 death-replay micro-strips (30s pre-death event window), T7 session chronicle (factual sentences with timestamps).
+
+Lag: L1 lag fingerprint clustering, L2 cause×context heatmap, L3 GC pressure narrative panel, L4 per-segment lag density, L5 attribution confidence visualisation, L6 allocation→GC causality chain, L7 lag rhythm/periodicity detection.
+
+Insights: I1 per-mod observatory cards (composing roster + usage + cost), I2 dormant content surface, I3 per-mod attendance breakdown, I4 loadout influence trace, I5 cross-cutting signal aggregation, I6 engagement-vs-cost scatter, I7 mod interaction correlation matrix.
+
+**Plus the foundations** F1 ModRosterScanner, F2 PerModUsageAggregator, F3 PerModCostTimeSeriesAggregator that everything-per-mod reads from.
+
+**Contract decoupling worked.** Every Wave 2/3 agent looked streams up by name through `DataRegistry.Shared.Lookup<TSnapshot>(streamName)` — never direct class refs to F1/F2/F3 implementations. The compile dependency chain was: contracts → everything. This meant Wave 2 could fire alongside Wave 1, Wave 3 alongside Wave 2. Pearl-on-string parallelism.
+
+**Honest limitations documented in code.** Each Wave 2 stream's class doc-comment names the data the producer can't yet emit (per-event EventContext on spikes/stalls, per-biome breakdown in F2, biome at death-time, etc.) so future passes know what to add without re-deriving the gap.
+
+**Visualisation patch (Wave 4) is descriptive-only.** Every visual metaphor reflects measurement, not judgement: dust-shelf for dormant content (dust = quantity), narrative ribbon for chronicle (text), lag galaxy for clusters (positional similarity). Banned: skulls, "junk" tags, recommendation copy. Invariant 3 holds across the rework.
+
+**Plan file deleted.** Unlike v0.11's unified-data-pipeline plan which was preserved with a status header, the v0.12 plan never lived as a separate file — the task list (Wave 0.1 ... Wave 5.2) was the plan. After completion the tasks remain in the agent system but the canonical implementation lives in `context/systems/data-pipeline.md` (this update) + the code itself.
