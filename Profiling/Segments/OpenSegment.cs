@@ -26,7 +26,7 @@ namespace PerformanceProfiler.Profiling.Segments;
 /// per-tick cost).
 /// </para>
 /// </summary>
-internal sealed class OpenSegment
+public sealed class OpenSegment
 {
     public SegmentFamily Family;
     public int Key;

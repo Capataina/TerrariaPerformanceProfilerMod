@@ -192,19 +192,30 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildMods()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (c == null || c.History.Count == 0)
+        // Migration step 11 — per-mod cost via the HookCpuCollector +
+        // AllocationCollector adapters. Router does the per-mod
+        // accumulation (sum across categories) for the wire shape, but
+        // does not derive ratios, ranks, or thresholds — those are
+        // visual choices made downstream in the JS.
+        var cpuSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.HookCpuSnapshot>(Data.Collectors.HookCpuCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.HookCpuSnapshot.Empty;
+        var allocSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.AllocationSnapshot>(Data.Collectors.AllocationCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.AllocationSnapshot.Empty;
+
+        if (!cpuSnap.WorldLoaded || cpuSnap.SmoothedMsByCategory == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, mods = Array.Empty<object>() }, JsonOpts);
         }
 
-        int categoryCount = PerModAttribution.CategoryCount;
+        int categoryCount = cpuSnap.CategoryCount;
         string[] modNames = HookInterceptor.ProfiledModNames;
-        IReadOnlyList<double> smoothed = c.PerModCategoryMs;
-        IReadOnlyList<double> averaged = c.PerModCategoryAverageMs;
-        IReadOnlyList<double>? smoothedBytes = c.PerModCategoryBytes;
-        IReadOnlyList<double>? avgBytes = c.PerModCategoryAverageBytes;
-        bool tracksAlloc = c.TracksAllocations && smoothedBytes != null;
+        IReadOnlyList<double> smoothed = cpuSnap.SmoothedMsByCategory;
+        IReadOnlyList<double> averaged = cpuSnap.AverageMsByCategory!;
+        IReadOnlyList<double>? smoothedBytes = allocSnap.SmoothedBytesByCategory;
+        IReadOnlyList<double>? avgBytes = allocSnap.AverageBytesByCategory;
+        bool tracksAlloc = allocSnap.TracksAllocations && smoothedBytes != null;
 
         var mods = new List<object>(modNames.Length);
         for (int i = 0; i < modNames.Length; i++)
@@ -255,18 +266,27 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildHooks()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (c == null)
+        // Migration step 11 — per-hook cost via HookCpuCollector. The
+        // hook descriptor list still comes from PerModAttribution (it's
+        // the canonical install-time registration); only the per-hook
+        // ms / bytes arrays go through the pipeline adapters.
+        var cpuSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.HookCpuSnapshot>(Data.Collectors.HookCpuCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.HookCpuSnapshot.Empty;
+        var allocSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.AllocationSnapshot>(Data.Collectors.AllocationCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.AllocationSnapshot.Empty;
+        if (!cpuSnap.WorldLoaded || cpuSnap.PerHookMs == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, hooks = Array.Empty<object>() }, JsonOpts);
         }
 
         string[] modNames = HookInterceptor.ProfiledModNames;
         IReadOnlyList<HookDescriptor> hooks = PerModAttribution.Hooks;
-        IReadOnlyList<double> hookMs = c.PerHookMs;
-        IReadOnlyList<double> hookAvgMs = c.PerHookAverageMs;
-        IReadOnlyList<double>? hookBytes = c.PerHookBytes;
-        bool tracksAlloc = c.TracksAllocations && hookBytes != null;
+        IReadOnlyList<double> hookMs = cpuSnap.PerHookMs;
+        IReadOnlyList<double> hookAvgMs = cpuSnap.PerHookAverageMs!;
+        IReadOnlyList<double>? hookBytes = allocSnap.PerHookBytes;
+        bool tracksAlloc = allocSnap.TracksAllocations && hookBytes != null;
 
         var hookList = new List<object>(hooks.Count);
         for (int hookId = 0; hookId < hooks.Count; hookId++)
@@ -296,7 +316,7 @@ internal static class DashboardRouter
 
         return JsonSerializer.Serialize(new
         {
-            worldLoaded = c.History.Count > 0,
+            worldLoaded = true,
             tracksAllocations = tracksAlloc,
             categories = PerModAttribution.CategoryNames,
             hooks = hookList,
@@ -308,30 +328,45 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildFrames()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (c == null || c.History.Count == 0)
+        // Migration step 11 — frames via the FrameTimeCollector adapter.
+        // The adapter exposes the live history reference; the router
+        // does the format conversion (per-tick frame ms → ticks/ms/gc
+        // arrays) but performs no derivation. The spike-mark join is a
+        // simple in-range filter, not a derivation.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.FrameTimeSnapshot>(Data.Collectors.FrameTimeCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.FrameTimeSnapshot.Empty;
+        var history = snap.History;
+        if (!snap.WorldLoaded || history == null || history.Count == 0)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, frames = Array.Empty<object>() }, JsonOpts);
         }
 
-        int n = c.History.Count;
+        // Spike-marks live on the collector; pull via the spikes stat so
+        // the router doesn't reach into MetricCollector directly.
+        var spikesSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.SpikesSnapshot>(Data.Stats.SpikesStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.SpikesSnapshot.Empty;
+
+        int n = history.Count;
         var ticks = new long[n];
         var ms = new double[n];
         var gc = new double[n];
-        long firstTick = c.History[0].TickIndex;
-        long lastTick = c.History[n - 1].TickIndex;
+        long firstTick = history[0].TickIndex;
+        long lastTick = history[n - 1].TickIndex;
         for (int i = 0; i < n; i++)
         {
-            ticks[i] = c.History[i].TickIndex;
-            ms[i] = c.History[i].FrameTimeMs;
-            gc[i] = c.History[i].GcTimeMs;
+            ticks[i] = history[i].TickIndex;
+            ms[i] = history[i].FrameTimeMs;
+            gc[i] = history[i].GcTimeMs;
         }
 
         // Spike markers within the visible window — one entry per spike
         // whose WorstTick falls in [firstTick, lastTick]. Lets the dashboard
         // overlay spike dots on the chart without re-running the detector.
         var spikeMarks = new List<object>();
-        foreach (var w in c.Spikes)
+        var spikeWindows = spikesSnap.Windows ?? (IReadOnlyList<SpikeWindow>)Array.Empty<SpikeWindow>();
+        foreach (var w in spikeWindows)
         {
             if (w.WorstTick < firstTick || w.WorstTick > lastTick) continue;
             spikeMarks.Add(new
@@ -359,16 +394,19 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildSegments()
     {
-        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        SegmentDetector? det = sys?.Segments;
-        SegmentStore? store = sys?.SegmentStore;
+        // Migration step 11 — segments via registry adapter. The
+        // SegmentAggregator wraps the existing SegmentDetector + Store
+        // and exposes their live collections as a single snapshot.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Aggregators.SegmentsSnapshot>(Data.Aggregators.SegmentAggregator.StreamName)?
+            .CurrentSnapshot() ?? Data.Aggregators.SegmentsSnapshot.Empty;
 
         var open = new List<object>();
-        if (det != null)
+        if (snap.Open != null)
         {
             string[] modNames = HookInterceptor.ProfiledModNames;
             long nowUnix = Time.UnixMsNow();
-            foreach (OpenSegment s in det.OpenSegments)
+            foreach (OpenSegment s in snap.Open)
             {
                 int bestMod = -1; double bestMs = 0d;
                 for (int m = 0; m < s.PerModMs.Length; m++)
@@ -393,10 +431,10 @@ internal static class DashboardRouter
         }
 
         var recent = new List<object>();
-        if (store != null)
+        if (snap.Recent != null)
         {
             string[] modNames = HookInterceptor.ProfiledModNames;
-            foreach (Segment s in store.Recent)
+            foreach (Segment s in snap.Recent)
             {
                 var topMods = s.TopMods(3);
                 var topList = new List<object>(topMods.Count);
@@ -434,7 +472,7 @@ internal static class DashboardRouter
 
         return JsonSerializer.Serialize(new
         {
-            worldLoaded = sys?.Collector != null,
+            worldLoaded = snap.WorldLoaded,
             open,
             recent,
         }, JsonOpts);
@@ -445,8 +483,11 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildSpikes()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (c == null)
+        // Migration step 11 — spikes via registry.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.SpikesSnapshot>(Data.Stats.SpikesStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.SpikesSnapshot.Empty;
+        if (!snap.WorldLoaded || snap.Windows == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, spikes = Array.Empty<object>() }, JsonOpts);
         }
@@ -455,7 +496,7 @@ internal static class DashboardRouter
         string[] modNames = HookInterceptor.ProfiledModNames;
 
         var spikes = new List<object>();
-        foreach (var w in c.Spikes)
+        foreach (var w in snap.Windows)
         {
             var contribs = TopContributors(w, modNames, categoryCount, take: 5);
             spikes.Add(new
@@ -568,14 +609,17 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildStalls()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        if (c == null)
+        // Migration step 11 — stalls via registry.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.StallsSnapshot>(Data.Stats.StallsStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.StallsSnapshot.Empty;
+        if (!snap.WorldLoaded || snap.Events == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, stalls = Array.Empty<object>() }, JsonOpts);
         }
 
         var stalls = new List<object>();
-        foreach (var s in c.Stalls)
+        foreach (var s in snap.Events)
         {
             stalls.Add(new
             {
@@ -607,15 +651,18 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildInsights()
     {
-        InsightsEngine? eng = InsightsEngine.Shared;
-        if (eng == null)
+        // Migration step 11 — insights via registry.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.InsightsSnapshot>(Data.Stats.InsightsStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.InsightsSnapshot.Empty;
+        if (!snap.WorldLoaded || snap.Live == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, records = Array.Empty<object>() }, JsonOpts);
         }
 
         string[] modNames = HookInterceptor.ProfiledModNames;
         var records = new List<object>();
-        foreach (var rec in eng.Store.AllLive())
+        foreach (var rec in snap.Live)
         {
             string subjectName = rec.Subject.ModId >= 0 && rec.Subject.ModId < modNames.Length
                 ? modNames[rec.Subject.ModId]
@@ -651,22 +698,24 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildSelf()
     {
-        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        ProfilerSelfHealth h = c?.SelfHealth ?? ProfilerSystem.SelfHealth;
+        // Migration step 11 — self-health via registry.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.SelfHealthSnapshot>(Data.Stats.SelfHealthStat.StreamName)?
+            .CurrentSnapshot() ?? default;
 
         return JsonSerializer.Serialize(new
         {
-            installed = h.IsInstalled,
-            installDeltaBytes = h.InstallDeltaBytes,
-            installDeltaMb = h.InstallDeltaBytes / (1024d * 1024d),
-            bytesPerHook = h.BytesPerHook,
-            bytesPerHookKb = h.BytesPerHook / 1024d,
-            installedHookCount = h.InstalledHookCount,
-            processWorkingSetMb = h.ProcessWorkingSetBytes / (1024d * 1024d),
-            processManagedHeapMb = h.ProcessManagedHeapBytes / (1024d * 1024d),
-            managedFractionOfWorkingSet = h.ManagedFractionOfWorkingSet,
-            severity = h.Severity.ToString(),
-            backend = HookBackend.Mode.ToString(),
+            installed = snap.Installed,
+            installDeltaBytes = snap.InstallDeltaBytes,
+            installDeltaMb = snap.InstallDeltaBytes / (1024d * 1024d),
+            bytesPerHook = snap.BytesPerHook,
+            bytesPerHookKb = snap.BytesPerHook / 1024d,
+            installedHookCount = snap.InstalledHookCount,
+            processWorkingSetMb = snap.ProcessWorkingSetBytes / (1024d * 1024d),
+            processManagedHeapMb = snap.ProcessManagedHeapBytes / (1024d * 1024d),
+            managedFractionOfWorkingSet = snap.ManagedFractionOfWorkingSet,
+            severity = snap.Severity.ToString(),
+            backend = snap.BackendMode.ToString(),
         }, JsonOpts);
     }
 }

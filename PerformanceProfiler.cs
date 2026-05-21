@@ -126,9 +126,24 @@ public class PerformanceProfiler : Mod
     private static void RegisterDataPipeline()
     {
         var r = Data.DataRegistry.Shared;
+        // Collectors — adapters over MetricCollector's already-public read
+        // accessors. PerTick cadence; their per-tick callback is a no-op
+        // (the underlying MetricCollector populates its own state).
+        r.Register(new Data.Collectors.FrameTimeCollector());
+        r.Register(new Data.Collectors.HookCpuCollector());
+        r.Register(new Data.Collectors.AllocationCollector());
+
+        // Aggregators — own organised group state on top of collectors.
+        r.Register(new Data.Aggregators.HeatmapAggregator());
+        r.Register(new Data.Aggregators.SegmentAggregator());
+
+        // Stats — derived numbers. OnDemand; the dashboard router pulls these.
         r.Register(new Data.Stats.KpiStat());
         r.Register(new Data.Stats.EventsFeedStat());
-        r.Register(new Data.Aggregators.HeatmapAggregator());
+        r.Register(new Data.Stats.SelfHealthStat());
+        r.Register(new Data.Stats.SpikesStat());
+        r.Register(new Data.Stats.StallsStat());
+        r.Register(new Data.Stats.InsightsStat());
     }
 
     public override void Unload()
