@@ -53,6 +53,7 @@ internal static class DashboardRouter
             "/api/stalls"        => HttpResponse.Json(BuildStalls()),
             "/api/insights"      => HttpResponse.Json(BuildInsights()),
             "/api/self"          => HttpResponse.Json(BuildSelf()),
+            "/api/heatmap"       => HttpResponse.Json(BuildHeatmap()),
 
             _                    => HttpResponse.NotFound,
         };
@@ -444,6 +445,116 @@ internal static class DashboardRouter
             });
         }
         return list;
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/heatmap — session frame-time heatmap. One bucket per minute of
+    // play; each bucket carries avg/worst frame-ms plus boss-segment
+    // overlay info (which minutes had boss fights, so the dashboard can
+    // highlight those cells with a red background tint).
+    //
+    // Currently derives buckets from the same in-memory History the chart
+    // reads (so the heatmap only spans the last 30 seconds — the full
+    // rolling window we have). A future iteration could pull from
+    // TickAggregateWarm in the LiteDB for the entire session.
+    // ----------------------------------------------------------------------
+    private static string BuildHeatmap()
+    {
+        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
+        MetricCollector? c = sys?.Collector;
+        SegmentStore? store = sys?.SegmentStore;
+        SegmentDetector? det = sys?.Segments;
+        if (c == null || c.History.Count == 0)
+        {
+            return JsonSerializer.Serialize(new { worldLoaded = false, buckets = Array.Empty<object>() }, JsonOpts);
+        }
+
+        // Bucket by 60-second wall-clock windows starting at History[0].
+        // ~30s of history maxes out, so usually we get 1-2 buckets; this
+        // expands gracefully when (later) the heatmap pulls from DB.
+        const long BucketMs = 60_000;
+        var buckets = new List<HeatBucket>();
+        long bucketStart = -1L;
+        HeatBucket? cur = null;
+        for (int i = 0; i < c.History.Count; i++)
+        {
+            var tf = c.History[i];
+            // We don't have per-frame unix-ms on TickFrame; approximate from
+            // tick index assuming 60 tps and align to current Time.UnixMsNow().
+            long approxUnix = Time.UnixMsNow() - (c.History.Count - 1 - i) * 1000 / 60;
+            long bs = (approxUnix / BucketMs) * BucketMs;
+            if (bs != bucketStart)
+            {
+                if (cur != null) buckets.Add(cur);
+                cur = new HeatBucket { StartUnixMs = bs };
+                bucketStart = bs;
+            }
+            cur!.Ticks++;
+            cur.TotalMs += tf.FrameTimeMs;
+            if (tf.FrameTimeMs > cur.WorstMs) cur.WorstMs = tf.FrameTimeMs;
+        }
+        if (cur != null) buckets.Add(cur);
+
+        // Boss-overlay: for each closed boss segment in the recent ring,
+        // mark which buckets it touched. Open boss segments too via det.
+        var bossOverlays = new List<object>();
+        if (store != null)
+        {
+            foreach (var s in store.Recent)
+            {
+                if (s.Family != SegmentFamily.Boss) continue;
+                bossOverlays.Add(new
+                {
+                    name = s.Name,
+                    startUnixMs = s.StartUnixMs,
+                    endUnixMs = s.EndUnixMs,
+                    killed = s.BossKillCount > 0,
+                });
+            }
+        }
+        if (det != null)
+        {
+            long nowUnix = Time.UnixMsNow();
+            foreach (var os in det.OpenSegments)
+            {
+                if (os.Family != SegmentFamily.Boss) continue;
+                bossOverlays.Add(new
+                {
+                    name = os.Name,
+                    startUnixMs = os.StartUnixMs,
+                    endUnixMs = nowUnix,
+                    killed = false,
+                });
+            }
+        }
+
+        var result = new List<object>(buckets.Count);
+        foreach (var b in buckets)
+        {
+            result.Add(new
+            {
+                startUnixMs = b.StartUnixMs,
+                ticks = b.Ticks,
+                avgMs = b.Ticks > 0 ? b.TotalMs / b.Ticks : 0d,
+                worstMs = b.WorstMs,
+            });
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = true,
+            bucketMs = BucketMs,
+            buckets = result,
+            bossOverlays,
+        }, JsonOpts);
+    }
+
+    private sealed class HeatBucket
+    {
+        public long StartUnixMs;
+        public int Ticks;
+        public double TotalMs;
+        public double WorstMs;
     }
 
     // ----------------------------------------------------------------------

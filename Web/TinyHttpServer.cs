@@ -43,9 +43,15 @@ namespace PerformanceProfiler.Web;
 public sealed class TinyHttpServer : IDisposable
 {
     /// <summary>First port to try. Hunts upward until one binds free.</summary>
-    public const int PortRangeStart = 7777;
+    /// <remarks>
+    /// Deliberately NOT 7777 — Terraria's multiplayer host (Host &amp; Play,
+    /// dedicated server) binds 7777 by default and would collide. 27277
+    /// is well outside Terraria's range, easy to remember, and unlikely
+    /// to clash with anything else a typical player has running.
+    /// </remarks>
+    public const int PortRangeStart = 27277;
     /// <summary>Inclusive upper bound of the bind-port search.</summary>
-    public const int PortRangeEnd   = 7787;
+    public const int PortRangeEnd   = 27287;
 
     private readonly TcpListener _listener;
     private readonly Thread _acceptThread;

@@ -24,11 +24,12 @@ const DISCONNECT_MS  = 4000;
 let activeTab = 'summary';
 let lastNow = null, lastFrames = null, lastMods = null, lastHooks = null;
 let lastSegments = null, lastSpikes = null, lastStalls = null;
-let lastInsights = null, lastSelf = null;
+let lastInsights = null, lastSelf = null, lastHeatmap = null;
 let lastSuccessAt = Date.now();
 let modSort = 'composite';
 let modFilter = '';
 let timelineFilter = 'all';
+let frameChartMode = 'ms';  // 'ms' (frame time) or 'fps'
 const expandedMods = new Set();      // modId -> open
 const expandedCategories = new Set(); // modId|catId -> open
 const expandedSpikes = new Set();
@@ -102,8 +103,27 @@ async function pollSelf() {
   if (activeTab === 'self') renderSelf();
 }
 
+async function pollHeatmap() {
+  const hm = await fetchJson('/api/heatmap');
+  if (hm) lastHeatmap = hm;
+  if (activeTab === 'summary') renderHeatmap();
+}
+
+// Track the last tick we recorded so we only advance time-series state
+// when the game actually produced new data. Without this guard the
+// dashboard's polling timer races ahead of the game (Terraria pauses
+// when unfocused; our poll keeps firing), producing flat segments and
+// fake spark-history entries that don't correspond to real ticks.
+let lastSeenTick = -1;
+
 function foldModSparkHistory(modsResp) {
   if (!modsResp || !modsResp.mods) return;
+  // Skip when the underlying tick hasn't advanced — keeps the spark
+  // history honest about the game's progress, not the browser's.
+  const tickNow = lastNow ? lastNow.tickIndex : null;
+  if (tickNow != null && tickNow === lastSeenTick) return;
+  if (tickNow != null) lastSeenTick = tickNow;
+
   const N = 30;
   for (const m of modsResp.mods) {
     let arr = modSparkHistory.get(m.id);
@@ -113,17 +133,37 @@ function foldModSparkHistory(modsResp) {
   }
 }
 
+// Track when the game's tick last advanced. If polling keeps succeeding
+// but the tick number is stuck, the game is paused (window unfocused).
+let tickAdvancedAt = Date.now();
+let pausedLastTick = -1;
 function updateConnection() {
   const now = Date.now();
   const ok = (now - lastSuccessAt) < DISCONNECT_MS;
   const dot = document.getElementById('live-dot');
   const txt = document.getElementById('live-text');
-  if (ok) {
-    dot.className = 'live-dot ok';
-    txt.textContent = lastNow && lastNow.worldLoaded ? 'live · world loaded' : 'live · no world';
-  } else {
+
+  // Detect paused (server responding, but ticks not advancing).
+  if (lastNow && lastNow.worldLoaded) {
+    if (lastNow.tickIndex !== pausedLastTick) {
+      pausedLastTick = lastNow.tickIndex;
+      tickAdvancedAt = now;
+    }
+  }
+  const paused = ok && lastNow && lastNow.worldLoaded && (now - tickAdvancedAt) > 1500;
+
+  if (!ok) {
     dot.className = 'live-dot err';
     txt.textContent = 'connection lost · retrying';
+  } else if (paused) {
+    dot.className = 'live-dot paused';
+    txt.textContent = 'game paused (window unfocused)';
+  } else if (lastNow && lastNow.worldLoaded) {
+    dot.className = 'live-dot ok';
+    txt.textContent = 'live · world loaded';
+  } else {
+    dot.className = 'live-dot idle';
+    txt.textContent = 'live · no world';
   }
 }
 
@@ -142,8 +182,9 @@ setInterval(pollNow, POLL_NOW_MS);
 setInterval(pollDetail, POLL_DETAIL_MS);
 setInterval(pollHooks, POLL_HOOKS_MS);
 setInterval(pollSelf, POLL_SELF_MS);
+setInterval(pollHeatmap, 3000);
 setInterval(updateConnection, 1000);
-pollNow(); pollDetail(); pollSelf();
+pollNow(); pollDetail(); pollSelf(); pollHeatmap();
 
 // ====== Helpers ======================================================
 function fmtMs(v) {
@@ -310,65 +351,199 @@ function renderAll() {
 
 // ====== SUMMARY =======================================================
 function renderSummary() {
+  renderKpiStrip();
   renderFrameChart();
   renderDonut();
   renderTrendSparklines();
+  renderHeatmap();
   renderNowPlaying();
   renderNowEvents();
   renderSummaryMods();
 }
 
+// ====== KPI strip =====================================================
+function renderKpiStrip() {
+  if (!lastNow || !lastNow.worldLoaded || !lastFrames || !lastFrames.frameMs) {
+    setKpi('fps', '—', '', '', null);
+    setKpi('worst', '—', '', '', null);
+    setKpi('spikes', '—', '', '', null);
+    setKpi('stalls', '—', '', '', null);
+    return;
+  }
+  const ms = lastFrames.frameMs;
+  // avg fps: 1000 / avg-frame-ms, clamped to 60.
+  const avgMs = lastNow.avg30sMs || (ms.reduce((s, v) => s + v, 0) / ms.length);
+  const avgFps = avgMs > 0 ? Math.min(60, 1000 / Math.max(1000/60, avgMs)) : 0;
+  // worst: max(frameMs)
+  const worst = Math.max(...ms);
+  // lag spikes: count over 50ms
+  const lagSpikes = ms.filter(v => v > 50).length;
+  const totalSpikes = lastNow.spikeCount || 0;
+  const totalStalls = lastNow.stallCount || 0;
+
+  // FPS color: green ≥55, amber ≥30, red below
+  const fpsClass = avgFps >= 55 ? 'good' : avgFps >= 30 ? 'warn' : 'bad';
+  setKpi('fps', avgFps.toFixed(0), '/ 60', avgFps < 30 ? 'rough' : avgFps < 55 ? 'okay' : 'smooth', ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0), fpsClass);
+  // Worst frame: warn at >50ms, bad at >100ms
+  const worstClass = worst > 100 ? 'bad' : worst > 50 ? 'orange' : worst > 33 ? 'warn' : 'good';
+  setKpi('worst', fmtMs(worst), 'ms', worst > 50 ? 'visible hitch' : 'smooth', ms, worstClass);
+  // Lag spikes
+  const spClass = lagSpikes >= 5 ? 'bad' : lagSpikes >= 1 ? 'orange' : 'good';
+  setKpi('spikes', String(lagSpikes), '', lagSpikes === 0 ? 'none in 30s' : (lagSpikes + ' over 50ms'), null, spClass);
+  // Stalls (session-cumulative)
+  const stClass = totalStalls > 0 ? 'bad' : 'good';
+  setKpi('stalls', String(totalStalls), '', totalStalls === 0 ? 'main thread clean' : 'session total', null, stClass);
+}
+
+function setKpi(name, value, unit, sub, sparkVals, valueClass) {
+  const v = document.getElementById('kpi-' + name + '-v');
+  const s = document.getElementById('kpi-' + name + '-sub');
+  v.innerHTML = escapeHtml(value) + (unit ? `<span class='u'>${escapeHtml(unit)}</span>` : '');
+  if (valueClass) v.className = 'v ' + valueClass; else v.className = 'v';
+  s.textContent = sub;
+  const spark = document.getElementById('kpi-' + name + '-spark');
+  if (spark) {
+    if (!sparkVals || sparkVals.length < 2) { spark.innerHTML = ''; }
+    else {
+      const max = Math.max(0.0001, Math.max(...sparkVals));
+      const min = Math.min(...sparkVals);
+      const range = Math.max(0.0001, max - min);
+      let d = '';
+      for (let i = 0; i < sparkVals.length; i++) {
+        const x = (i / Math.max(1, sparkVals.length - 1)) * 100;
+        const y = 15 - ((sparkVals[i] - min) / range) * 13;
+        d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+      }
+      const color = valueClass === 'bad' ? 'var(--danger)' : valueClass === 'orange' ? 'var(--orange)' : valueClass === 'warn' ? 'var(--amber)' : 'var(--good)';
+      spark.innerHTML = `<path d='${d}' fill='none' stroke='${color}' stroke-width='0.6'/>`;
+    }
+  }
+}
+
+// ====== Heatmap =======================================================
+function renderHeatmap() {
+  const root = document.getElementById('heatmap-grid');
+  const sub = document.getElementById('heatmap-sub');
+  if (!lastHeatmap || !lastHeatmap.worldLoaded || !lastHeatmap.buckets) {
+    root.innerHTML = '';
+    sub.textContent = 'waiting for data…';
+    return;
+  }
+  const buckets = lastHeatmap.buckets;
+  if (buckets.length === 0) {
+    root.innerHTML = '<div class=""empty-line"">no minutes recorded yet</div>';
+    sub.textContent = '0 minutes';
+    return;
+  }
+
+  // For each bucket, determine which boss-segment (if any) overlaps it.
+  function bossLabelFor(b) {
+    if (!lastHeatmap.bossOverlays) return null;
+    const end = b.startUnixMs + (lastHeatmap.bucketMs || 60000);
+    for (const o of lastHeatmap.bossOverlays) {
+      if (o.endUnixMs >= b.startUnixMs && o.startUnixMs <= end) return o;
+    }
+    return null;
+  }
+
+  function bandClass(avgMs) {
+    if (avgMs <= 17)  return 'p0';
+    if (avgMs <= 25)  return 'p1';
+    if (avgMs <= 40)  return 'p2';
+    if (avgMs <= 60)  return 'p3';
+    return 'p4';
+  }
+
+  sub.textContent = buckets.length + ' minute(s) · ' + (lastHeatmap.bossOverlays?.length || 0) + ' boss segment(s)';
+  root.innerHTML = buckets.map(b => {
+    const cls = bandClass(b.avgMs);
+    const boss = bossLabelFor(b);
+    const time = new Date(b.startUnixMs).toLocaleTimeString();
+    const tip = (boss ? boss.name + ' · ' : '') + time + ' · avg ' + fmtMs(b.avgMs) + 'ms · worst ' + fmtMs(b.worstMs) + 'ms';
+    return `<div class='hm-cell ${cls} ${boss ? 'boss' : ''}' data-tip='${escapeHtml(tip)}'></div>`;
+  }).join('');
+}
+
 function renderFrameChart() {
   const svg = document.getElementById('frame-chart');
   const sub = document.getElementById('chart-sub');
+  const title = document.getElementById('chart-title');
   if (!lastFrames || !lastFrames.worldLoaded || !lastFrames.frameMs || lastFrames.frameMs.length === 0) {
     svg.innerHTML = ''; sub.textContent = '—'; return;
   }
   const ms = lastFrames.frameMs;
   const n = ms.length;
-  const max = Math.max(2, Math.max(...ms) * 1.1);
-  const sorted = ms.slice().sort((a, b) => a - b);
-  const median = sorted[Math.floor(n / 2)];
-  const threshold = median * 2;
-  sub.textContent = n + ' frames · median ' + fmtMs(median) + 'ms · spike ≥ ' + fmtMs(threshold) + 'ms';
+
+  // Map series + axis depending on toggle.
+  const showFps = frameChartMode === 'fps';
+  title.textContent = showFps ? 'fps · last 30s' : 'frame time · last 30s';
+  const series = showFps ? ms.map(v => v > 0 ? Math.min(120, 1000 / Math.max(0.5, v)) : 0) : ms;
+  const sortedMs = ms.slice().sort((a, b) => a - b);
+  const medianMs = sortedMs[Math.floor(n / 2)];
+  const thresholdMs = medianMs * 2;
+  const sortedSeries = series.slice().sort((a, b) => a - b);
+  const medianS = sortedSeries[Math.floor(n / 2)];
+  const max = Math.max(showFps ? 60 : 2, Math.max(...series) * 1.08);
+  // For FPS, low values are bad. For ms, high values are bad. Adjust accordingly.
+  const thresholdS = showFps ? 1000 / Math.max(0.5, thresholdMs) : thresholdMs;
+
+  sub.textContent = showFps
+    ? n + ' frames · median ' + medianS.toFixed(0) + ' fps · target 60'
+    : n + ' frames · median ' + fmtMs(medianMs) + 'ms · spike ≥ ' + fmtMs(thresholdMs) + 'ms';
 
   const w = 100, h = 28;
   let pathD = '', areaD = '';
   for (let i = 0; i < n; i++) {
     const x = (i / Math.max(1, n - 1)) * w;
-    const y = h - (ms[i] / max) * h;
+    const v = showFps ? series[i] : Math.min(series[i], max);
+    const y = h - (v / max) * h;
     pathD += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
     areaD += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
   }
   areaD += 'L' + w + ',' + h + ' L0,' + h + ' Z';
 
-  const thresholdY = h - (threshold / max) * h;
-  const medianY = h - (median / max) * h;
+  const thresholdY = h - (Math.min(thresholdS, max) / max) * h;
+  const medianY = h - (medianS / max) * h;
 
-  // Spike markers within window
+  // Spike markers within window. Color red because they're bad.
   const firstTick = lastFrames.firstTick, lastTick = lastFrames.lastTick;
   let marks = '';
   if (lastFrames.spikeMarks && firstTick != null) {
     for (const m of lastFrames.spikeMarks) {
       const x = ((m.tick - firstTick) / Math.max(1, lastTick - firstTick)) * w;
-      const y = h - (m.ms / max) * h;
-      marks += '<circle cx=""' + x.toFixed(2) + '"" cy=""' + y.toFixed(2) + '"" r=""0.7"" fill=""#f5b342""/>';
+      const v = showFps ? Math.min(120, 1000 / Math.max(0.5, m.ms)) : m.ms;
+      const y = h - (Math.min(v, max) / max) * h;
+      marks += '<circle cx=""' + x.toFixed(2) + '"" cy=""' + y.toFixed(2) + '"" r=""0.8"" fill=""#f7768e"" stroke=""#1a1b26"" stroke-width=""0.15""/>';
     }
   }
 
+  // Series color: blue for ms (calm), cyan for fps.
+  const seriesColor = showFps ? '#7dcfff' : '#7aa2f7';
   svg.innerHTML = `
     <defs>
       <linearGradient id='g-area' x1='0' y1='0' x2='0' y2='1'>
-        <stop offset='0%' stop-color='#79c0ff' stop-opacity='0.5'/>
-        <stop offset='100%' stop-color='#79c0ff' stop-opacity='0.02'/>
+        <stop offset='0%' stop-color='${seriesColor}' stop-opacity='0.45'/>
+        <stop offset='100%' stop-color='${seriesColor}' stop-opacity='0.02'/>
       </linearGradient>
     </defs>
-    <line x1='0' y1='${thresholdY}' x2='${w}' y2='${thresholdY}' stroke='#f5b342' stroke-width='0.25' stroke-dasharray='0.8,0.8'/>
-    <line x1='0' y1='${medianY}' x2='${w}' y2='${medianY}' stroke='#6e7480' stroke-width='0.2' stroke-dasharray='0.5,0.8'/>
+    <line x1='0' y1='${thresholdY}' x2='${w}' y2='${thresholdY}' stroke='#ff9e64' stroke-width='0.25' stroke-dasharray='0.8,0.8'/>
+    <line x1='0' y1='${medianY}' x2='${w}' y2='${medianY}' stroke='#565f89' stroke-width='0.2' stroke-dasharray='0.5,0.8'/>
     <path d='${areaD}' fill='url(#g-area)'/>
-    <path d='${pathD}' fill='none' stroke='#79c0ff' stroke-width='0.5' stroke-linejoin='round' stroke-linecap='round'/>
+    <path d='${pathD}' fill='none' stroke='${seriesColor}' stroke-width='0.5' stroke-linejoin='round' stroke-linecap='round'/>
     ${marks}
   `;
+}
+
+// Frame-chart mode toggle.
+const chartModeEl = document.getElementById('chart-mode');
+if (chartModeEl) {
+  chartModeEl.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    frameChartMode = b.dataset.mode;
+    document.querySelectorAll('#chart-mode button').forEach(x => x.classList.toggle('active', x === b));
+    renderFrameChart();
+  });
 }
 
 function renderDonut() {
@@ -487,11 +662,14 @@ function renderNowPlaying() {
     .slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family))
     .map(s => {
       const top = s.topModName
-        ? `<span class='mod'>${truncate(s.topModName, 14)}</span><br/>${fmtMs(s.topModMsPerTick)}ms/t`
-        : '—';
-      return `<div class='now-seg' data-family='${s.family}'>
+        ? `<span class='mod'>${truncate(s.topModName, 16)}</span> · ${fmtMs(s.topModMsPerTick)}ms/t`
+        : '<span class=""muted"">—</span>';
+      return `<div class='now-seg rich' data-family='${s.family}'>
         <span class='swatch'></span>
-        <span class='name'>${escapeHtml(s.name)} <span class='muted'>· ${fmtDuration(s.elapsedMs)}</span></span>
+        <span class='name-block'>
+          <span class='top'><span class='family-tag'>${escapeHtml(s.family)}</span>${escapeHtml(s.name)}</span>
+          <span class='sub'>${fmtDuration(s.elapsedMs)} · ${fmtInt(s.ticks)} ticks${s.spikeCount > 0 ? ' · ⚡' + s.spikeCount : ''}${s.deathCount > 0 ? ' · ☠' + s.deathCount : ''}</span>
+        </span>
         <span class='meta'>${top}</span>
       </div>`;
     }).join('');
@@ -568,6 +746,20 @@ function renderSummaryMods() {
   const median = mods.length > 0 ? getter(mods[Math.floor(mods.length / 2)]) : 0;
   const outlierCut = median * 2.5;
 
+  // Color-grade bars by per-mod ratio against the median: bar color
+  // shifts from green (calm) → yellow → orange → red as a mod climbs.
+  // Provides at-a-glance answer to ""is this mod actually expensive
+  // for this session"" beyond just the bar length.
+  function barColor(value) {
+    if (median <= 0) return 'var(--perf-0)';
+    const r = value / median;
+    if (r < 1.5) return 'var(--perf-0)';
+    if (r < 3)   return 'var(--perf-1)';
+    if (r < 6)   return 'var(--perf-2)';
+    if (r < 12)  return 'var(--perf-3)';
+    return 'var(--perf-4)';
+  }
+
   let html = '';
   for (let i = 0; i < mods.length; i++) {
     const m = mods[i];
@@ -576,13 +768,14 @@ function renderSummaryMods() {
     const isOutlier = v > outlierCut && i < 3;
     const isOpen = expandedMods.has(m.id);
     const sparkSvg = renderModSparkInline(m.id);
+    const color = barColor(v);
     html += `<div class='modrow ${isTop ? 'is-top' : ''} ${isOutlier ? 'outlier' : ''}' data-mod='${m.id}'>
       <span class='rank'>${i + 1}</span>
       <span class='name'>
         <span class='twirl' data-role='twirl'>▶</span>
         <span class='modname' data-role='name'>${escapeHtml(m.name)}</span>
       </span>
-      <span class='bar'><span style='width: ${(v / max * 100).toFixed(1)}%'></span></span>
+      <span class='bar'><span style='width: ${(v / max * 100).toFixed(1)}%; background: ${color}'></span></span>
       <span class='spark'>${sparkSvg}</span>
       <span class='ms'>${fmtMs(m.cpuMs)}<span class='u'>ms</span></span>
       <span class='ms'>${fmtMs(m.avgCpuMs)}<span class='u'>avg</span></span>

@@ -81,8 +81,8 @@ public class PerformanceProfiler : Mod
         }
 
         // v0.8 step 1 prototype: start the loopback HTTP dashboard server.
-        // TcpListener-based, no admin needed, binds 127.0.0.1:7777 (or the
-        // next free port up to 7787). F10 in-game opens the default browser
+        // TcpListener-based, no admin needed, binds 127.0.0.1:27277 (or the
+        // next free port up to 27287). F10 in-game opens the default browser
         // to the chosen URL.
         try
         {

@@ -10,7 +10,7 @@
 
 Performance Profiler is a [tModLoader](https://github.com/tModLoader/tModLoader) mod that watches your modded Terraria session and tells you, in real time, exactly which mods are costing you frames — and it shows you everything in a clean browser dashboard, not in the game.
 
-You install it, load a world, press **F9**, and your default browser opens to a live dashboard at `http://127.0.0.1:7777/`. It updates 2–4 times a second while you play. When something laggy happens, you can see who did it. When you fight a boss, you can see what the fight cost you. When the session ends, the dashboard still shows you a full retrospective of what happened.
+You install it, load a world, press **F9**, and your default browser opens to a live dashboard at `http://127.0.0.1:27277/`. It updates 2–4 times a second while you play. When something laggy happens, you can see who did it. When you fight a boss, you can see what the fight cost you. When the session ends, the dashboard still shows you a full retrospective of what happened.
 
 > [!NOTE]
 > The mod itself is **invisible inside the game**. There's no in-game overlay, no toasts, no popups. The only thing it adds to your gameplay is a single chat line when you enter a world ("press F9 for the dashboard"). Everything else lives in the browser. Why we built it this way is explained [further down](#why-no-in-game-ui).

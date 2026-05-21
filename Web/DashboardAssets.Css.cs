@@ -10,35 +10,51 @@ internal static partial class DashboardAssets
     /// Mono for tabular data, Inter for chrome.
     /// </summary>
     public const string Css = @"
+/* Palette: Tokyo Night (Storm variant), tuned for terminal-style
+   dense readouts. See https://github.com/folke/tokyonight.nvim */
 :root {
-  --bg-deep:      #07090e;
-  --bg-page:      #0a0e14;
-  --panel:        #0d1117;
-  --panel-2:      #0e131b;
-  --surface:      #161b22;
-  --surface-2:    #1c2230;
-  --header:       #11161f;
-  --border:       #1f2329;
-  --border-soft:  #161a21;
-  --hover:        #1a2030;
+  --bg-deep:      #16161e;
+  --bg-page:      #1a1b26;
+  --panel:        #1f2335;
+  --panel-2:      #1a1b26;
+  --surface:      #24283b;
+  --surface-2:    #292e42;
+  --header:       #1f2335;
+  --border:       #2a2f44;
+  --border-soft:  #232639;
+  --hover:        #2d3349;
 
-  --text:         #c5c8ce;
+  --text:         #c0caf5;
   --text-bright:  #ffffff;
-  --muted:        #6e7480;
-  --dim:          #4a4f5a;
+  --muted:        #9aa5ce;
+  --dim:          #565f89;
 
-  --good:         #95d4a3;
-  --good-bar:     #6ec07e;
-  --amber:        #f5b342;
-  --danger:       #f47174;
-  --accent:       #79c0ff;
-  --accent-soft:  rgba(121, 192, 255, 0.10);
-  --accent-line:  rgba(121, 192, 255, 0.40);
+  /* Tokyo Night accents */
+  --good:         #9ece6a;   /* green */
+  --good-bar:     #73daca;   /* teal */
+  --amber:        #e0af68;   /* yellow */
+  --orange:       #ff9e64;   /* orange */
+  --danger:       #f7768e;   /* red/pink */
+  --magenta:      #bb9af7;   /* magenta */
+  --purple:       #9d7cd8;   /* deeper purple */
+  --accent:       #7aa2f7;   /* tokyo night blue */
+  --cyan:         #7dcfff;   /* tokyo night cyan */
+  --accent-soft:  rgba(122, 162, 247, 0.12);
+  --accent-line:  rgba(122, 162, 247, 0.45);
 
-  --cpu:          #6ec07e;
-  --alloc:        #c39ad8;
-  --spike:        #f5b342;
-  --gc:           #c39ad8;
+  /* Series colours — used everywhere a value has a single semantic axis */
+  --cpu:          #9ece6a;
+  --alloc:        #bb9af7;
+  --spike:        #ff9e64;
+  --stall:        #f7768e;
+  --gc:           #bb9af7;
+
+  /* Performance gradient (good → bad), used by mod bars + heatmap cells */
+  --perf-0: #9ece6a;   /* healthy green */
+  --perf-1: #73daca;   /* teal */
+  --perf-2: #e0af68;   /* yellow */
+  --perf-3: #ff9e64;   /* orange */
+  --perf-4: #f7768e;   /* red */
 
   --mono: 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
   --ui:   'Inter', -apple-system, 'Segoe UI', sans-serif;
@@ -113,11 +129,18 @@ html, body {
 }
 .live-dot.err {
   background: var(--danger);
-  box-shadow: 0 0 8px rgba(244, 113, 116, 0.5);
+  box-shadow: 0 0 8px rgba(247, 118, 142, 0.55);
+}
+.live-dot.paused {
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(224, 175, 104, 0.55);
+}
+.live-dot.idle {
+  background: var(--dim);
 }
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(149, 212, 163, 0.6); }
-  50%      { box-shadow: 0 0 14px rgba(149, 212, 163, 0.95); }
+  0%, 100% { box-shadow: 0 0 8px rgba(158, 206, 106, 0.55); }
+  50%      { box-shadow: 0 0 14px rgba(158, 206, 106, 0.95); }
 }
 .live-text { color: var(--muted); }
 
@@ -159,8 +182,8 @@ html, body {
 .tab.active .ki { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 
 /* ============================================================== CONTENT */
-.content { min-height: 0; overflow-y: auto; padding: 1rem 1.2rem 1.4rem; }
-.tab-pane { display: none; height: 100%; }
+.content { min-height: 0; overflow-y: auto; padding: 1rem 1.2rem 4rem; }
+.tab-pane { display: none; }
 .tab-pane.active { display: block; }
 
 /* ============================================================== OVERLAYS */
@@ -231,20 +254,24 @@ html, body {
 .grid-summary {
   display: grid;
   grid-template-areas:
+    'kpi    kpi     kpi'
     'chart  chart   donut'
     'trends trends  donut'
-    'now    events  donut'
+    'heatmap heatmap heatmap'
+    'now    events  events'
     'mods   mods    mods';
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: minmax(170px, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto;
   gap: 0.75rem;
 }
 
 @media (max-width: 1100px) {
   .grid-summary {
     grid-template-areas:
+      'kpi    kpi'
       'chart  chart'
       'donut  trends'
+      'heatmap heatmap'
       'now    events'
       'mods   mods';
     grid-template-columns: 1fr 1fr;
@@ -252,7 +279,7 @@ html, body {
 }
 @media (max-width: 700px) {
   .grid-summary {
-    grid-template-areas: 'chart' 'donut' 'trends' 'now' 'events' 'mods';
+    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'now' 'events' 'mods';
     grid-template-columns: 1fr;
   }
 }
@@ -389,9 +416,14 @@ html, body {
 }
 .modrow {
   border-bottom: 1px solid var(--border-soft);
-  transition: background 0.1s;
+  transition: background 0.12s;
+  cursor: pointer;
 }
-.modrow:hover { background: var(--hover); }
+.modrow:hover {
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--accent-line);
+}
+.modrow:hover .twirl { color: var(--accent); }
 .modrow .rank { color: var(--dim); text-align: right; font-size: 0.78rem; }
 .modrow .name {
   display: flex; align-items: center; gap: 0.4em; min-width: 0;
@@ -440,12 +472,16 @@ html, body {
   padding: 0.18rem 0.9rem;
   font-family: var(--mono); font-size: 0.82rem;
 }
-.cat-row { color: var(--accent); border-left: 2px solid var(--accent-line); margin-left: 1.4rem; }
-.cat-row:hover { background: var(--hover); }
-.cat-row .twirl { color: var(--muted); font-size: 0.8em; width: 0.8em; text-align: center; transition: transform 0.15s; cursor: pointer; }
-.cat-row.open .twirl { transform: rotate(90deg); }
+.cat-row {
+  color: var(--accent); border-left: 2px solid var(--accent-line); margin-left: 1.4rem;
+  cursor: pointer; transition: background 0.12s;
+}
+.cat-row:hover { background: var(--hover); border-left-color: var(--accent); }
+.cat-row .twirl { color: var(--muted); font-size: 0.8em; width: 0.8em; text-align: center; transition: transform 0.15s, color 0.12s; }
+.cat-row:hover .twirl { color: var(--accent); }
+.cat-row.open .twirl { transform: rotate(90deg); color: var(--accent); }
 .cat-row .name { display: flex; gap: 0.4em; align-items: center; min-width: 0; }
-.hook-row { color: var(--muted); margin-left: 3rem; font-size: 0.78rem; }
+.hook-row { color: var(--muted); margin-left: 3rem; font-size: 0.78rem; cursor: default; }
 .hook-row:hover { background: var(--hover); color: var(--text); }
 .hook-row .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hook-row .bar > span { background: var(--accent); }
@@ -630,16 +666,19 @@ html, body {
   display: flex; flex-direction: column; gap: 0.25rem;
 }
 .hd-row {
-  display: grid; grid-template-columns: 2em minmax(0, 1.2fr) minmax(0, 3fr) 5em 4em;
-  gap: 0.4rem; align-items: center;
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1.4fr) minmax(0, 3fr) 7.5em 6em;
+  gap: 0.6rem; align-items: center;
   font-family: var(--mono); font-size: 0.85rem;
+  white-space: nowrap;
+  padding: 0.18rem 0;
 }
 .hd-row .rk { color: var(--dim); text-align: right; font-size: 0.78rem; }
 .hd-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.hd-row .bar { height: 0.55rem; background: var(--surface); border-radius: 1px; overflow: hidden; }
+.hd-row .bar { height: 0.55rem; background: var(--surface); border-radius: 1px; overflow: hidden; min-width: 0; }
 .hd-row .bar > span { display: block; height: 100%; background: var(--accent); }
-.hd-row .n { color: var(--text); text-align: right; }
-.hd-row .mb { color: var(--muted); text-align: right; font-size: 0.78rem; }
+.hd-row .n { color: var(--text); text-align: right; white-space: nowrap; overflow: hidden; }
+.hd-row .mb { color: var(--muted); text-align: right; font-size: 0.78rem; white-space: nowrap; overflow: hidden; }
 
 /* =================================================== MOD CARD (slide-in) */
 .modcard {
@@ -742,6 +781,146 @@ html, body {
   color: var(--dim);
 }
 .footstrip .foot-spacer { flex: 1; }
+
+/* =================================================== KPI STRIP */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  grid-area: kpi;
+}
+.kpi {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.7rem 0.95rem 0.55rem;
+  display: flex; flex-direction: column;
+  gap: 0.1rem;
+  position: relative;
+  overflow: hidden;
+}
+.kpi .k {
+  font-family: var(--ui); font-size: 0.7rem;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em;
+}
+.kpi .v {
+  font-family: var(--mono); font-size: 1.7rem; font-weight: 500;
+  color: var(--text-bright); line-height: 1.05;
+}
+.kpi .v .u { color: var(--muted); font-size: 0.55em; margin-left: 0.25em; }
+.kpi .v.good { color: var(--good); }
+.kpi .v.warn { color: var(--amber); }
+.kpi .v.orange { color: var(--orange); }
+.kpi .v.bad  { color: var(--danger); }
+.kpi .sub {
+  font-family: var(--mono); font-size: 0.78rem;
+  color: var(--muted);
+  display: flex; align-items: center; gap: 0.3em;
+}
+.kpi .sub .delta.up   { color: var(--good); }
+.kpi .sub .delta.down { color: var(--danger); }
+.kpi .sub .delta.flat { color: var(--muted); }
+.kpi-spark {
+  height: 1.6rem; margin-top: 0.4rem;
+  display: block; width: 100%;
+}
+
+/* =================================================== SESSION HEATMAP */
+.heatmap-panel { grid-area: heatmap; }
+.heatmap-wrap {
+  padding: 0.7rem 0.95rem 0.95rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.heatmap-grid {
+  display: grid;
+  /* Columns adapt to available width: every cell is at least 12px wide,
+     fluid above that. The Y axis is implicit (1 row), since per the user's
+     intent each cell is one minute of play.  */
+  grid-template-columns: repeat(auto-fill, minmax(1.1rem, 1fr));
+  gap: 2px;
+}
+.hm-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--surface);
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+.hm-cell:hover { transform: scale(1.18); z-index: 2; box-shadow: 0 0 0 1px var(--accent); }
+.hm-cell.empty { background: var(--surface); opacity: 0.4; }
+/* Performance gradient by frame-time bucket */
+.hm-cell.p0 { background: var(--perf-0); }
+.hm-cell.p1 { background: var(--perf-1); }
+.hm-cell.p2 { background: var(--perf-2); }
+.hm-cell.p3 { background: var(--perf-3); }
+.hm-cell.p4 { background: var(--perf-4); }
+/* State overlay — boss fight cells get a red glow halo around them */
+.hm-cell.boss::after {
+  content: ''; position: absolute; inset: -2px;
+  border: 1px solid var(--danger);
+  border-radius: 3px; pointer-events: none;
+  box-shadow: 0 0 6px rgba(247, 118, 142, 0.45);
+}
+.heatmap-legend {
+  display: flex; flex-wrap: wrap; gap: 0.4em 1.2em;
+  font-family: var(--mono); font-size: 0.75rem;
+  color: var(--muted);
+}
+.heatmap-legend .lg-sw {
+  display: inline-block; width: 0.8em; height: 0.8em;
+  border-radius: 2px; margin-right: 0.4em; vertical-align: middle;
+}
+.heatmap-legend .lg-boss {
+  border: 1px solid var(--danger); background: var(--surface);
+  box-shadow: 0 0 4px rgba(247, 118, 142, 0.45);
+}
+
+/* =================================================== NOW PLAYING ENRICHED */
+.now-seg.rich {
+  grid-template-columns: 0.32rem minmax(0, 1.4fr) auto;
+  padding: 0.45rem 0.55rem;
+  gap: 0.55rem;
+}
+.now-seg.rich .swatch { height: 100%; min-height: 1.6em; }
+.now-seg.rich .name-block { display: flex; flex-direction: column; gap: 0.1em; min-width: 0; }
+.now-seg.rich .name-block .top { font-family: var(--ui); color: var(--text); font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.now-seg.rich .name-block .top .family-tag {
+  font-family: var(--mono); font-size: 0.65rem;
+  color: var(--muted); margin-right: 0.4em;
+  padding: 0.02em 0.4em; background: var(--surface); border-radius: 2px;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.now-seg.rich .name-block .sub { font-family: var(--mono); color: var(--muted); font-size: 0.75rem; }
+.now-seg.rich .meta { font-family: var(--mono); font-size: 0.78rem; text-align: right; line-height: 1.3; }
+.now-seg.rich .meta .mod { color: var(--accent); font-weight: 500; }
+
+/* =================================================== HEATMAP TOOLTIP */
+.hm-cell[data-tip]:hover::before {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: #1a1b26ee; border: 1px solid var(--accent-line); border-radius: 3px;
+  padding: 0.3em 0.55em; font-family: var(--mono); font-size: 0.7rem;
+  color: var(--text); white-space: nowrap; z-index: 10;
+  pointer-events: none;
+}
+
+/* =================================================== FRAME CHART TOGGLE */
+.chart-toggle {
+  display: inline-flex; border: 1px solid var(--border); border-radius: 3px;
+  overflow: hidden; background: var(--header);
+  margin-left: auto;
+}
+.chart-toggle button {
+  font: inherit; font-size: 0.7rem;
+  background: transparent; color: var(--muted);
+  border: 0; border-right: 1px solid var(--border-soft);
+  padding: 0.18em 0.7em; cursor: pointer;
+}
+.chart-toggle button:last-child { border-right: 0; }
+.chart-toggle button:hover { color: var(--text); }
+.chart-toggle button.active { background: var(--accent-soft); color: var(--accent); }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }

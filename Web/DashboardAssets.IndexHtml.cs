@@ -75,11 +75,43 @@ internal static partial class DashboardAssets
 
       <div class=""grid-summary"">
 
+        <!-- KPI strip: avg fps, worst frame, lag spikes, dormant cost -->
+        <div class=""kpi-strip"">
+          <div class=""kpi"" data-explain=""kpi-fps"">
+            <span class=""k"">avg fps</span>
+            <span class=""v"" id=""kpi-fps-v"">—</span>
+            <span class=""sub"" id=""kpi-fps-sub"">—</span>
+            <svg class=""kpi-spark"" id=""kpi-fps-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
+          </div>
+          <div class=""kpi"" data-explain=""kpi-worst"">
+            <span class=""k"">worst frame</span>
+            <span class=""v"" id=""kpi-worst-v"">—</span>
+            <span class=""sub"" id=""kpi-worst-sub"">—</span>
+            <svg class=""kpi-spark"" id=""kpi-worst-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
+          </div>
+          <div class=""kpi"" data-explain=""kpi-spikes"">
+            <span class=""k"">lag spikes</span>
+            <span class=""v"" id=""kpi-spikes-v"">—</span>
+            <span class=""sub"" id=""kpi-spikes-sub"">—</span>
+            <svg class=""kpi-spark"" id=""kpi-spikes-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
+          </div>
+          <div class=""kpi"" data-explain=""kpi-stalls"">
+            <span class=""k"">stalls</span>
+            <span class=""v"" id=""kpi-stalls-v"">—</span>
+            <span class=""sub"" id=""kpi-stalls-sub"">—</span>
+            <svg class=""kpi-spark"" id=""kpi-stalls-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
+          </div>
+        </div>
+
         <!-- Frame chart hero -->
         <div class=""panel panel-hero"" style=""grid-area: chart;"">
           <header class=""panel-h"">
-            <span class=""panel-title"">frame time · last 30s</span>
+            <span class=""panel-title"" id=""chart-title"">frame time · last 30s</span>
             <span class=""panel-sub"" id=""chart-sub"">—</span>
+            <span class=""chart-toggle"" id=""chart-mode"">
+              <button class=""active"" data-mode=""ms"">frame ms</button>
+              <button data-mode=""fps"">fps</button>
+            </span>
           </header>
           <div class=""chart-wrap"">
             <svg class=""chart"" id=""frame-chart"" viewBox=""0 0 100 28"" preserveAspectRatio=""none"" aria-hidden=""true""></svg>
@@ -114,6 +146,25 @@ internal static partial class DashboardAssets
             <div class=""trend-row""><span class=""tr-k"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
             <div class=""trend-row""><span class=""tr-k"">alloc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
             <div class=""trend-row""><span class=""tr-k"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+          </div>
+        </div>
+
+        <!-- Session timeframe heatmap -->
+        <div class=""panel heatmap-panel"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">session timeframe · minute by minute</span>
+            <span class=""panel-sub"" id=""heatmap-sub"" data-explain=""heatmap"">—</span>
+          </header>
+          <div class=""heatmap-wrap"">
+            <div class=""heatmap-grid"" id=""heatmap-grid""></div>
+            <div class=""heatmap-legend"">
+              <span><span class=""lg-sw"" style=""background: var(--perf-0)""></span>smooth (≤17ms)</span>
+              <span><span class=""lg-sw"" style=""background: var(--perf-1)""></span>17–25ms</span>
+              <span><span class=""lg-sw"" style=""background: var(--perf-2)""></span>25–40ms</span>
+              <span><span class=""lg-sw"" style=""background: var(--perf-3)""></span>40–60ms</span>
+              <span><span class=""lg-sw"" style=""background: var(--perf-4)""></span>&gt;60ms · spikes</span>
+              <span><span class=""lg-sw lg-boss""></span>boss fight</span>
+            </div>
           </div>
         </div>
 

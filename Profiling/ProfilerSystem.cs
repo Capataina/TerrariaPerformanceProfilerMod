@@ -397,6 +397,27 @@ public sealed class ProfilerSystem : ModSystem
                 $"Δ={pct:+0.0;-0.0;0.0}% (mode={HookBackend.Mode})");
         }
 
+        // Insights engine evaluation. v0.8/v0.9 archived the in-game
+        // InsightsTab which used to call Evaluate() from its per-frame
+        // Tick — meaning the engine stopped firing entirely once we
+        // pivoted to the browser dashboard. Wiring the call here keeps
+        // detectors alive at a sensible cadence (every 60 ticks = once
+        // per second of in-world time; detectors read smoothed accessors
+        // so faster is wasted CPU).
+        if (collector.History.Count > 0 && (collector.History.Count % 60) == 0)
+        {
+            try
+            {
+                var engine = InsightsEngine.GetOrCreateShared();
+                long latestTick = collector.History[collector.History.Count - 1].TickIndex;
+                engine.Evaluate(collector, latestTick, collector.History.Count);
+            }
+            catch (Exception ex)
+            {
+                Mod.Logger.Warn($"InsightsEngine.Evaluate failed ({ex.GetType().Name}: {ex.Message}); engine dropped this pass.");
+            }
+        }
+
         // Recorder feed: per-tick downsampling (1Hz / 1min aggregates) and
         // drain of any new spike/stall windows that arrived during the tick.
         // All work is queue-only — game thread never blocks on disk.

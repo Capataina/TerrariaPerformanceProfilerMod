@@ -3,7 +3,7 @@
 
 [b]Press F9 in-game. Your browser opens to a live performance dashboard. That's it.[/b]
 
-You install the mod, load a world, hit F9, and your default browser pops open at [code]http://127.0.0.1:7777/[/code] showing exactly what's happening inside your modlist in real time — which mods are costing you frames, which biome you're in, what just spiked, how much each boss fight cost you. The dashboard updates a few times a second while you play. Drag it onto a second monitor if you have one, or just keep it next to Terraria — either way, you can see what's going on under the hood without taking your eyes far off the game.
+You install the mod, load a world, hit F9, and your default browser pops open at [code]http://127.0.0.1:27277/[/code] showing exactly what's happening inside your modlist in real time — which mods are costing you frames, which biome you're in, what just spiked, how much each boss fight cost you. The dashboard updates a few times a second while you play. Drag it onto a second monitor if you have one, or just keep it next to Terraria — either way, you can see what's going on under the hood without taking your eyes far off the game.
 
 [hr][/hr]
 [h2]What you get on the dashboard[/h2]
