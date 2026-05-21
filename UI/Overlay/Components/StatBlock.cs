@@ -1,3 +1,7 @@
+// ARCHIVED v0.9.0: in-game overlay replaced by browser dashboard.
+// Sources retained for possible Steam-Deck variant or future revival;
+// remove the #if false / #endif guards below to restore compilation.
+#if false
 #nullable enable
 
 using Microsoft.Xna.Framework;
@@ -60,3 +64,5 @@ internal static class StatBlock
         }
     }
 }
+
+#endif

@@ -1,3 +1,7 @@
+// ARCHIVED v0.9.0: in-game overlay replaced by browser dashboard.
+// Sources retained for possible Steam-Deck variant or future revival;
+// remove the #if false / #endif guards below to restore compilation.
+#if false
 #nullable enable
 
 using System;
@@ -359,3 +363,5 @@ internal sealed class SpikesTab : IOverlayTab
         return $"top: {names[bestMod]}   {bestMs:F2} ms";
     }
 }
+
+#endif

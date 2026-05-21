@@ -153,12 +153,16 @@ public sealed class TinyHttpServer : IDisposable
             using (client)
             using (var stream = client.GetStream())
             {
-                // Per-request read timeout so a misbehaving client can't
-                // pin a request thread forever.
-                stream.ReadTimeout = 5000;
+                // Write timeout only — read timeout is enforced explicitly
+                // inside TryReadRequest via Socket.Poll so we never throw
+                // an IOException for an idle browser preconnect. Throwing
+                // would be caught here, but tModLoader hooks first-chance
+                // exceptions and logs them anyway, producing noise in
+                // client.log every time the browser opened a speculative
+                // socket it never sent on.
                 stream.WriteTimeout = 5000;
 
-                HttpRequest? req = TryReadRequest(stream);
+                HttpRequest? req = TryReadRequest(client, stream);
                 if (req == null) return;
 
                 HttpResponse resp;
@@ -182,15 +186,38 @@ public sealed class TinyHttpServer : IDisposable
         }
     }
 
-    private static HttpRequest? TryReadRequest(NetworkStream stream)
+    private static HttpRequest? TryReadRequest(TcpClient client, NetworkStream stream)
     {
         // Read until "\r\n\r\n" (end of headers). We never read a body —
         // GET-only for the prototype.
+        //
+        // Non-throwing timeout via Socket.Poll. A 5s ReadTimeout on the
+        // stream would throw IOException on idle sockets (browser
+        // preconnect / aborted keep-alive / closed tab), which tML's
+        // first-chance exception hook then logs as "Silently Caught
+        // Exception" every time — pure noise in client.log. Polling
+        // returns false on timeout instead of throwing.
         var buffer = new byte[8192];
         int total = 0;
         int headerEnd = -1;
-        while (total < buffer.Length)
+        const int pollIntervalUs = 100_000;  // 100 ms per poll
+        const int maxWaitUs = 3_000_000;     // 3 s total budget per request
+        int waitedUs = 0;
+
+        while (total < buffer.Length && waitedUs < maxWaitUs)
         {
+            // Poll for readable data. Returns true when data is ready OR
+            // when the connection has been closed (Available will then be 0).
+            if (!client.Client.Poll(pollIntervalUs, SelectMode.SelectRead))
+            {
+                waitedUs += pollIntervalUs;
+                continue;
+            }
+
+            // Poll fired. If Available == 0 the peer closed the socket
+            // without sending; return cleanly.
+            if (client.Client.Available == 0) return null;
+
             int n;
             try { n = stream.Read(buffer, total, buffer.Length - total); }
             catch { return null; }

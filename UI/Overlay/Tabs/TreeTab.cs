@@ -1,3 +1,7 @@
+// ARCHIVED v0.9.0: in-game overlay replaced by browser dashboard.
+// Sources retained for possible Steam-Deck variant or future revival;
+// remove the #if false / #endif guards below to restore compilation.
+#if false
 #nullable enable
 
 using System;
@@ -457,3 +461,5 @@ internal sealed class TreeTab : IOverlayTab
         return coverage >= 0.95d ? ProfilerTheme.Good : coverage >= 0.75d ? ProfilerTheme.Amber : ProfilerTheme.Danger;
     }
 }
+
+#endif
