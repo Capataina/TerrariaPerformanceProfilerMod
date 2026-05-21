@@ -1,6 +1,11 @@
 # Unified Data Pipeline — Implementation Plan
 
-> **Status (2026-05-21):** 100% complete in v0.10. Steps 1-12 all landed. The physical file moves (steps 7-10) ran later the same day as a follow-up after the deferral was called out. Every file that produces a number now lives in `Data/`: collectors, aggregators, stats, detectors, and persistence streams. Canonical post-implementation reality lives in `context/systems/data-pipeline.md`.
+> **Status (2026-05-21):** Substance complete. Steps 1-6, 11, 12 landed in v0.10. Steps 7-10 (the physical file moves) landed in v0.11 as a follow-up after the v0.10 deferral was called out. Every class that produces a stream-shaped artefact now lives in `Data/`: collectors, aggregators, stats, detectors, persistence streams. Canonical post-implementation reality is `context/systems/data-pipeline.md`.
+>
+> **Two sub-items deliberately not done** (cosmetic, no behavioural impact — pick up if/when convenient):
+>
+> 1. **`SegmentDetector` was moved wholesale, not split.** Step 7 called for splitting it into `SegmentEdgeCollector` (active-key sweep) + `SegmentAggregator` (open-segment accumulation + close emission). The class is now at `Data/Aggregators/Segments/SegmentDetector.cs` as a single class. The split is a real hot-path refactor; risk wasn't worth it without a measurable forcing function. The `Data/Aggregators/SegmentAggregator.cs` adapter (introduced in step 5) is the registry-facing surface and already serves the same external-API role; the internal split would only re-organise the detector's private state machine.
+> 2. **Cosmetic renames not done.** Plan called for `ContextTagger → EventContextCollector`, `EventAggregator → BiomeBucketAggregator`, `PerModAttribution → PerModAggregator`. The classes moved to the correct folders but kept their original names. `PerModAttribution` in particular is referenced from IL-emit metadata in `ILHookInterceptor` — renaming would ripple through the detour IL stream and is a non-trivial change for an aesthetic gain. The existing names still describe what the classes do; future readers find them in the registry by stream name, not by class name.
 
 **Owner:** next session, single developer, ~1 week elapsed.
 **Source of truth for intent:** `context/notes/future-unified-data-interface.md`.
