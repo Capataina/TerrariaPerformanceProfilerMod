@@ -2,7 +2,7 @@
 
 Landed in v0.10 (2026-05-21). The pipeline is the brain: every number the mod produces flows through one named, typed stream; every consumer (router, exporter, future Mod.Call) looks up streams by name from `DataRegistry.Shared` instead of reaching into named subsystems.
 
-The migration plan in `context/plans/unified-data-pipeline.md` documents the original 12-step strategy; this file is the canonical reality post-implementation.
+The 12-step migration plan was deleted once the work landed in v0.11; this file is the canonical reality.
 
 ## Folder layout
 
