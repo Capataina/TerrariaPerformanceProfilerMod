@@ -54,6 +54,13 @@ public class PerformanceProfiler : Mod
         LoggerOrNull = Logger;
         Logger.Info($"Performance Profiler loaded (backend: {HookBackend.Mode}).");
 
+        // v0.9.x data pipeline — register every IDataStream once at mod
+        // load. The registry stays populated across world loads/unloads;
+        // per-session state lives inside each stream and is cleared by
+        // ResetAll. Order of Register calls does not matter, but stable
+        // names matter (consumers look them up by name).
+        RegisterDataPipeline();
+
         // Open the DB on the main thread before any world loads. Failure to
         // open degrades to no-persistence; the live overlay and metric
         // collection still work.
@@ -110,9 +117,35 @@ public class PerformanceProfiler : Mod
     /// detours are, so without explicit disposal here the IL patches would
     /// reference types in this assembly that's about to be unloaded.
     /// </summary>
+    /// <summary>
+    /// Register every <see cref="Data.IDataStream"/> the mod ships with.
+    /// Called once at <see cref="Load"/> before any world exists. Each
+    /// migration step adds new <c>Register</c> lines here; the registry
+    /// is single-source-of-truth for "what data does this mod produce".
+    /// </summary>
+    private static void RegisterDataPipeline()
+    {
+        var r = Data.DataRegistry.Shared;
+        r.Register(new Data.Stats.KpiStat());
+        r.Register(new Data.Stats.EventsFeedStat());
+        r.Register(new Data.Aggregators.HeatmapAggregator());
+    }
+
     public override void Unload()
     {
         ILHookInterceptor.Uninstall();
+
+        // v0.9.x data pipeline — dispose every registered stream and
+        // empty the registry. Has to run BEFORE the DB dispose so any
+        // stream that holds a DB reference can flush cleanly.
+        try
+        {
+            Data.DataRegistry.Shared.DisposeAll();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"DataRegistry dispose failed: {ex.GetType().Name}: {ex.Message}");
+        }
 
         // Stop the HTTP dashboard server before the DB so the route handler
         // can't call into a half-disposed DB on the way out.

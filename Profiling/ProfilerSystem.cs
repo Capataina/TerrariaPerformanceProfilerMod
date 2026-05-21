@@ -244,6 +244,21 @@ public sealed class ProfilerSystem : ModSystem
         _lastStallCount = 0;
         _wasDeadLastTick = false;
 
+        // v0.9.x data pipeline — initialise every registered IDataStream
+        // with the per-session context. The registry's Freeze() captures
+        // the per-tick callbacks into a frozen array driven from
+        // PostUpdateEverything. No streams are registered yet at this
+        // step; subsequent commits migrate them one at a time.
+        var pipelineSession = new Data.SessionContext
+        {
+            SessionId = _recorder?.SessionId ?? LiteDB.ObjectId.Empty,
+            ModlistFingerprint = ModlistFingerprint.Compute(),
+            TracksAllocations = PerModAttribution.TracksAllocations,
+            HookBackendMode = HookBackend.Mode.ToString(),
+            Database = PerformanceProfiler.Database,
+        };
+        Data.DataRegistry.Shared.InitialiseAll(pipelineSession);
+
         Mod.Logger.Info($"Profiler armed: {HistoryCapacity}-tick rolling history allocated.");
     }
 
@@ -346,6 +361,13 @@ public sealed class ProfilerSystem : ModSystem
         InsightsEngine.Shared = null;
         BossSampler.Clear();
         SubworldProbe.Clear();
+
+        // v0.9.x data pipeline — discard every registered IDataStream's
+        // per-session state. Registered streams stay registered (we'll
+        // re-Initialise them on the next world load); only their internal
+        // buffers are cleared.
+        Data.DataRegistry.Shared.ResetAll();
+
         Mod.Logger.Info("Profiler disarmed: world unloaded.");
     }
 
@@ -467,6 +489,26 @@ public sealed class ProfilerSystem : ModSystem
             tagger.Snapshot(tickIndex);
             double frameMs = collector.History[collector.History.Count - 1].FrameTimeMs;
             events.Accumulate(in tagger.Current, frameMs);
+
+            // v0.9.x data pipeline — drive every PerTick stream's capture
+            // callback in a single tight loop. The TickContext is stack-
+            // allocated; the callbacks come from a frozen array; the
+            // dispatch is a static delegate invocation per callback. Empty
+            // array today, populated as we migrate stages in later steps.
+            var pipelineCbs = Data.DataRegistry.Shared.PerTickCallbacks;
+            if (pipelineCbs.Length > 0)
+            {
+                var latestFrame = collector.History[collector.History.Count - 1];
+                var pipelineCtx = new Data.TickContext(
+                    tickIndex, Time.UnixMsNow(),
+                    latestFrame.FrameTimeMs, latestFrame.GcTimeMs,
+                    latestFrame.NpcCount, latestFrame.ProjectileCount, latestFrame.DustCount,
+                    in tagger.Current);
+                for (int i = 0; i < pipelineCbs.Length; i++)
+                {
+                    pipelineCbs[i](in pipelineCtx);
+                }
+            }
 
             // Push transitions to the recorder. The watcher diffs against
             // its last snapshot internally and only enqueues when a value

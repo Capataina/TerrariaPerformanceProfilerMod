@@ -85,10 +85,12 @@ internal static class DashboardRouter
         ProfilerSelfHealth h = c.SelfHealth;
         double session30sAvg = AverageRecent(c.History, 30 * 60);
 
-        // KPI snapshot computed server-side. Lets the dashboard render
-        // the four headline cards (avg fps, worst frame, lag spikes,
-        // stalls) without re-doing the math on every render frame.
-        KpiSnapshot kpi = KpiCalculator.Compute(c);
+        // KPI snapshot via the data pipeline. The router does no arithmetic
+        // here — the KpiStat owns the computation; we just emit its
+        // snapshot. (v0.9.x unified data pipeline migration step 3.)
+        KpiSnapshot kpi = Data.DataRegistry.Shared
+            .Lookup<KpiSnapshot>(Data.Stats.KpiStat.StreamName)?.CurrentSnapshot()
+            ?? default;
 
         // Sum the live per-mod allocation bytes (smoothed) into a single
         // "alloc bytes/tick across all mods" headline number. Null when
@@ -149,17 +151,16 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildEvents()
     {
-        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        MetricCollector? c = sys?.Collector;
-        SegmentStore? store = sys?.SegmentStore;
-        if (c == null && store == null)
-        {
-            return JsonSerializer.Serialize(new { worldLoaded = false, events = Array.Empty<object>() }, JsonOpts);
-        }
+        // v0.9.x unified data pipeline migration step 4. The router no
+        // longer merges segments + spikes + stalls — that math is owned
+        // by EventsFeedStat, which calls into the pure-logic
+        // EventsFeed.Build. Router just serialises the snapshot.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.EventsFeedSnapshot>(Data.Stats.EventsFeedStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.EventsFeedSnapshot.Empty;
 
-        var list = EventsFeed.Build(c, store, max: 16);
-        var serialised = new List<object>(list.Count);
-        foreach (var e in list)
+        var serialised = new List<object>(snap.Events.Count);
+        foreach (var e in snap.Events)
         {
             serialised.Add(new
             {
@@ -171,7 +172,7 @@ internal static class DashboardRouter
         }
         return JsonSerializer.Serialize(new
         {
-            worldLoaded = c != null,
+            worldLoaded = snap.WorldLoaded,
             events = serialised,
         }, JsonOpts);
     }
@@ -517,154 +518,48 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildHeatmap()
     {
-        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        MetricCollector? c = sys?.Collector;
-        SegmentStore? store = sys?.SegmentStore;
-        SegmentDetector? det = sys?.Segments;
-        if (c == null || c.History.Count == 0)
+        // v0.9.x unified data pipeline migration step 5 — the canonical
+        // "kill the inline math" extraction. The bucketing + boss-overlay
+        // join used to live inline in this method; now owned by
+        // Data.Aggregators.HeatmapAggregator. The router just serialises.
+        var snap = Data.DataRegistry.Shared
+            .Lookup<Data.Aggregators.HeatmapSnapshot>(Data.Aggregators.HeatmapAggregator.StreamName)?
+            .CurrentSnapshot() ?? Data.Aggregators.HeatmapSnapshot.Empty;
+
+        if (!snap.WorldLoaded)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, buckets = Array.Empty<object>() }, JsonOpts);
         }
 
-        // Bucket by 60-second wall-clock windows. Pull from TickAggregateWarm
-        // when the DB is open so the heatmap spans the entire session, not
-        // just the 30s rolling buffer.
-        const long BucketMs = 60_000;
-        var buckets = new List<HeatBucket>();
-
-        var db = PerformanceProfiler.Database;
-        var sid = sys?.LiveRecorderSessionId;
-        bool fromDb = false;
-        if (db != null && sid != null)
+        var bucketsOut = new List<object>(snap.Buckets.Count);
+        foreach (var b in snap.Buckets)
         {
-            try
-            {
-                // TickAggregateWarm is 1Hz (one row per second). Group runs
-                // of 60 consecutive seconds into a single minute bucket.
-                long sessionStart = Time.UnixMsNow();
-                var sessionRow = db.Sessions.FindById(sid);
-                if (sessionRow != null && sessionRow.StartedUtc.Year > 2000)
-                {
-                    // SessionRow.StartedUtc is named "Utc" but LiteDB reads
-                    // it back with Kind=Unspecified, and DateTimeOffset's
-                    // ctor with TimeSpan.Zero offset rejects anything except
-                    // Kind=Utc — silently throwing on every heatmap poll
-                    // (was firing every 3 s with the tML first-chance hook
-                    // logging it). Force-tag the kind before constructing.
-                    var utc = System.DateTime.SpecifyKind(sessionRow.StartedUtc, System.DateTimeKind.Utc);
-                    sessionStart = new System.DateTimeOffset(utc).ToUnixTimeMilliseconds();
-                }
-                var warmRows = db.TickAggregatesWarm
-                    .Find(x => x.SessionId == sid)
-                    .GetEnumerator();
-                long bucketSecond = -1L;
-                HeatBucket? cur = null;
-                while (warmRows.MoveNext())
-                {
-                    var row = warmRows.Current;
-                    long minuteSecond = (row.SecondIndex / 60L) * 60L;
-                    if (minuteSecond != bucketSecond)
-                    {
-                        if (cur != null) buckets.Add(cur);
-                        cur = new HeatBucket { StartUnixMs = sessionStart + minuteSecond * 1000L };
-                        bucketSecond = minuteSecond;
-                    }
-                    cur!.Ticks += 60; // 1 warm row = ~60 ticks; approximation
-                    cur.TotalMs += row.AvgFrameMs * 60d;
-                    if (row.P95FrameMs > cur.WorstMs) cur.WorstMs = row.P95FrameMs;
-                }
-                warmRows.Dispose();
-                if (cur != null) buckets.Add(cur);
-                fromDb = buckets.Count > 0;
-            }
-            catch
-            {
-                // Fall through to in-memory fallback below.
-            }
-        }
-
-        if (!fromDb)
-        {
-            long bucketStart = -1L;
-            HeatBucket? cur = null;
-            for (int i = 0; i < c.History.Count; i++)
-            {
-                var tf = c.History[i];
-                long approxUnix = Time.UnixMsNow() - (c.History.Count - 1 - i) * 1000 / 60;
-                long bs = (approxUnix / BucketMs) * BucketMs;
-                if (bs != bucketStart)
-                {
-                    if (cur != null) buckets.Add(cur);
-                    cur = new HeatBucket { StartUnixMs = bs };
-                    bucketStart = bs;
-                }
-                cur!.Ticks++;
-                cur.TotalMs += tf.FrameTimeMs;
-                if (tf.FrameTimeMs > cur.WorstMs) cur.WorstMs = tf.FrameTimeMs;
-            }
-            if (cur != null) buckets.Add(cur);
-        }
-
-        // Boss-overlay: for each closed boss segment in the recent ring,
-        // mark which buckets it touched. Open boss segments too via det.
-        var bossOverlays = new List<object>();
-        if (store != null)
-        {
-            foreach (var s in store.Recent)
-            {
-                if (s.Family != SegmentFamily.Boss) continue;
-                bossOverlays.Add(new
-                {
-                    name = s.Name,
-                    startUnixMs = s.StartUnixMs,
-                    endUnixMs = s.EndUnixMs,
-                    killed = s.BossKillCount > 0,
-                });
-            }
-        }
-        if (det != null)
-        {
-            long nowUnix = Time.UnixMsNow();
-            foreach (var os in det.OpenSegments)
-            {
-                if (os.Family != SegmentFamily.Boss) continue;
-                bossOverlays.Add(new
-                {
-                    name = os.Name,
-                    startUnixMs = os.StartUnixMs,
-                    endUnixMs = nowUnix,
-                    killed = false,
-                });
-            }
-        }
-
-        var result = new List<object>(buckets.Count);
-        foreach (var b in buckets)
-        {
-            result.Add(new
+            bucketsOut.Add(new
             {
                 startUnixMs = b.StartUnixMs,
                 ticks = b.Ticks,
-                avgMs = b.Ticks > 0 ? b.TotalMs / b.Ticks : 0d,
+                avgMs = b.AvgMs,
                 worstMs = b.WorstMs,
             });
         }
-
+        var bossOut = new List<object>(snap.BossOverlays.Count);
+        foreach (var o in snap.BossOverlays)
+        {
+            bossOut.Add(new
+            {
+                name = o.Name,
+                startUnixMs = o.StartUnixMs,
+                endUnixMs = o.EndUnixMs,
+                killed = o.Killed,
+            });
+        }
         return JsonSerializer.Serialize(new
         {
             worldLoaded = true,
-            bucketMs = BucketMs,
-            buckets = result,
-            bossOverlays,
+            bucketMs = snap.BucketMs,
+            buckets = bucketsOut,
+            bossOverlays = bossOut,
         }, JsonOpts);
-    }
-
-    private sealed class HeatBucket
-    {
-        public long StartUnixMs;
-        public int Ticks;
-        public double TotalMs;
-        public double WorstMs;
     }
 
     // ----------------------------------------------------------------------
