@@ -10,6 +10,7 @@ using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.UI;
 using PerformanceProfiler.Web;
+using PerformanceProfiler.Web.Server;
 
 namespace PerformanceProfiler;
 
@@ -46,7 +47,7 @@ public class PerformanceProfiler : Mod
     /// the F10 keybind prints a failure message and the rest of the mod
     /// keeps working.
     /// </summary>
-    public static TinyHttpServer? Dashboard { get; private set; }
+    public static DashboardHttpServer? Dashboard { get; private set; }
 
     public override void Load()
     {
@@ -86,7 +87,7 @@ public class PerformanceProfiler : Mod
         // to the chosen URL.
         try
         {
-            Dashboard = new TinyHttpServer(
+            Dashboard = new DashboardHttpServer(
                 route: DashboardRouter.Route,
                 log: (msg, ex) =>
                 {
@@ -198,7 +199,7 @@ public class ProfilerPlayer : ModPlayer
     /// </summary>
     private static void OpenDashboardInBrowser()
     {
-        TinyHttpServer? server = PerformanceProfiler.Dashboard;
+        DashboardHttpServer? server = PerformanceProfiler.Dashboard;
         if (server == null)
         {
             Main.NewText("Dashboard server not running — see client.log.", 255, 120, 120);

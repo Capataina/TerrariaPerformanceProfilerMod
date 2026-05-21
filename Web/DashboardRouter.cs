@@ -8,6 +8,7 @@ using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Insights;
 using PerformanceProfiler.Profiling.Segments;
 using PerformanceProfiler.Profiling.Stats;
+using PerformanceProfiler.Web.Server;
 
 namespace PerformanceProfiler.Web;
 

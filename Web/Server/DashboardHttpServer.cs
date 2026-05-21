@@ -1,46 +1,56 @@
 #nullable enable
 
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 
-namespace PerformanceProfiler.Web;
+namespace PerformanceProfiler.Web.Server;
 
 /// <summary>
-/// Minimal HTTP/1.1 server built on raw <see cref="TcpListener"/>.
+/// The mod's production HTTP/1.1 server, built on raw
+/// <see cref="TcpListener"/>. Serves the dashboard SPA and the JSON API
+/// to a loopback browser client. Loaded from <c>Mod.Load</c>, disposed
+/// from <c>Mod.Unload</c>; lives the whole mod lifetime.
 ///
 /// <para>
 /// <b>Why hand-rolled instead of <see cref="HttpListener"/>.</b> Windows'
-/// <c>HttpListener</c> goes through the <c>http.sys</c> kernel driver, which
-/// refuses to bind for non-admin users unless an URL ACL has been configured
-/// via <c>netsh http add urlacl</c>. That breaks the "load → F10 → browser"
-/// seamless contract — players don't run admin commands to use a Terraria
-/// mod. <see cref="TcpListener"/> is a raw socket on the userspace TCP/IP
-/// stack; no admin needed on any port ≥ 1024 on any platform we target.
+/// <c>HttpListener</c> goes through the <c>http.sys</c> kernel driver,
+/// which refuses to bind for non-admin users unless a URL ACL has been
+/// configured via <c>netsh http add urlacl</c>. That breaks the
+/// "load → F9 → browser" seamless contract — Workshop players will not
+/// run admin commands to use a Terraria mod. <see cref="TcpListener"/>
+/// is a raw socket on the userspace TCP/IP stack; no admin needed on
+/// any port at-or-above 1024 on any platform we target.
 /// </para>
 ///
 /// <para>
 /// <b>Scope.</b> Loopback-only (127.0.0.1), GET-only, plain HTTP/1.1,
-/// connection-close per response, single-threaded accept loop with a small
-/// thread-per-request fan-out for the prototype. Sufficient for the
-/// dashboard polling case (a handful of <c>fetch</c> calls per second from
-/// one client) and explicitly NOT a general-purpose server. If the design
-/// ever grows (concurrent dashboards, big payloads, websockets) we revisit
-/// then.
+/// connection-close per response, single-threaded accept loop with a
+/// thread-per-request fan-out. Sufficient for the dashboard polling
+/// case (a handful of <c>fetch</c> calls per second from one client)
+/// and explicitly NOT a general-purpose server. If the design ever
+/// grows (concurrent dashboards, big payloads, websockets) we revisit.
 /// </para>
 ///
 /// <para>
 /// <b>Lifecycle.</b> Constructed in <c>Mod.Load</c>, disposed in
 /// <c>Mod.Unload</c>. Binds to the first free port in
-/// <see cref="PortRangeStart"/>..<see cref="PortRangeEnd"/>. The chosen URL
-/// is exposed via <see cref="Url"/> for the keybind / chat command to read.
+/// <see cref="PortRangeStart"/>..<see cref="PortRangeEnd"/>. The chosen
+/// URL is exposed via <see cref="Url"/> for the keybind / chat command
+/// to read.
+/// </para>
+///
+/// <para>
+/// Renamed from <c>TinyHttpServer</c> on 2026-05-21 — the original name
+/// suggested a throwaway test artifact, but this is the only server we
+/// ship. The "tiny" framing referred to the ~250 LOC implementation,
+/// not the role in the system.
 /// </para>
 /// </summary>
-public sealed class TinyHttpServer : IDisposable
+public sealed class DashboardHttpServer : IDisposable
 {
     /// <summary>First port to try. Hunts upward until one binds free.</summary>
     /// <remarks>
@@ -66,8 +76,8 @@ public sealed class TinyHttpServer : IDisposable
     /// <summary>The bound TCP port; useful for diagnostics.</summary>
     public int Port { get; }
 
-    public TinyHttpServer(Func<HttpRequest, HttpResponse> route,
-                          Action<string, Exception?>? log = null)
+    public DashboardHttpServer(Func<HttpRequest, HttpResponse> route,
+                               Action<string, Exception?>? log = null)
     {
         _route = route;
         _log = log ?? ((_, _) => { });
@@ -84,7 +94,7 @@ public sealed class TinyHttpServer : IDisposable
         };
         _acceptThread.Start();
 
-        _log($"TinyHttpServer listening at {Url}", null);
+        _log($"DashboardHttpServer listening at {Url}", null);
     }
 
     /// <summary>
@@ -135,7 +145,7 @@ public sealed class TinyHttpServer : IDisposable
             }
             catch (Exception ex)
             {
-                _log("TinyHttpServer accept loop hit non-stop exception", ex);
+                _log("DashboardHttpServer accept loop hit non-stop exception", ex);
                 continue;
             }
 
@@ -178,7 +188,7 @@ public sealed class TinyHttpServer : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _log($"TinyHttpServer route threw for {req.Path}", ex);
+                    _log($"DashboardHttpServer route threw for {req.Path}", ex);
                     resp = HttpResponse.PlainText(500, $"Internal error: {ex.GetType().Name}: {ex.Message}");
                 }
                 WriteResponse(stream, resp);
@@ -188,7 +198,7 @@ public sealed class TinyHttpServer : IDisposable
         catch (SocketException) { /* same */ }
         catch (Exception ex)
         {
-            _log("TinyHttpServer request handler exception", ex);
+            _log("DashboardHttpServer request handler exception", ex);
         }
     }
 
@@ -301,44 +311,3 @@ public sealed class TinyHttpServer : IDisposable
     }
 }
 
-/// <summary>Inbound HTTP request, parsed to the minimum we need.</summary>
-public sealed class HttpRequest
-{
-    public string Method { get; }
-    public string Path { get; }
-    public string RawTarget { get; }
-
-    public HttpRequest(string method, string path, string rawTarget)
-    {
-        Method = method;
-        Path = path;
-        RawTarget = rawTarget;
-    }
-}
-
-/// <summary>Outbound HTTP response. Body is bytes so binary assets fit too.</summary>
-public sealed class HttpResponse
-{
-    public int Status { get; }
-    public string ContentType { get; }
-    public byte[] Body { get; }
-
-    public HttpResponse(int status, string contentType, byte[] body)
-    {
-        Status = status;
-        ContentType = contentType;
-        Body = body;
-    }
-
-    public static HttpResponse Html(string html) =>
-        new HttpResponse(200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(html));
-
-    public static HttpResponse Json(string json) =>
-        new HttpResponse(200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json));
-
-    public static HttpResponse PlainText(int status, string text) =>
-        new HttpResponse(status, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(text));
-
-    public static readonly HttpResponse NotFound =
-        PlainText(404, "Not Found");
-}
