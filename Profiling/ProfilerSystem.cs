@@ -172,6 +172,11 @@ public sealed class ProfilerSystem : ModSystem
     /// </summary>
     private bool _deferredInitPending;
 
+    // Single-slot guard so the InsightsEngine.Evaluate task can never
+    // overlap itself. Reset to 0 when the background task completes;
+    // checked + flipped via Interlocked.CompareExchange before spawn.
+    private int _insightsEvalInflight;
+
     public override void OnWorldLoad()
     {
         _deferredInitPending = true;
@@ -397,25 +402,39 @@ public sealed class ProfilerSystem : ModSystem
                 $"Δ={pct:+0.0;-0.0;0.0}% (mode={HookBackend.Mode})");
         }
 
-        // Insights engine evaluation. v0.8/v0.9 archived the in-game
-        // InsightsTab which used to call Evaluate() from its per-frame
-        // Tick — meaning the engine stopped firing entirely once we
-        // pivoted to the browser dashboard. Wiring the call here keeps
-        // detectors alive at a sensible cadence (every 60 ticks = once
-        // per second of in-world time; detectors read smoothed accessors
-        // so faster is wasted CPU).
-        if (collector.History.Count > 0 && (collector.History.Count % 60) == 0)
+        // Insights engine evaluation. v0.9.x ran this inline on the game
+        // thread every 60 ticks. The 2026-05-21 long-session playtest
+        // showed it wedging the main loop badly — one tick attributed
+        // 1211 ms to PerformanceProfiler with a real frame of 11 ms,
+        // meaning Evaluate held the main thread for over a second.
+        //
+        // Fix: schedule on the thread pool, gated on the previous run
+        // having completed. Detectors are pure-logic reads of smoothed
+        // accessors; running off-thread is safe (no per-tick mutation
+        // race because we don't touch the collector's mutable buffers,
+        // only the IReadOnlyList views).
+        if (collector.History.Count > 0 && (collector.History.Count % 60) == 0
+            && System.Threading.Interlocked.CompareExchange(ref _insightsEvalInflight, 1, 0) == 0)
         {
-            try
+            long latestTick = collector.History[collector.History.Count - 1].TickIndex;
+            int historyDepth = collector.History.Count;
+            var captured = collector;
+            System.Threading.Tasks.Task.Run(() =>
             {
-                var engine = InsightsEngine.GetOrCreateShared();
-                long latestTick = collector.History[collector.History.Count - 1].TickIndex;
-                engine.Evaluate(collector, latestTick, collector.History.Count);
-            }
-            catch (Exception ex)
-            {
-                Mod.Logger.Warn($"InsightsEngine.Evaluate failed ({ex.GetType().Name}: {ex.Message}); engine dropped this pass.");
-            }
+                try
+                {
+                    var engine = InsightsEngine.GetOrCreateShared();
+                    engine.Evaluate(captured, latestTick, historyDepth);
+                }
+                catch (Exception ex)
+                {
+                    Mod.Logger.Warn($"InsightsEngine.Evaluate failed ({ex.GetType().Name}: {ex.Message}); engine dropped this pass.");
+                }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _insightsEvalInflight, 0);
+                }
+            });
         }
 
         // Recorder feed: per-tick downsampling (1Hz / 1min aggregates) and

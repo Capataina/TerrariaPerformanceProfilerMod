@@ -75,30 +75,42 @@ internal static partial class DashboardAssets
 
       <div class=""grid-summary"">
 
-        <!-- KPI strip: avg fps, worst frame, lag spikes, dormant cost -->
+        <!-- KPI strip: each card has a hero number + 3 sub-stats + sparkline -->
         <div class=""kpi-strip"">
           <div class=""kpi"" data-explain=""kpi-fps"">
-            <span class=""k"">avg fps</span>
-            <span class=""v"" id=""kpi-fps-v"">—</span>
-            <span class=""sub"" id=""kpi-fps-sub"">—</span>
+            <div class=""kpi-head"">
+              <span class=""k"">avg fps</span>
+              <span class=""kpi-tag"" id=""kpi-fps-tag"">—</span>
+            </div>
+            <div class=""kpi-hero""><span class=""v"" id=""kpi-fps-v"">—</span><span class=""v-suffix"">/ 60</span></div>
+            <div class=""kpi-subs"" id=""kpi-fps-subs""></div>
             <svg class=""kpi-spark"" id=""kpi-fps-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
           </div>
           <div class=""kpi"" data-explain=""kpi-worst"">
-            <span class=""k"">worst frame</span>
-            <span class=""v"" id=""kpi-worst-v"">—</span>
-            <span class=""sub"" id=""kpi-worst-sub"">—</span>
+            <div class=""kpi-head"">
+              <span class=""k"">worst frame</span>
+              <span class=""kpi-tag"" id=""kpi-worst-tag"">—</span>
+            </div>
+            <div class=""kpi-hero""><span class=""v"" id=""kpi-worst-v"">—</span><span class=""v-suffix"">ms</span></div>
+            <div class=""kpi-subs"" id=""kpi-worst-subs""></div>
             <svg class=""kpi-spark"" id=""kpi-worst-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
           </div>
           <div class=""kpi"" data-explain=""kpi-spikes"">
-            <span class=""k"">lag spikes</span>
-            <span class=""v"" id=""kpi-spikes-v"">—</span>
-            <span class=""sub"" id=""kpi-spikes-sub"">—</span>
+            <div class=""kpi-head"">
+              <span class=""k"">lag spikes</span>
+              <span class=""kpi-tag"" id=""kpi-spikes-tag"">—</span>
+            </div>
+            <div class=""kpi-hero""><span class=""v"" id=""kpi-spikes-v"">—</span><span class=""v-suffix"">in 30s</span></div>
+            <div class=""kpi-subs"" id=""kpi-spikes-subs""></div>
             <svg class=""kpi-spark"" id=""kpi-spikes-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
           </div>
           <div class=""kpi"" data-explain=""kpi-stalls"">
-            <span class=""k"">stalls</span>
-            <span class=""v"" id=""kpi-stalls-v"">—</span>
-            <span class=""sub"" id=""kpi-stalls-sub"">—</span>
+            <div class=""kpi-head"">
+              <span class=""k"">stalls</span>
+              <span class=""kpi-tag"" id=""kpi-stalls-tag"">—</span>
+            </div>
+            <div class=""kpi-hero""><span class=""v"" id=""kpi-stalls-v"">—</span><span class=""v-suffix"">session</span></div>
+            <div class=""kpi-subs"" id=""kpi-stalls-subs""></div>
             <svg class=""kpi-spark"" id=""kpi-stalls-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
           </div>
         </div>
@@ -143,9 +155,9 @@ internal static partial class DashboardAssets
             <span class=""panel-sub"" data-explain=""sparklines"">frame · alloc · spikes</span>
           </header>
           <div class=""trends"">
-            <div class=""trend-row""><span class=""tr-k"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
-            <div class=""trend-row""><span class=""tr-k"">alloc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
-            <div class=""trend-row""><span class=""tr-k"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-frame"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-gc"">gc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-spike"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
           </div>
         </div>
 
@@ -239,17 +251,17 @@ internal static partial class DashboardAssets
     <section class=""tab-pane"" data-pane=""lag"">
       <div class=""panel"">
         <header class=""panel-h"">
-          <span class=""panel-title"">spike windows</span>
-          <span class=""panel-sub"" id=""spikes-sub"" data-explain=""spike"">—</span>
+          <span class=""panel-title"">lag events · spikes &amp; stalls</span>
+          <span class=""panel-actions"">
+            <span class=""segctl"" id=""lag-filter"">
+              <button class=""active"" data-lag-filter=""all"">all</button>
+              <button data-lag-filter=""spikes"" data-explain=""spike"">spikes</button>
+              <button data-lag-filter=""stalls"" data-explain=""stall"">stalls</button>
+            </span>
+            <span class=""panel-sub"" id=""lag-sub"">—</span>
+          </span>
         </header>
-        <div class=""spikes"" id=""spikeslist""></div>
-      </div>
-      <div class=""panel"">
-        <header class=""panel-h"">
-          <span class=""panel-title"">stall events</span>
-          <span class=""panel-sub"" id=""stalls-sub"" data-explain=""stall"">—</span>
-        </header>
-        <div class=""stalls"" id=""stallslist""></div>
+        <div class=""lagfeed"" id=""lagfeed""></div>
       </div>
     </section>
 

@@ -228,7 +228,9 @@ function escapeHtml(s) {
 }
 
 // Consistent mod color: hash modId into the visible-pleasant range.
-const MOD_COLORS = ['#e8a1b6', '#c39ad8', '#79c0ff', '#7cc4c8', '#b6cc8a', '#f5b342', '#d68a8a', '#6ec07e', '#a8d999', '#c3a78f', '#9abce2', '#d0a3c5'];
+// Desaturated palette so 18 simultaneous slices in the impact donut
+// don't fight the rest of the UI. Each is recognisable but muted.
+const MOD_COLORS = ['#5f8db3', '#7d6d9c', '#4f9d6a', '#7e9477', '#a07852', '#8a6db8', '#a05b6a', '#4ab8c2', '#6aa3a8', '#b88a25', '#8d7e5a', '#5b6cb0'];
 function modColor(id) { return MOD_COLORS[(id * 7 + 3) % MOD_COLORS.length]; }
 
 // ====== Tooltips =====================================================
@@ -284,6 +286,38 @@ const TOOLTIPS = {
   'process-context': {
     title: 'Process context',
     body: 'How tModLoader\'s total memory breaks down. <strong>Managed heap</strong> is .NET-tracked memory (us + every mod + the runtime). <strong>Working set</strong> is total RAM the OS sees the process using, including native code and textures.'
+  },
+  'spark-frame': {
+    title: 'Frame time sparkline',
+    body: 'Per-tick frame duration over the last ~30 s. Spikes upward = slow frames; flat = smooth.'
+  },
+  'spark-gc': {
+    title: 'GC time per tick',
+    body: 'How much of each frame was lost to .NET garbage collection over the last ~30 s. Big bumps here usually coincide with stalls — too much memory was being allocated and the runtime had to pause to clean up.'
+  },
+  'spark-spike': {
+    title: 'Spike markers',
+    body: 'One vertical tick per detected spike window in the last ~30 s. A spike = a frame ≥ 2× the session median.'
+  },
+  'kpi-fps': {
+    title: 'Avg FPS',
+    body: 'Average frames-per-second over the last 30 s, derived from <code>1000 / avg-frame-ms</code> and clamped to 60 (Terraria\'s tick ceiling).'
+  },
+  'kpi-worst': {
+    title: 'Worst frame',
+    body: 'The single slowest frame in the last 30 s. Above ~33 ms is felt as a hitch; above 100 ms is a visible stutter.'
+  },
+  'kpi-spikes': {
+    title: 'Lag spikes (>50 ms)',
+    body: 'Count of frames in the last 30 s that exceeded 50 ms — the perceptual threshold where players actually notice a hitch.'
+  },
+  'kpi-stalls': {
+    title: 'Stalls · session total',
+    body: 'Sustained main-thread freezes (multi-second pauses) detected this session. Usually correlates with GC pressure or window-focus loss.'
+  },
+  'heatmap': {
+    title: 'Session timeframe',
+    body: 'One cell per minute of play. Cell colour = average frame time for that minute (green smooth → red painful). Cells with a red halo had a boss fight during that minute.'
   },
 };
 
@@ -364,64 +398,124 @@ function renderSummary() {
 }
 
 // ====== KPI strip =====================================================
-// KPI values are computed server-side now (KpiCalculator.Compute) and
-// delivered in /api/now's `kpi` block. The dashboard just picks the
-// right color band and draws the spark. Less JS math, single source
-// of truth, ready for DB-persisted vs-previous deltas later.
+// KPI values are computed server-side (KpiCalculator.Compute) and
+// delivered in /api/now's `kpi` block. The dashboard picks color
+// bands + sub-rows + draws the spark. Each card has a hero number,
+// a status tag, two or three sub-stats, and a sparkline.
 function renderKpiStrip() {
   if (!lastNow || !lastNow.worldLoaded || !lastNow.kpi || lastNow.kpi.sampleN === 0) {
-    setKpi('fps', '—', '', '', null);
-    setKpi('worst', '—', '', '', null);
-    setKpi('spikes', '—', '', '', null);
-    setKpi('stalls', '—', '', '', null);
+    setKpiEmpty('fps'); setKpiEmpty('worst');
+    setKpiEmpty('spikes'); setKpiEmpty('stalls');
     return;
   }
   const k = lastNow.kpi;
   const ms = (lastFrames && lastFrames.frameMs) || [];
 
+  // ---------- avg fps ----------
   const fpsClass = k.avgFps >= 55 ? 'good' : k.avgFps >= 30 ? 'warn' : 'bad';
-  setKpi('fps', k.avgFps.toFixed(0), '/ 60',
-    k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth',
-    ms.length > 1 ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : null,
-    fpsClass);
+  const fpsTag = k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth';
+  setKpi('fps', {
+    value: k.avgFps.toFixed(0),
+    valueClass: fpsClass,
+    tag: fpsTag, tagClass: fpsClass,
+    subs: [
+      { k: 'median', v: fmtMs(k.medianFrameMs) + 'ms' },
+      { k: 'best',   v: fmtMs(k.bestFrameMs) + 'ms' },
+      { k: 'samples', v: fmtInt(k.sampleN) },
+    ],
+    sparkVals: ms.length > 1 ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : null,
+    sparkClass: fpsClass,
+  });
 
+  // ---------- worst frame ----------
   const worstClass = k.worstFrameMs > 100 ? 'bad' : k.worstFrameMs > 50 ? 'orange' : k.worstFrameMs > 33 ? 'warn' : 'good';
-  setKpi('worst', fmtMs(k.worstFrameMs), 'ms',
-    k.worstFrameMs > 50 ? 'visible hitch' : 'smooth',
-    ms, worstClass);
+  const worstTag = k.worstFrameMs > 100 ? 'stutter' : k.worstFrameMs > 50 ? 'hitch' : k.worstFrameMs > 33 ? 'felt' : 'smooth';
+  setKpi('worst', {
+    value: fmtMs(k.worstFrameMs),
+    valueClass: worstClass,
+    tag: worstTag, tagClass: worstClass,
+    subs: [
+      { k: 'avg 30s', v: fmtMs(lastNow.avg30sMs) + 'ms' },
+      { k: 'median', v: fmtMs(k.medianFrameMs) + 'ms' },
+      { k: 'best',   v: fmtMs(k.bestFrameMs) + 'ms' },
+    ],
+    sparkVals: ms, sparkClass: worstClass,
+  });
 
+  // ---------- lag spikes (>50ms in last 30s) ----------
   const spClass = k.lagSpikeCount >= 5 ? 'bad' : k.lagSpikeCount >= 1 ? 'orange' : 'good';
-  setKpi('spikes', String(k.lagSpikeCount), '',
-    k.lagSpikeCount === 0 ? 'none in 30s' : k.lagSpikeCount + ' over 50ms',
-    null, spClass);
+  const spTag = k.lagSpikeCount === 0 ? 'clean' : k.lagSpikeCount >= 5 ? 'noisy' : 'occasional';
+  setKpi('spikes', {
+    value: String(k.lagSpikeCount),
+    valueClass: spClass,
+    tag: spTag, tagClass: spClass,
+    subs: [
+      { k: 'session', v: fmtInt(k.spikeCount) },
+      { k: 'lag total', v: fmtMs(k.totalLagMs) + 'ms' },
+      { k: 'threshold', v: '>50ms' },
+    ],
+    sparkVals: null,
+    sparkClass: spClass,
+  });
 
-  const stClass = k.stallCount > 0 ? 'bad' : 'good';
-  setKpi('stalls', String(k.stallCount), '',
-    k.stallCount === 0 ? 'main thread clean' : 'session total',
-    null, stClass);
+  // ---------- stalls (session-cumulative) ----------
+  const stClass = k.stallCount > 0 ? (k.stallCount > 5 ? 'bad' : 'orange') : 'good';
+  const stTag = k.stallCount === 0 ? 'clean' : k.stallCount >= 5 ? 'rough' : 'sporadic';
+  setKpi('stalls', {
+    value: String(k.stallCount),
+    valueClass: stClass,
+    tag: stTag, tagClass: stClass,
+    subs: [
+      { k: 'biggest', v: fmtMs(k.worstStallMs) + 'ms' },
+      { k: 'average', v: fmtMs(k.avgStallMs) + 'ms' },
+      { k: 'in 30s',  v: 'see chart' },
+    ],
+    sparkVals: null,
+    sparkClass: stClass,
+  });
 }
 
-function setKpi(name, value, unit, sub, sparkVals, valueClass) {
+function setKpiEmpty(name) {
+  setKpi(name, {
+    value: '—', valueClass: '',
+    tag: '', tagClass: '',
+    subs: [
+      { k: '—', v: '—' }, { k: '—', v: '—' },
+    ],
+    sparkVals: null, sparkClass: '',
+  });
+}
+
+function setKpi(name, opts) {
   const v = document.getElementById('kpi-' + name + '-v');
-  const s = document.getElementById('kpi-' + name + '-sub');
-  v.innerHTML = escapeHtml(value) + (unit ? `<span class='u'>${escapeHtml(unit)}</span>` : '');
-  if (valueClass) v.className = 'v ' + valueClass; else v.className = 'v';
-  s.textContent = sub;
+  const tag = document.getElementById('kpi-' + name + '-tag');
+  const subs = document.getElementById('kpi-' + name + '-subs');
   const spark = document.getElementById('kpi-' + name + '-spark');
+
+  v.textContent = opts.value;
+  v.className = 'v ' + (opts.valueClass || '');
+  tag.textContent = opts.tag || '';
+  tag.className = 'kpi-tag ' + (opts.tagClass || '');
+
+  subs.innerHTML = (opts.subs || []).map(s =>
+    `<div class='kpi-sub'><span class='k'>${escapeHtml(s.k)}</span><span class='v'>${escapeHtml(s.v)}</span></div>`
+  ).join('');
+
   if (spark) {
-    if (!sparkVals || sparkVals.length < 2) { spark.innerHTML = ''; }
+    if (!opts.sparkVals || opts.sparkVals.length < 2) { spark.innerHTML = ''; }
     else {
-      const max = Math.max(0.0001, Math.max(...sparkVals));
-      const min = Math.min(...sparkVals);
+      const vals = opts.sparkVals;
+      const max = Math.max(0.0001, Math.max(...vals));
+      const min = Math.min(...vals);
       const range = Math.max(0.0001, max - min);
       let d = '';
-      for (let i = 0; i < sparkVals.length; i++) {
-        const x = (i / Math.max(1, sparkVals.length - 1)) * 100;
-        const y = 15 - ((sparkVals[i] - min) / range) * 13;
+      for (let i = 0; i < vals.length; i++) {
+        const x = (i / Math.max(1, vals.length - 1)) * 100;
+        const y = 15 - ((vals[i] - min) / range) * 13;
         d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
       }
-      const color = valueClass === 'bad' ? 'var(--danger)' : valueClass === 'orange' ? 'var(--orange)' : valueClass === 'warn' ? 'var(--amber)' : 'var(--good)';
-      spark.innerHTML = `<path d='${d}' fill='none' stroke='${color}' stroke-width='0.6'/>`;
+      const c = opts.sparkClass === 'bad' ? 'var(--danger)' : opts.sparkClass === 'orange' ? 'var(--orange)' : opts.sparkClass === 'warn' ? 'var(--amber)' : 'var(--good)';
+      spark.innerHTML = `<path d='${d}' fill='none' stroke='${c}' stroke-width='0.6'/>`;
     }
   }
 }
@@ -519,12 +613,12 @@ function renderFrameChart() {
       const x = ((m.tick - firstTick) / Math.max(1, lastTick - firstTick)) * w;
       const v = showFps ? Math.min(120, 1000 / Math.max(0.5, m.ms)) : m.ms;
       const y = h - (Math.min(v, max) / max) * h;
-      marks += '<circle cx=""' + x.toFixed(2) + '"" cy=""' + y.toFixed(2) + '"" r=""0.8"" fill=""#f7768e"" stroke=""#1a1b26"" stroke-width=""0.15""/>';
+      marks += '<circle cx=""' + x.toFixed(2) + '"" cy=""' + y.toFixed(2) + '"" r=""0.8"" fill=""#b94e58"" stroke=""#0a0d12"" stroke-width=""0.15""/>';
     }
   }
 
-  // Series color: blue for ms (calm), cyan for fps.
-  const seriesColor = showFps ? '#7dcfff' : '#7aa2f7';
+  // Series color: signature electric blue for ms, cool cyan for fps.
+  const seriesColor = showFps ? '#4ab8c2' : '#4a9eff';
   svg.innerHTML = `
     <defs>
       <linearGradient id='g-area' x1='0' y1='0' x2='0' y2='1'>
@@ -619,7 +713,7 @@ function renderTrendSparklines() {
     document.getElementById('spark-spike').innerHTML = '';
     return;
   }
-  drawSpark('spark-frame', lastFrames.frameMs, '#79c0ff');
+  drawSpark('spark-frame', lastFrames.frameMs, '#4a9eff');
   // alloc: derive a rough proxy from gc time (no per-tick alloc series). Substitute zero series otherwise.
   drawSpark('spark-alloc', lastFrames.gcMs || [], '#c39ad8');
   // spike density: counts within a sliding window. For simplicity show a marker per spike.
@@ -650,7 +744,7 @@ function drawSpikeMarkers(id, frames) {
   const span = Math.max(1, frames.lastTick - frames.firstTick);
   for (const m of frames.spikeMarks) {
     const x = ((m.tick - frames.firstTick) / span) * 100;
-    marks += `<line x1='${x.toFixed(2)}' y1='2' x2='${x.toFixed(2)}' y2='14' stroke='#f5b342' stroke-width='0.4'/>`;
+    marks += `<line x1='${x.toFixed(2)}' y1='2' x2='${x.toFixed(2)}' y2='14' stroke='#c97f3c' stroke-width='0.4'/>`;
   }
   svg.innerHTML = '<line x1=""0"" y1=""15"" x2=""100"" y2=""15"" stroke=""#3a3f4a"" stroke-width=""0.2""/>' + marks;
 }
@@ -1050,98 +1144,159 @@ function renderTimeline() {
 }
 
 // ====== LAG TAB =======================================================
+let lagFilter = 'all';
+const lagFilterEl = document.getElementById('lag-filter');
+if (lagFilterEl) {
+  lagFilterEl.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    lagFilter = b.dataset.lagFilter;
+    document.querySelectorAll('#lag-filter button').forEach(x => x.classList.toggle('active', x === b));
+    if (activeTab === 'lag') renderLag();
+  });
+}
+
 function renderLag() {
-  renderSpikes();
-  renderStalls();
-}
+  const root = document.getElementById('lagfeed');
+  const sub = document.getElementById('lag-sub');
+  if (!root) return;
 
-function renderSpikes() {
-  const root = document.getElementById('spikeslist');
-  const sub = document.getElementById('spikes-sub');
-  if (!lastSpikes || !lastSpikes.spikes || lastSpikes.spikes.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no spikes yet — clean session</div>';
-    sub.textContent = '0';
+  // Merge spikes + stalls into a single chronological feed, newest first.
+  const items = [];
+  if ((lagFilter === 'all' || lagFilter === 'spikes') && lastSpikes && lastSpikes.spikes) {
+    for (const s of lastSpikes.spikes) {
+      const unix = lastNow ? lastNow.unixMs - Math.max(0, (lastNow.tickIndex - s.worstTick)) * 1000 / 60 : Date.now();
+      items.push({ kind: 'spike', data: s, unix });
+    }
+  }
+  if ((lagFilter === 'all' || lagFilter === 'stalls') && lastStalls && lastStalls.stalls) {
+    for (const s of lastStalls.stalls) {
+      const unix = lastNow ? lastNow.unixMs - Math.max(0, (lastNow.tickIndex - s.startTick)) * 1000 / 60 : Date.now();
+      items.push({ kind: 'stall', data: s, unix });
+    }
+  }
+  items.sort((a, b) => b.unix - a.unix);
+
+  if (items.length === 0) {
+    root.innerHTML = '<div class=""empty-line"">no lag events yet — clean session</div>';
+    sub.textContent = '0 events';
     return;
   }
-  const spikes = lastSpikes.spikes.slice().reverse();
-  sub.textContent = spikes.length + ' total';
-  root.innerHTML = spikes.map(s => {
-    const k = 's_' + s.worstTick;
-    const isOpen = expandedSpikes.has(k);
-    const contribs = (s.contributors || []).map(c =>
-      `<div class='c'><span class='name'>${escapeHtml(c.name)}</span><span class='ms'>${fmtMs(c.ms)} ms</span></div>`
-    ).join('');
-    return `<div class='spike-row ${s.warming ? 'warming' : ''}' data-key='${k}'>
-      <div class='head'>
-        <span><span class='worst'>${fmtMs(s.worstFrameMs)} ms</span> at tick #${fmtInt(s.worstTick)} ${s.warming ? '· warmup' : ''}</span>
-        <span class='baseline'>baseline ${fmtMs(s.baselineMs)}ms · mad ${fmtMs(s.madMs)}ms · ${isOpen ? '▼' : '▶'}</span>
-      </div>
-      <div class='contribs ${isOpen ? '' : 'hidden'}'>${contribs || '<span class=muted>(no per-mod snapshot for this spike)</span>'}</div>
-    </div>`;
+
+  const spikeCount = items.filter(i => i.kind === 'spike').length;
+  const stallCount = items.filter(i => i.kind === 'stall').length;
+  sub.textContent = items.length + ' events · ' + spikeCount + ' spikes · ' + stallCount + ' stalls';
+
+  root.innerHTML = items.map(it => {
+    if (it.kind === 'spike') return renderSpikeCard(it.data, it.unix);
+    return renderStallCard(it.data, it.unix);
   }).join('');
-  root.querySelectorAll('.spike-row').forEach(el => {
+
+  // Wire expansion clicks.
+  root.querySelectorAll('.lag-card').forEach(el => {
     el.addEventListener('click', () => {
       const k = el.dataset.key;
-      if (expandedSpikes.has(k)) expandedSpikes.delete(k);
-      else expandedSpikes.add(k);
-      renderSpikes();
+      const set = el.dataset.kind === 'spike' ? expandedSpikes : expandedStalls;
+      if (set.has(k)) set.delete(k); else set.add(k);
+      renderLag();
     });
   });
 }
 
-function renderStalls() {
-  const root = document.getElementById('stallslist');
-  const sub = document.getElementById('stalls-sub');
-  if (!lastStalls || !lastStalls.stalls || lastStalls.stalls.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no stalls — main thread held smooth</div>';
-    sub.textContent = '0';
-    return;
-  }
-  const stalls = lastStalls.stalls.slice().reverse();
-  sub.textContent = stalls.length + ' total';
-  root.innerHTML = stalls.map(s => {
-    const k = 't_' + s.startTick;
-    const isOpen = expandedStalls.has(k);
-    return `<div class='stall-row ${s.warming ? 'warming' : ''}' data-key='${k}'>
-      <div class='head'>
-        <span><span class='worst'>${fmtMs(s.durationMs)} ms</span> stall · tick #${fmtInt(s.startTick)} · ${s.cause}</span>
-        <span class='baseline'>${s.severity} · baseline ${fmtMs(s.baselineMs)}ms · ${isOpen ? '▼' : '▶'}</span>
+function renderSpikeCard(s, unix) {
+  const k = 's_' + s.worstTick;
+  const isOpen = expandedSpikes.has(k);
+  const contribs = (s.contributors || []).map(c =>
+    `<div class='lag-c'><span class='nm'>${escapeHtml(c.name)}</span><span class='vl'>${fmtMs(c.ms)} ms</span></div>`
+  ).join('');
+  return `<div class='lag-card spike ${s.warming ? 'warming' : ''}' data-key='${k}' data-kind='spike'>
+    <div class='lag-head'>
+      <span class='lag-glyph'>⚡</span>
+      <div class='lag-main'>
+        <div class='lag-title'><span class='lag-kind'>SPIKE</span>${fmtMs(s.worstFrameMs)} ms at tick #${fmtInt(s.worstTick)}${s.warming ? ' · warmup' : ''}</div>
+        <div class='lag-sub'>baseline ${fmtMs(s.baselineMs)}ms · ${fmtAgo(unix)}</div>
       </div>
-      <div class='info ${isOpen ? '' : 'hidden'}'>
-        <div class='r'><span class='k'>excess over baseline</span><span class='v'>${fmtMs(s.excessMs)} ms</span></div>
-        <div class='r'><span class='k'>gc pause</span><span class='v'>${fmtMs(s.gcPauseMs)} ms</span></div>
-        <div class='r'><span class='k'>gen 0 / 1 / 2</span><span class='v'>${s.gen0} · ${s.gen1} · ${s.gen2}</span></div>
-        <div class='r'><span class='k'>severity</span><span class='v'>${s.severity}</span></div>
-      </div>
-    </div>`;
-  }).join('');
-  root.querySelectorAll('.stall-row').forEach(el => {
-    el.addEventListener('click', () => {
-      const k = el.dataset.key;
-      if (expandedStalls.has(k)) expandedStalls.delete(k);
-      else expandedStalls.add(k);
-      renderStalls();
-    });
-  });
+      <span class='lag-chevron'>${isOpen ? '▾' : '▸'}</span>
+    </div>
+    <div class='lag-detail ${isOpen ? '' : 'hidden'}'>
+      <div class='lag-detail-h'>top contributors at worst tick</div>
+      <div class='lag-contribs'>${contribs || '<span class=muted>(no per-mod snapshot)</span>'}</div>
+    </div>
+  </div>`;
 }
+
+function renderStallCard(s, unix) {
+  const k = 't_' + s.startTick;
+  const isOpen = expandedStalls.has(k);
+  return `<div class='lag-card stall ${s.warming ? 'warming' : ''}' data-key='${k}' data-kind='stall'>
+    <div class='lag-head'>
+      <span class='lag-glyph'>⏸</span>
+      <div class='lag-main'>
+        <div class='lag-title'><span class='lag-kind danger'>STALL</span>${fmtMs(s.durationMs)} ms · ${s.cause}</div>
+        <div class='lag-sub'>tick #${fmtInt(s.startTick)} · ${s.severity} · ${fmtAgo(unix)}</div>
+      </div>
+      <span class='lag-chevron'>${isOpen ? '▾' : '▸'}</span>
+    </div>
+    <div class='lag-detail ${isOpen ? '' : 'hidden'}'>
+      <div class='lag-contribs'>
+        <div class='lag-c'><span class='nm'>excess over baseline</span><span class='vl'>${fmtMs(s.excessMs)} ms</span></div>
+        <div class='lag-c'><span class='nm'>gc pause</span><span class='vl'>${fmtMs(s.gcPauseMs)} ms</span></div>
+        <div class='lag-c'><span class='nm'>gen 0 / 1 / 2 collections</span><span class='vl'>${s.gen0} · ${s.gen1} · ${s.gen2}</span></div>
+        <div class='lag-c'><span class='nm'>severity</span><span class='vl'>${s.severity}</span></div>
+      </div>
+    </div>
+  </div>`;
+}
+
 
 // ====== INSIGHTS ======================================================
+// Pattern names like 'HotHookDominance' don't mean anything to a player.
+// This map turns each detector's PatternKey into an 'observation'-style
+// label that says what it MEANS, not what it's called internally.
+// The full proper rework is a separate session — this is the holdover.
+const INSIGHT_LABEL_MAP = {
+  'HotHookDominance': 'cost concentration',
+  'AllocationBurst': 'allocation pressure',
+  'FreeRemovalCandidate': 'possibly removable',
+  'PeakContributorToSpike': 'top spike contributor',
+  'ContextCorrelatedSpike': 'context-linked spike',
+  'ContextConditionalCost': 'context-conditional cost',
+  'SustainedCostShift': 'cost shift',
+  'NewContributor': 'new contributor',
+  'GcPauseCulprit': 'gc pause source',
+  'HookFrequencyTail': 'long-tail hook frequency',
+  'LoadoutCorrelatedCost': 'loadout-linked cost',
+  'EventConditionalCost': 'event-conditional cost',
+  'LoadoutCombinationCost': 'loadout combination cost',
+  'SegmentOutlier': 'segment outlier',
+  'SegmentTopMod': 'consistent top mod',
+  'SegmentDeathCorrelation': 'deaths correlate with cost',
+};
+
 function renderInsights() {
   const root = document.getElementById('insightslist');
   const sub = document.getElementById('insights-sub');
   if (!lastInsights || !lastInsights.records || lastInsights.records.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no insights yet — lifetime detectors need a few sessions of data to fire</div>';
+    root.innerHTML = `<div class='insight-empty'>
+      <h3>no observations yet</h3>
+      <p>insights surface patterns we've measured across your session and prior sessions —
+         things like 'this mod is consistently the top contributor in boss fights' or
+         'this segment ran above your lifetime average'.</p>
+      <p class='muted'>they need a few sessions of data on the same modlist before most
+         of them can fire. play a bit longer.</p>
+    </div>`;
     sub.textContent = '0';
     return;
   }
   const recs = lastInsights.records;
-  sub.textContent = recs.length + ' live';
+  sub.textContent = recs.length + ' observation' + (recs.length === 1 ? '' : 's');
   root.innerHTML = recs.map(r => {
     const flavour = r.confidence === 'High' ? '' : r.confidence === 'Low' ? 'warn' : '';
+    const label = INSIGHT_LABEL_MAP[r.pattern] || r.pattern.replace(/([A-Z])/g, ' $1').trim().toLowerCase();
     return `<div class='insight ${flavour}'>
       <div class='head'>
-        <span class='pattern'>${escapeHtml(r.pattern.replace(/([A-Z])/g, ' $1').trim())}</span>
-        <span class='conf'>${r.confidence} · ${r.scope}</span>
+        <span class='pattern'>${escapeHtml(label)}</span>
+        <span class='conf'>${r.confidence} confidence · ${r.scope}</span>
       </div>
       <div class='body'>${escapeHtml(r.mediumText || r.shortText)}</div>
       <div class='footer'>seen ${r.confirmationCount}× · ticks ${fmtInt(r.firstSeenTick)}–${fmtInt(r.lastSeenTick)}</div>
@@ -1215,7 +1370,7 @@ function renderSelfGauge(self) {
   const angle = -Math.PI + (r / 3.5) * Math.PI;
   const x = 50 + Math.cos(angle) * 40;
   const y = 50 + Math.sin(angle) * 40;
-  const sevColor = self.severity === 'Severe' ? '#f47174' : self.severity === 'Concerning' ? '#f5b342' : '#95d4a3';
+  const sevColor = self.severity === 'Severe' ? '#b94e58' : self.severity === 'Concerning' ? '#c97f3c' : '#4f9d6a';
   // Three colored arcs: green 0-1.5, amber 1.5-2.5, red 2.5-3.5
   const arc = (from, to, color) => {
     const a1 = -Math.PI + (from / 3.5) * Math.PI;
@@ -1225,12 +1380,12 @@ function renderSelfGauge(self) {
     return `<path d='M ${x1} ${y1} A 40 40 0 0 1 ${x2} ${y2}' stroke='${color}' stroke-width='6' fill='none' stroke-linecap='round'/>`;
   };
   g.innerHTML = `
-    ${arc(0, 1.5, '#95d4a3')}
-    ${arc(1.5, 2.5, '#f5b342')}
-    ${arc(2.5, 3.5, '#f47174')}
-    <circle cx='${x}' cy='${y}' r='4' fill='${sevColor}' stroke='#fff' stroke-width='1'/>
-    <text x='50' y='40' text-anchor='middle' fill='#c5c8ce' font-family='Inter, sans-serif' font-size='8' font-weight='600'>${self.severity}</text>
-    <text x='50' y='52' text-anchor='middle' fill='#6e7480' font-family='JetBrains Mono, monospace' font-size='5'>${ratio.toFixed(2)}× baseline</text>
+    ${arc(0, 1.5, '#4f9d6a')}
+    ${arc(1.5, 2.5, '#c97f3c')}
+    ${arc(2.5, 3.5, '#b94e58')}
+    <circle cx='${x}' cy='${y}' r='4' fill='${sevColor}' stroke='#d6dae0' stroke-width='1'/>
+    <text x='50' y='40' text-anchor='middle' fill='#d6dae0' font-family='Inter, sans-serif' font-size='8' font-weight='600'>${self.severity}</text>
+    <text x='50' y='52' text-anchor='middle' fill='#6a727f' font-family='JetBrains Mono, monospace' font-size='5'>${ratio.toFixed(2)}× baseline</text>
   `;
 }
 

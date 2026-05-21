@@ -34,17 +34,38 @@ public static class KpiCalculator
         int n = hist.Count;
         double sumMs = 0d;
         double maxMs = 0d;
+        double minMs = double.MaxValue;
+        double totalLagMs = 0d;
         int lagCount = 0;
 
-        // Single forward pass: avg, max, lag count. Median needs sort.
+        // Single forward pass: avg, max, min, lag count, total-lag-ms. Median needs sort.
         for (int i = 0; i < n; i++)
         {
             double v = hist[i].FrameTimeMs;
             sumMs += v;
             if (v > maxMs) maxMs = v;
-            if (v > LagSpikeMsThreshold) lagCount++;
+            if (v < minMs) minMs = v;
+            if (v > LagSpikeMsThreshold) { lagCount++; totalLagMs += v; }
         }
         double avgMs = sumMs / n;
+        if (minMs == double.MaxValue) minMs = 0d;
+
+        // Stall stats — cheap summary across the session ring.
+        double worstStall = 0d;
+        double avgStall = 0d;
+        if (collector.Stalls.Count > 0)
+        {
+            double stallSum = 0d;
+            int stallN = 0;
+            for (int i = 0; i < collector.Stalls.Count; i++)
+            {
+                double d = collector.Stalls[i].TickPeriodMs;
+                if (d > worstStall) worstStall = d;
+                stallSum += d;
+                stallN++;
+            }
+            avgStall = stallN > 0 ? stallSum / stallN : 0d;
+        }
 
         // Median via lightweight copy + sort. n is bounded at 1800 (the
         // rolling history capacity) so the cost is fine to do per poll.
@@ -66,6 +87,10 @@ public static class KpiCalculator
             StallCount = collector.Stalls.Count,
             SpikeCount = collector.Spikes.Count,
             SampleN = n,
+            BestFrameMs = minMs,
+            TotalLagMs = totalLagMs,
+            WorstStallMs = worstStall,
+            AvgStallMs = avgStall,
             IsEmpty = false,
         };
     }

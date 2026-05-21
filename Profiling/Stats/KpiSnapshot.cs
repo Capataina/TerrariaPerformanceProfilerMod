@@ -42,6 +42,18 @@ public struct KpiSnapshot
     /// <summary>How many frames the snapshot was computed over.</summary>
     public int SampleN;
 
+    /// <summary>Smallest frame ms in the window — for the "best frame" sub-stat.</summary>
+    public double BestFrameMs;
+
+    /// <summary>Cumulative session total: how many ms of slow frames (>50 ms) we've seen.</summary>
+    public double TotalLagMs;
+
+    /// <summary>The worst single stall's duration this session, in ms. Lets the dashboard show "biggest stall".</summary>
+    public double WorstStallMs;
+
+    /// <summary>Mean stall duration this session, ms. Sub-stat companion to <see cref="StallCount"/>.</summary>
+    public double AvgStallMs;
+
     /// <summary>True when no game data is available yet; consumer renders dashes.</summary>
     public bool IsEmpty;
 }

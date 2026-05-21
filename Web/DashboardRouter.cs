@@ -127,9 +127,13 @@ internal static class DashboardRouter
             {
                 avgFps = kpi.AvgFps,
                 worstFrameMs = kpi.WorstFrameMs,
+                bestFrameMs = kpi.BestFrameMs,
                 medianFrameMs = kpi.MedianFrameMs,
                 lagSpikeCount = kpi.LagSpikeCount,
+                totalLagMs = kpi.TotalLagMs,
                 stallCount = kpi.StallCount,
+                worstStallMs = kpi.WorstStallMs,
+                avgStallMs = kpi.AvgStallMs,
                 spikeCount = kpi.SpikeCount,
                 sampleN = kpi.SampleN,
             },
@@ -540,7 +544,14 @@ internal static class DashboardRouter
                 var sessionRow = db.Sessions.FindById(sid);
                 if (sessionRow != null && sessionRow.StartedUtc.Year > 2000)
                 {
-                    sessionStart = new System.DateTimeOffset(sessionRow.StartedUtc, System.TimeSpan.Zero).ToUnixTimeMilliseconds();
+                    // SessionRow.StartedUtc is named "Utc" but LiteDB reads
+                    // it back with Kind=Unspecified, and DateTimeOffset's
+                    // ctor with TimeSpan.Zero offset rejects anything except
+                    // Kind=Utc — silently throwing on every heatmap poll
+                    // (was firing every 3 s with the tML first-chance hook
+                    // logging it). Force-tag the kind before constructing.
+                    var utc = System.DateTime.SpecifyKind(sessionRow.StartedUtc, System.DateTimeKind.Utc);
+                    sessionStart = new System.DateTimeOffset(utc).ToUnixTimeMilliseconds();
                 }
                 var warmRows = db.TickAggregatesWarm
                     .Find(x => x.SessionId == sid)
