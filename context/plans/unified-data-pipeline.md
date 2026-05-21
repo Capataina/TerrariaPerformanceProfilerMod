@@ -1,6 +1,7 @@
 # Unified Data Pipeline — Implementation Plan
 
-**Status:** plan, not implementation. Target architecture for v1.0.
+> **Status (2026-05-21):** Implemented in v0.10. Steps 1-6, 11, 12 landed. Steps 7-10 (pure file moves: `ContextTagger → EventContextCollector`, `SegmentDetector` split, `EventAggregator → BiomeBucketAggregator`, persistence streams to `Data/Streams/`) were deferred — no behavioural impact, the pipeline is functionally complete via the API-level migration in step 11. Canonical post-implementation reality lives in `context/systems/data-pipeline.md`.
+
 **Owner:** next session, single developer, ~1 week elapsed.
 **Source of truth for intent:** `context/notes/future-unified-data-interface.md`.
 

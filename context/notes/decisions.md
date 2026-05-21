@@ -245,3 +245,34 @@ Three commits (`77a99d2`, `aa914ce`, `14fac59`) landed the audit's certain findi
 **Attribution is split by hook category.** Cost is accumulated per mod and per category (Systems / Players / NPCs / Projectiles / Items / World / Buffs). The overlay tree folds a mod row open into a per-category breakdown. The seven categories are constants in `HookCategoryRouter`.
 
 **First-cut hook scope: parameterless instance hooks only.** *The interceptor hooks the void-signature per-tick hooks (`ModSystem`/`ModPlayer` update hooks, `ModNPC`/`ModProjectile` AI) — one delegate shape, lowest risk. The per-entity `GlobalNPC`/`GlobalProjectile` hooks, which carry a parameter, are a planned follow-up to widen coverage.* **Superseded 2026-05-20:** the delegate path now wraps roughly 30 distinct signature families (see `Profiling/HookInterceptor.cs:282-790`), and the ILHook backend wraps every override regardless of signature.
+
+
+## 2026-05-21 — v0.10 unified data pipeline + multi-agent code-health audit
+
+**Unified data pipeline landed.** The Data/ folder now houses every named, typed stream the mod produces — three collectors (FrameTime / HookCpu / Allocation), two aggregators (Heatmap / Segment), six stats (Kpi / EventsFeed / SelfHealth / Spikes / Stalls / Insights). Every dashboard endpoint consumes data via `DataRegistry.Shared.Lookup<TSnapshot>(name).CurrentSnapshot()` instead of reaching into ProfilerSystem.Collector. Canonical reality in `context/systems/data-pipeline.md`. The original 12-step plan in `context/plans/unified-data-pipeline.md` carries an implemented-status header pinning what was done versus deferred.
+
+**Steps 7-10 of the migration plan deferred deliberately.** Those steps are pure file moves (ContextTagger → EventContextCollector, SegmentDetector split, persistence streams to Data/Streams/) with zero behavioural impact. The pipeline's architectural payoff was already realised by the API-level migration in step 11; moving files would burn churn on namespace updates without buying behaviour. If picked up, use `git mv` and update consumer references in lockstep.
+
+**ProfilerSystem.Collector is now `internal`.** The visibility tighten is the policy commitment: external consumers route through the registry; same-assembly code inside `Data/` and `Profiling/` keeps direct access. Documented in `context/systems/data-pipeline.md` under Policy commitments.
+
+**Web folder modularised; TinyHttpServer renamed.** `Web/Assets/Css/Css.*.cs` (17 files) and `Web/Assets/Js/Js.*.cs` (15 files) split the previously-monolithic CSS/JS bundles into per-section partial classes. The 1000+-line `DashboardAssets.Js.cs` is gone. `TinyHttpServer` was a misleading name (it's the production server, not a test stub) — renamed to `DashboardHttpServer` and moved to `Web/Server/`.
+
+**Multi-agent code-health audit pass.** Five parallel general-purpose subagents audited Data/, Profiling/ core, Persistence+Insights, Web/, and UI/ — total ~73 BUG-class findings plus larger counts of PERF/SMELL/NIT. The high-priority slice landed in two follow-up commits (`code-health-audit: first wave` and `second wave`). Critical fixes by class:
+
+- *Invariant 2 (zero per-tick alloc):* `SegmentDetector.ComputeBiomeComposite` was allocating a StringBuilder + final string every tick on stable biome state — now memoised by bitset.
+- *Invariant 3 (descriptive, not normative):* dashboard text "possibly removable" → "idle most of session"; "clean session" → "no spikes or stalls observed in the last 30s"; "if this mod were removed" → "modelled cost without this mod's contribution, descriptive of measured cost, not a recommendation".
+- *Data races:* `DashboardRouter.BuildNow` was reading `MetricCollector.History` from the HTTP worker thread while the game thread mutated it. Now reads through pipeline snapshots. `DataRegistry.Register/DisposeAll` lock both views together.
+- *Correctness:* `BoolIndex.EnsureCapacity` infinite loop on `capacity == 0` (`0 *= 2` never grows). `PlayerDeathDetector` boss-id cast to `short` truncated modded types ≥ 32768 — dropped. `ContextTransitionWatcher` weather rows encode the flag identity in the Type field; pre-fix every weather flip collapsed into an indistinguishable row. `TickDownsampler.RollingFrame._max` recomputes on eviction (was monotonic-since-session-start). `ModlistStream` derives SessionCount from the Sessions collection and dedupes VersionHistory — replay-idempotent. `LegacyJsonImporter` parses dates with InvariantCulture. `ProfilerDatabase.EnsureSchemaVersion` falls through to v0 on a torn USER_VERSION pragma.
+- *Insights confidence model honesty:* SegmentDeathCorrelation, SegmentOutlier, SegmentTopMod detectors now emit `Confidence.Preliminary` rather than computing a tier at emit. `InsightStore.PromoteConfidence` overwrites on Submit; the per-detector ratio-based tiering was silently dead code. Honesty: store owns confidence, detectors emit evidence.
+- *Performance:* `DashboardAssets.Css/Js` switched from get-only property `=> string.Concat(...)` to `static readonly` initialised once. `DashboardRouter` caches the UTF-8 bytes of those bundles at type-init. `KpiCalculator` uses a ThreadStatic scratch buffer for the median sort instead of allocating `double[1800]` per `/api/now` poll. `SessionRecorder` stall-event writes go through `EnumStringTable` instead of `enum.ToString()` boxing.
+
+**Cadence-vs-callback honesty.** Three collectors initially declared `PerTick` cadence with no-op delegates. Switched to `OnDemand` (pull-side adapters; MetricCollector itself owns the per-tick capture) — the cadence label now matches who-does-work.
+
+**`UI/Overlay/**` retained, audit recommendation flagged.** The UI audit recommended deleting the 5,500-line archived overlay tree, arguing git history is the archive and revival cost (Steam Deck) would be a rewrite anyway. Decision deferred: the v0.9.0 README explicitly preserves the tree on disk for future revival. Reversing that is a policy call, not a code-quality call. Reconsider when scope of v1.0 is firm.
+
+**Audit findings explicitly not addressed in this pass.** Documented for a follow-up sweep:
+- Live-collection thread-safety pattern (snapshots leak refs to mutable underlying collections — class of races on the worker thread; needs a system change to fix systemically).
+- ILHookInterceptor ret-rewrite handler-scope edge cases (Cecil work).
+- Several persistence-layer index additions (LiteDB compound indexes for stream upsert paths).
+- Detector cursor missing on GcPauseCulpritDetector / EventConditionalCostDetector (re-scan every Evaluate pass).
+- Various NIT-class findings.

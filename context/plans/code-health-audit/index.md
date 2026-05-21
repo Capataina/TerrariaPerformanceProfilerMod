@@ -1,8 +1,10 @@
 # Code Health Audit
 
-**Date:** 2026-05-20  
-**Scope:** full repository, with Pass-2 deep dives on hook instrumentation, overlay UI, persistence/session logging, insights engine, and build/test infrastructure  
-**Status:** complete
+**Date:** 2026-05-20 (first pass) + 2026-05-21 (multi-agent follow-up pass)
+**Scope:** full repository, with Pass-2 deep dives on hook instrumentation, overlay UI, persistence/session logging, insights engine, and build/test infrastructure
+**Status:** first pass complete; multi-agent follow-up pass landed in two commits — see the 2026-05-21 section in `context/notes/decisions.md` for what changed and what was deferred.
+
+> The 2026-05-21 follow-up ran five parallel subagents across Data/, Profiling/ core, Persistence+Insights, Web/, and UI/. Findings: ~73 BUG-class plus larger PERF/SMELL/NIT counts. The critical-priority slice (Invariant 2/3 violations, data races, correctness bugs, hot-path allocations) landed in commits `90e5cc5` and `6443451`. Deferred items are enumerated at the bottom of the 2026-05-21 decisions entry.
 
 ## Summary
 

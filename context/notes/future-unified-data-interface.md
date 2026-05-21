@@ -1,6 +1,8 @@
 # Idea: a unified `Data/` pipeline — single calculation locus, dumb consumers
 
-**Status:** notes only, not implemented. This is the explicit architectural target — bigger lift than a file reorg, but lays the foundation for everything downstream.
+> **Implemented in v0.10 (2026-05-21).** This note is preserved as the original framing record. For the implemented architecture see `context/systems/data-pipeline.md`; for the migration plan see `context/plans/unified-data-pipeline.md`.
+
+**Status:** ~~notes only, not implemented~~ → **landed**. Was: the explicit architectural target, bigger lift than a file reorg, lays the foundation for everything downstream.
 **Captured:** 2026-05-21 conversation, clarified across three messages same day.
 
 ---

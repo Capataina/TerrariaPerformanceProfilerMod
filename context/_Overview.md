@@ -18,9 +18,9 @@ context/
 ├── _staleness-report.md     Per-file verdicts from the last upkeep run
 │
 ├── systems/                 One file per stable subsystem (canonical reality)
-│   hook-instrumentation, metric-collection, spike-detection,
-│   allocation-tracking, insights-engine, persistence, overlay,
-│   events-and-context, test-harness, mod-lifecycle
+│   data-pipeline (v0.10), hook-instrumentation, metric-collection,
+│   spike-detection, allocation-tracking, insights-engine, persistence,
+│   overlay, events-and-context, test-harness, mod-lifecycle
 │
 ├── tmodloader/              Per-API reference: what tModLoader exposes
 │                            AND how each of our subsystems plugs in
@@ -75,6 +75,13 @@ The 2026-05-19 folder was the pre-implementation reconnaissance done before the 
 - Non-shipping xUnit test harness, three fixtures, build-time isolation from the `.tmod` package.
 
 The full 2026-05-20 code-health audit and its implementation receipt are in `plans/code-health-audit/index.md`.
+
+## 2026-05-21 — v0.10 unified data pipeline + audit follow-up
+
+Two structural shifts landed:
+
+- **Unified `Data/` pipeline.** Every named, typed stream the mod produces now lives in `Data/` and is registered with `DataRegistry.Shared` at mod load. Consumers (the dashboard router, the future Mod.Call API, the future session-report exporter) read via `Lookup<TSnapshot>(name).CurrentSnapshot()` instead of reaching into named subsystems. Policy: *if it produces a number it lives in `Data/`; if it consumes a number it asks the registry.* `ProfilerSystem.Collector` is now `internal`. Canonical reality in `systems/data-pipeline.md`; original plan in `plans/unified-data-pipeline.md`.
+- **Multi-agent code-health audit.** Five parallel subagents audited Data/, Profiling/ core, Persistence+Insights, Web/, UI/. The critical slice landed in two follow-up commits: Invariant 2/3 fixes (`SegmentDetector.ComputeBiomeComposite` memoisation, dashboard wording de-normativisation), data-race fixes (`DashboardRouter.BuildNow` migrated to pipeline snapshots, `DataRegistry.Register/DisposeAll` lock atomicity), correctness fixes (`BoolIndex.EnsureCapacity` infinite loop, `PlayerDeathDetector` short-cast truncation, `ContextTransitionWatcher` weather-flag identity, `TickDownsampler._max` eviction, `ModlistStream` replay-idempotency, insights detector confidence honesty). Full session record in `notes/decisions.md` under the 2026-05-21 entry; deferred-items list is at the bottom of that entry.
 
 ## Notes for future sessions
 
