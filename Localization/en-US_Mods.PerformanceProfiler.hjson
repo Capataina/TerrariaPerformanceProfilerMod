@@ -1,5 +1,7 @@
-Keybinds.ToggleOverlay.DisplayName: Toggle Overlay
-Keybinds.OpenDashboard.DisplayName: Open Browser Dashboard
+Keybinds: {
+	ToggleOverlay.DisplayName: Toggle Overlay
+	OpenDashboard.DisplayName: Open Browser Dashboard
+}
 
 Configs: {
 	ProfilerConfig: {

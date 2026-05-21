@@ -2,6 +2,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
@@ -180,11 +181,23 @@ public class ProfilerPlayer : ModPlayer
 
     /// <summary>
     /// Launches the player's default browser at the local dashboard URL.
-    /// Uses <c>Process.Start</c> with <c>UseShellExecute = true</c> — the
-    /// same pattern WikiThis uses, which is established Workshop-approved
-    /// practice (see <c>tModLoader/tModLoader#4223</c> for the precedent
-    /// discussion). Falls back to a chat message with the URL if the
-    /// shell can't open it (Linux quirks, missing default browser, etc).
+    ///
+    /// <para>
+    /// Cross-platform <c>Process.Start</c> is a minefield: on Windows
+    /// <c>UseShellExecute=true</c> with a URL goes to the default browser;
+    /// on macOS the same call falls through to a missing <c>xdg-open</c>
+    /// path and silently fails; on Linux <c>xdg-open</c> usually exists
+    /// but is sometimes missing in minimal installs. The reliable answer
+    /// is to dispatch on <see cref="RuntimeInformation"/> and invoke the
+    /// platform's native URL-opener directly: <c>open</c> on macOS,
+    /// <c>xdg-open</c> on Linux, the shell on Windows.
+    /// </para>
+    ///
+    /// <para>
+    /// Failure path always prints the URL in chat so the player can copy
+    /// it manually (also what WikiThis falls back to on
+    /// <c>tModLoader/tModLoader#4223</c>).
+    /// </para>
     /// </summary>
     private static void OpenDashboardInBrowser()
     {
@@ -197,20 +210,32 @@ public class ProfilerPlayer : ModPlayer
         string url = server.Url;
         try
         {
-            Process.Start(new ProcessStartInfo
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             {
-                FileName = url,
-                UseShellExecute = true,
-            });
+                Process.Start("open", url);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                Process.Start("xdg-open", url);
+            }
+            else
+            {
+                // Windows path. UseShellExecute=true is required so the URL
+                // gets dispatched to the OS's default-browser handler.
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true,
+                });
+            }
             PerformanceProfiler.LoggerOrNull?.Info($"Browser dashboard launched: {url}");
         }
         catch (Exception ex)
         {
-            // Shell open failed (rare on Win/Mac, more common on Linux).
-            // Print the URL so the player can copy/paste manually.
+            // Shell open failed. Print the URL so the player can copy/paste.
             Main.NewText($"Couldn't auto-open browser. Visit {url} manually.", 255, 220, 100);
             PerformanceProfiler.LoggerOrNull?.Warn(
-                $"Process.Start({url}) failed: {ex.GetType().Name}: {ex.Message}");
+                $"OpenDashboardInBrowser({url}) failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }
