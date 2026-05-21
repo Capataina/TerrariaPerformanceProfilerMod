@@ -25,7 +25,7 @@ internal static partial class DashboardAssets
     <div class=""brand"">
       <span class=""brand-mark""></span>
       <span class=""brand-name"">Performance Profiler</span>
-      <span class=""brand-version"" id=""brand-version"">v0.9.0</span>
+      <span class=""brand-version"" id=""brand-version"">v0.9</span>
     </div>
     <div class=""live"">
       <span class=""live-dot"" id=""live-dot""></span>
@@ -33,26 +33,33 @@ internal static partial class DashboardAssets
     </div>
     <div class=""topstats"" id=""topstats"">
       <div class=""topstat""><span class=""k"">tick</span><span class=""v"" id=""ts-tick"">—</span></div>
-      <div class=""topstat""><span class=""k"">frame</span><span class=""v"" id=""ts-frame"">—</span></div>
-      <div class=""topstat""><span class=""k"">avg 30s</span><span class=""v"" id=""ts-avg"">—</span></div>
-      <div class=""topstat""><span class=""k"">gc</span><span class=""v"" id=""ts-gc"">—</span></div>
-      <div class=""topstat""><span class=""k"">backend</span><span class=""v"" id=""ts-backend"">—</span></div>
+      <div class=""topstat"" data-explain=""tick-frame""><span class=""k"">frame</span><span class=""v"" id=""ts-frame"">—</span></div>
+      <div class=""topstat"" data-explain=""tick-avg""><span class=""k"">avg 30s</span><span class=""v"" id=""ts-avg"">—</span></div>
+      <div class=""topstat"" data-explain=""tick-gc""><span class=""k"">gc</span><span class=""v"" id=""ts-gc"">—</span></div>
+      <div class=""topstat"" data-explain=""backend""><span class=""k"">backend</span><span class=""v"" id=""ts-backend"">—</span></div>
     </div>
   </header>
 
   <!-- ===== Tab strip ====================================================== -->
   <nav class=""tabs"" id=""tabs"">
-    <button class=""tab active"" data-tab=""now"">Now</button>
-    <button class=""tab"" data-tab=""mods"">Mods</button>
-    <button class=""tab"" data-tab=""timeline"">Timeline</button>
-    <button class=""tab"" data-tab=""spikes"">Spikes</button>
-    <button class=""tab"" data-tab=""insights"">Insights</button>
-    <button class=""tab"" data-tab=""self"">Self</button>
+    <button class=""tab active"" data-tab=""summary""><span class=""ki"">1</span>Summary</button>
+    <button class=""tab"" data-tab=""timeline""><span class=""ki"">2</span>Timeline</button>
+    <button class=""tab"" data-tab=""lag""><span class=""ki"">3</span>Lag</button>
+    <button class=""tab"" data-tab=""insights""><span class=""ki"">4</span>Insights</button>
+    <button class=""tab"" data-tab=""self""><span class=""ki"">5</span>Self</button>
   </nav>
 
-  <!-- ===== Empty-state banner shown when no world is loaded ============= -->
-  <div class=""empty hidden"" id=""empty"">
-    <div class=""empty-inner"">
+  <!-- ===== Disconnect / no-world overlays =============================== -->
+  <div class=""overlay-state hidden"" id=""disconnected"">
+    <div class=""overlay-inner"">
+      <h2>lost connection</h2>
+      <p>the mod's dashboard server stopped responding — Terraria probably exited.</p>
+      <p class=""hint"">close this tab when you're done. it'll auto-reconnect if you re-launch tModLoader.</p>
+    </div>
+  </div>
+
+  <div class=""overlay-state hidden"" id=""empty"">
+    <div class=""overlay-inner"">
       <h2>no world loaded</h2>
       <p>open a save in tModLoader and walk around — the dashboard will populate automatically.</p>
       <p class=""hint"">tip: in single-player Terraria pauses when the window loses focus.
@@ -63,10 +70,10 @@ internal static partial class DashboardAssets
   <!-- ===== Main content ================================================== -->
   <main class=""content"" id=""content"">
 
-    <!-- ============================================================== NOW -->
-    <section class=""tab-pane active"" data-pane=""now"">
+    <!-- ========================================================== SUMMARY -->
+    <section class=""tab-pane active"" data-pane=""summary"">
 
-      <div class=""grid-now"">
+      <div class=""grid-summary"">
 
         <!-- Frame chart hero -->
         <div class=""panel panel-hero"" style=""grid-area: chart;"">
@@ -80,22 +87,43 @@ internal static partial class DashboardAssets
           </div>
         </div>
 
-        <!-- Now playing -->
+        <!-- Impact share donut -->
+        <div class=""panel"" style=""grid-area: donut;"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">impact share</span>
+            <span class=""panel-sub"" id=""donut-sub"">—</span>
+          </header>
+          <div class=""donut-wrap"">
+            <svg class=""donut"" id=""donut-svg"" viewBox=""-50 -50 100 100"" aria-hidden=""true""></svg>
+            <div class=""donut-center"" id=""donut-center"">
+              <span class=""dc-pct"" id=""donut-pct"">—</span>
+              <span class=""dc-name"" id=""donut-name"">—</span>
+              <span class=""dc-ms"" id=""donut-ms"">—</span>
+            </div>
+          </div>
+          <div class=""donut-legend"" id=""donut-legend""></div>
+        </div>
+
+        <!-- 3-row session-trend sparklines -->
+        <div class=""panel"" style=""grid-area: trends;"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">session trend · last 30s</span>
+            <span class=""panel-sub"" data-explain=""sparklines"">frame · alloc · spikes</span>
+          </header>
+          <div class=""trends"">
+            <div class=""trend-row""><span class=""tr-k"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-row""><span class=""tr-k"">alloc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-row""><span class=""tr-k"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+          </div>
+        </div>
+
+        <!-- Now playing segments -->
         <div class=""panel"" style=""grid-area: now;"">
           <header class=""panel-h"">
             <span class=""panel-title"">now playing</span>
             <span class=""panel-sub"" id=""now-sub"">0 open</span>
           </header>
           <div class=""nowlist"" id=""nowlist""></div>
-        </div>
-
-        <!-- Mod ranking -->
-        <div class=""panel"" style=""grid-area: mods;"">
-          <header class=""panel-h"">
-            <span class=""panel-title"">mod ranking · live</span>
-            <span class=""panel-sub"" id=""mods-sub"">—</span>
-          </header>
-          <div class=""modlist"" id=""nowmods""></div>
         </div>
 
         <!-- Events feed -->
@@ -107,23 +135,32 @@ internal static partial class DashboardAssets
           <div class=""events"" id=""nowevents""></div>
         </div>
 
-      </div>
-    </section>
-
-    <!-- ============================================================= MODS -->
-    <section class=""tab-pane"" data-pane=""mods"">
-      <div class=""panel"">
-        <header class=""panel-h"">
-          <span class=""panel-title"">per-mod cost · this session</span>
-          <span class=""panel-sub"">
-            <span class=""segctl"" id=""mods-sort"">
-              <button class=""active"" data-sort=""composite"">composite</button>
-              <button data-sort=""cpu"">cpu</button>
-              <button data-sort=""avg"">avg</button>
+        <!-- Full mod ranking with tree expansion + mod cards -->
+        <div class=""panel panel-wide"" style=""grid-area: mods;"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">mods · cascading tree</span>
+            <span class=""panel-actions"">
+              <input type=""search"" id=""mod-filter"" placeholder=""filter…"" class=""filter-input"" />
+              <span class=""segctl"" id=""mods-sort"">
+                <button class=""active"" data-sort=""composite"" data-explain=""composite"">composite</button>
+                <button data-sort=""cpu"">cpu</button>
+                <button data-sort=""avg"">avg</button>
+                <button data-sort=""alloc"" id=""sort-alloc"">alloc</button>
+              </span>
             </span>
-          </span>
-        </header>
-        <div class=""modtable"" id=""modtable""></div>
+          </header>
+          <div class=""modtable-head"">
+            <span class=""mh rank"">#</span>
+            <span class=""mh name"">mod</span>
+            <span class=""mh bar"">cost</span>
+            <span class=""mh trend"">30s</span>
+            <span class=""mh num""><span data-explain=""tick-frame"">now</span></span>
+            <span class=""mh num""><span data-explain=""tick-avg"">avg</span></span>
+            <span class=""mh num"" id=""mh-alloc""><span data-explain=""alloc"">alloc</span></span>
+          </div>
+          <div class=""modtable"" id=""modtable""></div>
+        </div>
+
       </div>
     </section>
 
@@ -132,20 +169,36 @@ internal static partial class DashboardAssets
       <div class=""panel"">
         <header class=""panel-h"">
           <span class=""panel-title"">session segments</span>
-          <span class=""panel-sub"" id=""timeline-sub"">—</span>
+          <span class=""panel-actions"">
+            <span class=""segctl"" id=""timeline-filter"">
+              <button class=""active"" data-filter=""all"">all</button>
+              <button data-filter=""boss"">boss</button>
+              <button data-filter=""biome"">biome</button>
+              <button data-filter=""weather"">weather</button>
+              <button data-filter=""drama"">has drama</button>
+            </span>
+            <span class=""panel-sub"" id=""timeline-sub"">—</span>
+          </span>
         </header>
         <div class=""timeline"" id=""timelinelist""></div>
       </div>
     </section>
 
-    <!-- =========================================================== SPIKES -->
-    <section class=""tab-pane"" data-pane=""spikes"">
+    <!-- ============================================================== LAG -->
+    <section class=""tab-pane"" data-pane=""lag"">
       <div class=""panel"">
         <header class=""panel-h"">
           <span class=""panel-title"">spike windows</span>
-          <span class=""panel-sub"" id=""spikes-sub"">—</span>
+          <span class=""panel-sub"" id=""spikes-sub"" data-explain=""spike"">—</span>
         </header>
         <div class=""spikes"" id=""spikeslist""></div>
+      </div>
+      <div class=""panel"">
+        <header class=""panel-h"">
+          <span class=""panel-title"">stall events</span>
+          <span class=""panel-sub"" id=""stalls-sub"" data-explain=""stall"">—</span>
+        </header>
+        <div class=""stalls"" id=""stallslist""></div>
       </div>
     </section>
 
@@ -154,7 +207,7 @@ internal static partial class DashboardAssets
       <div class=""panel"">
         <header class=""panel-h"">
           <span class=""panel-title"">live insights</span>
-          <span class=""panel-sub"" id=""insights-sub"">—</span>
+          <span class=""panel-sub"" id=""insights-sub"" data-explain=""insights"">—</span>
         </header>
         <div class=""insights"" id=""insightslist""></div>
       </div>
@@ -162,21 +215,89 @@ internal static partial class DashboardAssets
 
     <!-- ============================================================= SELF -->
     <section class=""tab-pane"" data-pane=""self"">
-      <div class=""self-grid"">
-        <div class=""panel""><header class=""panel-h""><span class=""panel-title"">install footprint</span></header><div class=""self-body"" id=""self-install""></div></div>
-        <div class=""panel""><header class=""panel-h""><span class=""panel-title"">process context</span></header><div class=""self-body"" id=""self-process""></div></div>
-        <div class=""panel""><header class=""panel-h""><span class=""panel-title"">attribution backend</span></header><div class=""self-body"" id=""self-backend""></div></div>
+      <div class=""self-layout"">
+
+        <!-- Hero: profiler-health gauge + headline metric -->
+        <div class=""panel self-hero"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">profiler health</span>
+            <span class=""panel-sub"" data-explain=""self-severity"">bytes-per-hook ratio · honest budget signal</span>
+          </header>
+          <div class=""hero-body"">
+            <div class=""gauge"" id=""self-gauge"">
+              <svg viewBox=""0 0 100 60"" preserveAspectRatio=""xMidYMid meet""></svg>
+            </div>
+            <div class=""hero-stats"">
+              <div class=""hero-stat""><span class=""k"">severity</span><span class=""v"" id=""hero-sev"">—</span></div>
+              <div class=""hero-stat""><span class=""k"">bytes/hook</span><span class=""v"" id=""hero-bph"">—</span></div>
+              <div class=""hero-stat""><span class=""k"">vs baseline</span><span class=""v"" id=""hero-ratio"">—</span></div>
+              <div class=""hero-stat""><span class=""k"">hooks installed</span><span class=""v"" id=""hero-hooks"">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Install footprint card with visual delta bar -->
+        <div class=""panel"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">install footprint</span>
+            <span class=""panel-sub"" data-explain=""install-delta"">heap delta over baseline</span>
+          </header>
+          <div class=""self-body"" id=""self-install""></div>
+          <div class=""footprint-bar"" id=""footprint-bar""></div>
+        </div>
+
+        <!-- Process context with managed-vs-native split bar -->
+        <div class=""panel"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">process context</span>
+            <span class=""panel-sub"" data-explain=""process-context"">managed heap vs total working set</span>
+          </header>
+          <div class=""self-body"" id=""self-process""></div>
+          <div class=""split-bar"" id=""self-split""></div>
+        </div>
+
+        <!-- Backend mode card -->
+        <div class=""panel"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">attribution backend</span>
+            <span class=""panel-sub"" data-explain=""backend"">how we instrument hooks</span>
+          </header>
+          <div class=""self-body"" id=""self-backend""></div>
+        </div>
+
+        <!-- Hook distribution per mod (mini chart) -->
+        <div class=""panel panel-wide"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">hook distribution · top 12 mods by hook count</span>
+            <span class=""panel-sub"" id=""hookdist-sub"">—</span>
+          </header>
+          <div class=""hookdist"" id=""self-hookdist""></div>
+        </div>
+
       </div>
     </section>
 
   </main>
 
   <footer class=""footstrip"">
-    <span id=""foot-cadence"">polling /api · 500 ms</span>
+    <span id=""foot-cadence"">polling /api · 500 ms · 1-5 to switch tabs</span>
     <span id=""foot-clock"">—</span>
     <span class=""foot-spacer""></span>
     <span id=""foot-mode"">—</span>
   </footer>
+
+  <!-- ===== Mod card slide-in (right-side panel) ========================= -->
+  <aside class=""modcard hidden"" id=""modcard"" role=""dialog"" aria-label=""mod detail"">
+    <header class=""mc-h"">
+      <span class=""mc-back"" id=""mc-close"" title=""close"">&times;</span>
+      <span class=""mc-name"" id=""mc-name"">—</span>
+      <span class=""mc-rank"" id=""mc-rank"">—</span>
+    </header>
+    <div class=""mc-body"" id=""mc-body""></div>
+  </aside>
+
+  <!-- ===== Tooltip layer (single instance reused) ======================= -->
+  <div class=""tooltip hidden"" id=""tooltip""></div>
 
 </div>
 

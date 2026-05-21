@@ -46,9 +46,11 @@ internal static class DashboardRouter
 
             "/api/now"           => HttpResponse.Json(BuildNow()),
             "/api/mods"          => HttpResponse.Json(BuildMods()),
+            "/api/hooks"         => HttpResponse.Json(BuildHooks()),
             "/api/frames"        => HttpResponse.Json(BuildFrames()),
             "/api/segments"      => HttpResponse.Json(BuildSegments()),
             "/api/spikes"        => HttpResponse.Json(BuildSpikes()),
+            "/api/stalls"        => HttpResponse.Json(BuildStalls()),
             "/api/insights"      => HttpResponse.Json(BuildInsights()),
             "/api/self"          => HttpResponse.Json(BuildSelf()),
 
@@ -79,6 +81,17 @@ internal static class DashboardRouter
         ProfilerSelfHealth h = c.SelfHealth;
         double session30sAvg = AverageRecent(c.History, 30 * 60);
 
+        // Sum the live per-mod allocation bytes (smoothed) into a single
+        // "alloc bytes/tick across all mods" headline number. Null when
+        // allocation tracking is off.
+        double allocBytesPerTick = 0d;
+        bool tracksAlloc = c.TracksAllocations && c.PerModCategoryBytes != null;
+        if (tracksAlloc)
+        {
+            var bytes = c.PerModCategoryBytes!;
+            for (int i = 0; i < bytes.Count; i++) allocBytesPerTick += bytes[i];
+        }
+
         return JsonSerializer.Serialize(new
         {
             worldLoaded = true,
@@ -92,6 +105,10 @@ internal static class DashboardRouter
             dustCount = latest.DustCount,
             openSegmentCount = seg?.OpenSegments.Count ?? 0,
             historyDepth = c.History.Count,
+            spikeCount = c.Spikes.Count,
+            stallCount = c.Stalls.Count,
+            tracksAllocations = tracksAlloc,
+            allocBytesPerTick,
             installDeltaMb = h.InstallDeltaBytes / (1024d * 1024d),
             processWorkingSetMb = h.ProcessWorkingSetBytes / (1024d * 1024d),
             bytesPerHookKb = h.BytesPerHook / 1024d,
@@ -112,7 +129,7 @@ internal static class DashboardRouter
     }
 
     // ----------------------------------------------------------------------
-    // /api/mods — per-mod ranking with per-category breakdown.
+    // /api/mods — per-mod ranking with per-category breakdown + allocation.
     // ----------------------------------------------------------------------
     private static string BuildMods()
     {
@@ -126,18 +143,28 @@ internal static class DashboardRouter
         string[] modNames = HookInterceptor.ProfiledModNames;
         IReadOnlyList<double> smoothed = c.PerModCategoryMs;
         IReadOnlyList<double> averaged = c.PerModCategoryAverageMs;
+        IReadOnlyList<double>? smoothedBytes = c.PerModCategoryBytes;
+        IReadOnlyList<double>? avgBytes = c.PerModCategoryAverageBytes;
+        bool tracksAlloc = c.TracksAllocations && smoothedBytes != null;
 
         var mods = new List<object>(modNames.Length);
         for (int i = 0; i < modNames.Length; i++)
         {
-            double cpu = 0d, avgCpu = 0d;
+            double cpu = 0d, avgCpu = 0d, alloc = 0d, avgAlloc = 0d;
             double[] cats = new double[categoryCount];
+            double[]? catBytes = tracksAlloc ? new double[categoryCount] : null;
             int baseIdx = i * categoryCount;
             for (int cat = 0; cat < categoryCount; cat++)
             {
                 cats[cat] = smoothed[baseIdx + cat];
                 cpu += smoothed[baseIdx + cat];
                 avgCpu += averaged[baseIdx + cat];
+                if (tracksAlloc)
+                {
+                    catBytes![cat] = smoothedBytes![baseIdx + cat];
+                    alloc += smoothedBytes[baseIdx + cat];
+                    avgAlloc += avgBytes![baseIdx + cat];
+                }
             }
             mods.Add(new
             {
@@ -146,14 +173,74 @@ internal static class DashboardRouter
                 cpuMs = cpu,
                 avgCpuMs = avgCpu,
                 categories = cats,
+                allocBytes = alloc,
+                avgAllocBytes = avgAlloc,
+                categoryBytes = catBytes,
             });
         }
 
         return JsonSerializer.Serialize(new
         {
             worldLoaded = true,
+            tracksAllocations = tracksAlloc,
             categories = PerModAttribution.CategoryNames,
             mods,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/hooks — full per-mod / per-category / per-hook breakdown for
+    // the cascading tree view. Heavier payload than /api/mods (one row
+    // per installed hook = ~10k entries on a kitchen-sink modlist), so
+    // the dashboard only fetches this on demand when the tree is expanded.
+    // ----------------------------------------------------------------------
+    private static string BuildHooks()
+    {
+        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        if (c == null)
+        {
+            return JsonSerializer.Serialize(new { worldLoaded = false, hooks = Array.Empty<object>() }, JsonOpts);
+        }
+
+        string[] modNames = HookInterceptor.ProfiledModNames;
+        IReadOnlyList<HookDescriptor> hooks = PerModAttribution.Hooks;
+        IReadOnlyList<double> hookMs = c.PerHookMs;
+        IReadOnlyList<double> hookAvgMs = c.PerHookAverageMs;
+        IReadOnlyList<double>? hookBytes = c.PerHookBytes;
+        bool tracksAlloc = c.TracksAllocations && hookBytes != null;
+
+        var hookList = new List<object>(hooks.Count);
+        for (int hookId = 0; hookId < hooks.Count; hookId++)
+        {
+            HookDescriptor d = hooks[hookId];
+            double ms = hookId < hookMs.Count ? hookMs[hookId] : 0d;
+            double avg = hookId < hookAvgMs.Count ? hookAvgMs[hookId] : 0d;
+            // Skip totally inactive hooks to keep the payload compact.
+            // The tree view shows only hooks with non-zero current OR average cost.
+            if (ms <= 0d && avg <= 0d) continue;
+            double bytes = tracksAlloc && hookId < hookBytes!.Count ? hookBytes[hookId] : 0d;
+            hookList.Add(new
+            {
+                modId = d.ModId,
+                modName = d.ModId >= 0 && d.ModId < modNames.Length ? modNames[d.ModId] : "mod:" + d.ModId,
+                categoryId = d.CategoryId,
+                category = d.CategoryId >= 0 && d.CategoryId < PerModAttribution.CategoryCount
+                    ? PerModAttribution.CategoryNames[d.CategoryId]
+                    : "?",
+                hookId,
+                display = d.DisplayName,
+                cpuMs = ms,
+                avgCpuMs = avg,
+                allocBytes = bytes,
+            });
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = c.History.Count > 0,
+            tracksAllocations = tracksAlloc,
+            categories = PerModAttribution.CategoryNames,
+            hooks = hookList,
         }, JsonOpts);
     }
 
@@ -172,6 +259,8 @@ internal static class DashboardRouter
         var ticks = new long[n];
         var ms = new double[n];
         var gc = new double[n];
+        long firstTick = c.History[0].TickIndex;
+        long lastTick = c.History[n - 1].TickIndex;
         for (int i = 0; i < n; i++)
         {
             ticks[i] = c.History[i].TickIndex;
@@ -179,12 +268,30 @@ internal static class DashboardRouter
             gc[i] = c.History[i].GcTimeMs;
         }
 
+        // Spike markers within the visible window — one entry per spike
+        // whose WorstTick falls in [firstTick, lastTick]. Lets the dashboard
+        // overlay spike dots on the chart without re-running the detector.
+        var spikeMarks = new List<object>();
+        foreach (var w in c.Spikes)
+        {
+            if (w.WorstTick < firstTick || w.WorstTick > lastTick) continue;
+            spikeMarks.Add(new
+            {
+                tick = w.WorstTick,
+                ms = w.WorstFrameMs,
+                warming = w.Warming,
+            });
+        }
+
         return JsonSerializer.Serialize(new
         {
             worldLoaded = true,
+            firstTick,
+            lastTick,
             ticks,
             frameMs = ms,
             gcMs = gc,
+            spikeMarks,
         }, JsonOpts);
     }
 
@@ -337,6 +444,46 @@ internal static class DashboardRouter
             });
         }
         return list;
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/stalls — recent stall events. Sustained main-thread freezes,
+    // distinct from spikes (which are short outlier ticks).
+    // ----------------------------------------------------------------------
+    private static string BuildStalls()
+    {
+        MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
+        if (c == null)
+        {
+            return JsonSerializer.Serialize(new { worldLoaded = false, stalls = Array.Empty<object>() }, JsonOpts);
+        }
+
+        var stalls = new List<object>();
+        foreach (var s in c.Stalls)
+        {
+            stalls.Add(new
+            {
+                startTick = s.StartTickIndex,
+                endTick = s.EndTickIndex,
+                startUnixMs = s.StartTimestampUnixMs,
+                durationMs = s.TickPeriodMs,
+                baselineMs = s.BaselineMs,
+                excessMs = s.ExcessOverBaselineMs,
+                cause = s.Cause.ToString(),
+                severity = s.Severity.ToString(),
+                warming = s.Warming,
+                gcPauseMs = s.GcPauseDurationMs,
+                gen0 = s.Gen0Collections,
+                gen1 = s.Gen1Collections,
+                gen2 = s.Gen2Collections,
+            });
+        }
+
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = true,
+            stalls,
+        }, JsonOpts);
     }
 
     // ----------------------------------------------------------------------

@@ -1,9 +1,2 @@
-Keybinds: {
-	OpenDashboard.DisplayName: Open Browser Dashboard
-}
-
-Configs: {
-	ProfilerConfig: {
-		DisplayName: Profiler Config
-	}
-}
+Keybinds.OpenDashboard.DisplayName: Open Browser Dashboard
+Configs.ProfilerConfig.DisplayName: Profiler Config
