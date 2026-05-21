@@ -1,68 +1,84 @@
-# Idea: unified data interface for collection, aggregation, persistence, export
+# Idea: a unified `Data/` pipeline — by-stage folders + (later) runtime registry
 
-**Status:** notes only. Not implemented. Revisit when a second client of the data layer lands (e.g. post-session HTML report exporter, in-game chat-command surface).
-**Captured:** 2026-05-21 conversation.
+**Status:** notes only, not implemented.
+**Captured:** 2026-05-21 conversation. Clarified later same day — see "two-tier proposal" below.
 
 ---
 
 ## The user's framing
 
-> For all imports and exports of data — the DB, the HTML dashboard, actually collecting the data from the game — we should have a dedicated interface so that when you want to add more data collections or collect different types of data (hooks, latency, allocs, events, etc; everything is "data"), you just expand this system rather than creating new files all around the app. This way: want to add new data tracking? One place. Want to generate some other interesting insights? You grab the data from one place.
+> Imagine a `Data/` folder in the root, and then we can add **collectors** which collect the data, **aggregators** that organise it, **stats** that calculate things like last-30s, **streams**, and so on. Want to add new data tracking? One place. Want to generate new insights? You grab the data from one place.
 
-The underlying principle: **data is a first-class citizen of the codebase.** The current architecture is good at the individual concerns (measure, aggregate, persist, serve) but the path through them is per-subsystem and the seams aren't named. The proposal is to give every data flow the same shape so adding new data is "implement one interface and register" instead of "edit 4 files in different folders."
+The principle: **data is a first-class citizen of the codebase, organized by lifecycle stage rather than by feature.** Today's arrangement scatters one logical data type across several folders ("spike detection" lives in `Profiling/SpikeDetector.cs`, `Profiling/Persistence/Streams/SpikeStream.cs`, `Profiling/Persistence/Records/SpikeWindowRow.cs`, and `Web/DashboardRouter.BuildSpikes`). Adding a new data type means editing 4–5 files in 3–4 folders. Each step is easy; the path through them is unnamed.
 
----
-
-## Current state (75% there already)
-
-```
-Raw measurement   →  Aggregation       →  Persistence            →  Export
-─────────────────    ────────────────     ────────────────────       ───────────────
-MetricCollector       Stats/             Persistence/Streams/       Web/DashboardRouter
-Baseline              Segments/          Persistence/Records/       (future: HTML report)
-SpikeDetector         Events/            Persistence/Migrations     (future: chat commands)
-StallDetector         Insights/          LiteDB
-ProfilerSelfHealth                        EventJournal
-```
-
-What's already unified:
-- One persistence boundary (`Persistence/Streams/*` — each stream gets one record class, one apply path, one indexer)
-- One dispatcher serving the dashboard (`DashboardRouter` reaches into every subsystem)
-- Three explicit layers (measure / aggregate / persist) with each subsystem placed at exactly one layer
-
-What's NOT unified:
-- No single `IDataSource` interface; consumers reach into named subsystems via `ModContent.GetInstance<ProfilerSystem>()` + chained accessors
-- Adding "track item-use velocity per mod" today means: write a new collector hook, write a new aggregate type in some appropriate folder, write a new record class, write a new stream, write a new DashboardRouter endpoint. Five separate files in four folders. Each step is easy but the path through them is unnamed.
+This is the **observability pipeline** shape (collectors → aggregators → stats → detectors → streams → exporters). Cross-industry term; what we're literally building.
 
 ---
 
-## Proposed shape
+## Proposed folder shape (Tier 1 — file reorg)
 
-The Facade isn't a wrapper; it's a **registry of declared data streams** with a uniform shape per stream:
+```
+Data/
+├── Collectors/         ← "read raw values from the game"
+│   ├── HookCollector
+│   ├── FrameTimeCollector
+│   ├── EventContextCollector
+│   ├── AllocationCollector
+│   └── ...
+├── Aggregators/        ← "organise raw values into structured groups"
+│   ├── PerModAggregator       (currently PerModAttribution.cs)
+│   ├── SegmentAggregator      (currently Segments/SegmentDetector + SegmentStore)
+│   ├── BiomeBucketAggregator  (currently Events/EventAggregator.cs)
+│   └── ...
+├── Stats/              ← "derived calculations from aggregates"
+│   ├── KpiCalculator          (already in Profiling/Stats/)
+│   ├── BaselineMedian         (currently Baseline.cs)
+│   ├── EventsFeed             (already in Profiling/Stats/)
+│   └── ...
+├── Detectors/          ← "fire when patterns match"
+│   ├── SpikeDetector
+│   ├── StallDetector
+│   ├── InsightsEngine + its Detectors/
+│   └── ...
+├── Streams/            ← "persist to LiteDB"
+│   ├── SegmentStream
+│   ├── SpikeStream
+│   ├── ...             (one stream per Record class)
+└── Exporters/          ← "serve to consumers"
+    ├── DashboardRouter         (currently Web/DashboardRouter.cs)
+    ├── SessionReportExporter   (future v1.0 — post-session HTML report)
+    └── ChatCommandExporter     (potential future)
+```
+
+Each stage has the **same shape** across all data types. Want to add allocation-per-biome tracking? Add an `AllocPerBiomeAggregator` to `Aggregators/`, an `AllocPerBiomeStream` to `Streams/`, an `AllocPerBiomeStats` calculator if needed. You don't touch any other folder.
+
+This is a **file-organization refactor** — cleaner repo, same plumbing. ~1 evening of work. No behavioural risk; pure move-and-update-namespaces. The biggest concern is keeping git blame readable (use `git mv`).
+
+---
+
+## Tier 2 — runtime registry (the optional second step)
+
+On top of the folder reorg, each stage exposes a common interface:
 
 ```csharp
 public interface IDataStream<TPoint, TSnapshot>
 {
-    string Name { get; }                              // "modCpu", "spikes", "segments", ...
+    string Name { get; }                               // "modCpu", "spikes", "segments"
     DataStreamCadence Cadence { get; }                 // PerTick, OneHz, OnEvent, OnDemand
 
-    // Hot path (only PerTick streams get this called per tick)
+    // Hot-path capture (only PerTick streams get this per tick)
     void Capture(TickContext ctx);
 
-    // Snapshot for read consumers (dashboard, exporter, chat command)
+    // Snapshot for read consumers (dashboard, exporter, chat)
     TSnapshot CurrentSnapshot();
 
-    // Persistence — each stream decides its own DB shape via Records/
+    // Persistence
     IReadOnlyList<IDataStreamPersistOp> DrainPending();
 
-    // Export — for the post-session HTML report and any future exporter
+    // Export to a session report
     void WriteToSessionReport(SessionReportBuilder b);
 }
-```
 
-Plus a registry:
-
-```csharp
 public sealed class DataRegistry
 {
     public static DataRegistry Shared { get; }
@@ -72,45 +88,53 @@ public sealed class DataRegistry
 }
 ```
 
-Adding a new data type then becomes:
+Adding a new data type then becomes "implement the interface once + register". Dashboard, HTML exporter, chat command can all iterate `DataRegistry.Shared.All` to discover what's available — new data shows up everywhere automatically without editing the consumers.
 
-1. Implement `IDataStream<TPoint, TSnapshot>` in a single new file under `Profiling/Data/<StreamName>/`.
-2. Register it once in `DataRegistry.RegisterDefaults()`.
-
-The dashboard router, the HTML exporter, and any future chat-command can all iterate `DataRegistry.Shared.All` to discover what's available. New data shows up everywhere automatically.
+This is a **runtime-architecture refactor** — bigger lift, real risk on hot-path code, real payoff once there's a second consumer. ~1 week of work, gated on actually having that second consumer.
 
 ---
 
-## Why we're holding off
+## The two tiers are independent
 
-1. **Hot-path code can't be wrapped.** `MetricCollector.Add` and `ProbeStack.Leave` are zero-allocation, called millions of times per tick. They can't go through a virtual interface call without measurable overhead. The facade would have to deliberately exclude them, producing a "some things are in here, some things aren't" asymmetry that's worse than no facade.
+| Path | Get | Cost | Risk |
+|---|---|---|---|
+| **Tier 1 only** (folder reorg) | "Where do I put this file" is obvious | 1 evening | low — pure file moves |
+| **Tier 2 only** (registry, current folder layout) | "How does a new consumer find data" is obvious | ~1 week | medium — touches hot-path |
+| **Both** | The full observability-pipeline shape | ~1 week + evening | medium |
 
-2. **Different lifecycle.** MetricCollector resets per world. Insights persist across (intentionally). Self-health is process-wide. A facade that unifies the lifecycle could leak state cross-world. A facade that doesn't unify is just five lifecycles wearing one trench coat.
+My read on the user's actual ask after the clarifying message: **Tier 1 first.** It addresses the immediate pain (file sprawl when adding new data) without the migration risk. Tier 2 follows naturally when the post-session HTML report exporter needs to iterate the same data the dashboard does — at that point the registry earns its keep.
 
-3. **Different threading.** Game thread (per-tick), DB writer thread (queue drain), HTTP request threads (read snapshots). The current arrangement gets correctness by giving each subsystem its own lock-discipline. A facade enforcing one access model risks slowing the fast paths or silently corrupting the read paths.
+---
 
-4. **One consumer today.** The dashboard router IS effectively the facade — it reaches into each subsystem with a stable contract. A second layer between two things that already talk fine adds zero capability and one more place to break.
+## Why we held off Tier 2 the first time around
 
-**The moment to revisit:** when a second consumer that needs the same data lands. Most likely candidates:
-- **Post-session HTML report exporter** (planned for v1.0): builds a standalone, self-contained HTML file from the just-ended session. Wants the same snapshots the dashboard does. Building the facade then saves the duplication.
-- **Chat-command surface** revival: if we ever want `/profiler events --tail 10` to print live stats in chat the same way the dashboard renders them.
-- **Programmatic mod-call API**: other mods asking us "what's my CPU cost right now" via tModLoader's `Mod.Call`.
+(Kept from the original note — these concerns still apply once Tier 2 happens.)
 
-When that second consumer ships, the facade earns its keep.
+1. **Hot-path code can't be wrapped.** `MetricCollector.Add` and `ProbeStack.Leave` are zero-allocation, called millions of times per tick. Virtual interface calls there would be measurable overhead. The registry must either exclude them (asymmetry) or accept the overhead (Invariant 2 violation).
+2. **Different lifecycles.** MetricCollector resets per world. Insights persist across. Self-health is process-wide. A unifying registry has to model lifecycle as a per-stream property, not flatten it.
+3. **Different threading.** Game thread (per-tick), DB writer thread (queue drain), HTTP request threads (read snapshots). The registry has to be lock-free for snapshot reads or it slows the fast paths.
+4. **One consumer today.** The dashboard router IS effectively the facade — it reaches into each subsystem with a stable contract. Adding a layer between two things that already talk fine is pure cost.
+
+The unlock conditions:
+- **Tier 1** unlocks anytime the codebase is calm — pure mechanical refactor.
+- **Tier 2** unlocks when the post-session HTML report exporter (planned v1.0) starts being built — building it AGAINST the registry from the start is cheaper than retrofitting later.
 
 ---
 
 ## Holding pattern in the meantime
 
-The convention going forward:
+Until either tier ships:
 
-- **Every new "fact about the session" lives in `Profiling/Stats/`.** Follow the `XxxSnapshot` (struct) + `XxxCalculator` (static helper) pattern that `KpiSnapshot`/`KpiCalculator` and `EventsFeed` established.
-- **Every new persisted record type goes through `Persistence/Streams/`** as a one-line registry addition. The pattern is already idempotent and consistent.
-- **Every new API surface lives in `Web/DashboardRouter.BuildXxx`** and follows the existing JSON shape conventions.
+- Every new "fact about the session" goes in `Profiling/Stats/`. Follow the `XxxSnapshot` (struct) + `XxxCalculator` (static helper) pattern that `KpiSnapshot`/`KpiCalculator` and `EventsFeed` established. ← Already enforced as of 2026-05-21.
+- Every new persisted record goes through `Profiling/Persistence/Streams/` and registers in `StreamRegistry.Default`. The pattern is already idempotent and consistent.
+- Every new API surface lives in `Web/DashboardRouter.BuildXxx` and follows the existing JSON conventions.
 
-This keeps the codebase moving toward cohesion file-by-file without committing to the unified-interface refactor before it's worth it.
+When Tier 1 happens, these three folders all move under `Data/` with the rest of the pipeline.
 
-When the post-session exporter starts, the right migration order is:
-1. Define `IDataStream<,>` and the registry interface.
-2. Adapt the existing subsystems one at a time — they can implement the interface AND keep their original public surface, so consumers migrate at their own pace.
-3. Build the exporter against the registry from the start; the dashboard router can migrate to it after.
+---
+
+## Picking the moment
+
+**Tier 1 — file reorg:** schedule it for a deliberate "tidy" pass. Best done as a single commit (or short series) on a clean working tree. Updates ~50 files (each `using` statement + namespace), one large diff. Pre-condition: the codebase compiles cleanly with no in-flight feature work. ~1 evening.
+
+**Tier 2 — runtime registry:** schedule it as part of the post-session HTML report effort. Build the report exporter against `IDataStream<,>` from the start, migrate the dashboard's reads onto the registry as the second step. Don't do it in isolation — without a second consumer there's nothing the registry buys you.
