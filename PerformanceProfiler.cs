@@ -150,28 +150,25 @@ public class ProfilerPlayer : ModPlayer
         // OnEnterWorld, not ModSystem.OnWorldLoad: OnWorldLoad fires mid-load and
         // tModLoader clears the chat during the load-to-in-game transition, so a
         // message printed there is wiped before the player sees it.
-        Main.NewText("Performance Profiler ready. Press F9 for the overlay.", 255, 220, 100);
-
-        // v0.8 step 1: announce the dashboard URL so the player knows the
-        // browser route exists. Mentioning F10 is enough — Process.Start
-        // handles browser launch.
+        //
+        // v0.9.0: the in-game overlay is archived. Only the browser dashboard
+        // remains as a player surface; this chat hint is the discovery
+        // mechanism. Single line, single keybind, single URL.
         string? url = PerformanceProfiler.Dashboard?.Url;
         if (url != null)
         {
-            Main.NewText($"Browser dashboard available at {url} (press F10 to open).", 180, 220, 255);
+            Main.NewText($"Performance Profiler ready. Press F9 for the dashboard ({url}).", 180, 220, 255);
         }
-        Mod.Logger.Info("OnEnterWorld fired; overlay + dashboard hotkeys announced.");
+        else
+        {
+            Main.NewText("Performance Profiler ready — dashboard server failed to start; see client.log.", 255, 180, 100);
+        }
+        Mod.Logger.Info("OnEnterWorld fired; dashboard hotkey announced.");
     }
 
     public override void ProcessTriggers(TriggersSet triggersSet)
     {
         // ProcessTriggers runs only during gameplay, on the local client.
-        ModKeybind? toggle = ProfilerOverlaySystem.ToggleKeybind;
-        if (toggle != null && toggle.JustPressed)
-        {
-            ModContent.GetInstance<ProfilerOverlaySystem>().ToggleVisibility();
-        }
-
         ModKeybind? dashboard = ProfilerOverlaySystem.DashboardKeybind;
         if (dashboard != null && dashboard.JustPressed)
         {

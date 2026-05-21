@@ -1,49 +1,9 @@
 Keybinds: {
-	ToggleOverlay.DisplayName: Toggle Overlay
 	OpenDashboard.DisplayName: Open Browser Dashboard
 }
 
 Configs: {
 	ProfilerConfig: {
 		DisplayName: Profiler Config
-
-		DefaultMode: {
-			Label: Default overlay mode
-			Tooltip: Default = generous "stand-in-base" view (1120 px). Compact = tight HUD view for active combat (720 px).
-		}
-
-		DefaultTabIndex: {
-			Label: Default tab on open
-			Tooltip: 0=SUMMARY, 1=TREE, 2=LAG, 3=EVENTS, 4=INSIGHTS, 5=SELF.
-		}
-
-		PanelWidthOverride: {
-			Label: Panel width override (px, 0 = mode default)
-			Tooltip: ""
-		}
-
-		EnableRetrospectiveToasts: {
-			Label: Retrospective pop-up cards
-			Tooltip: Slide-in cards in the bottom-right when a segment closes (boss kill, death, blood moon, etc). Off = silent. Segments still land in the Timeline tab.
-		}
-
-		EnableNowPlayingPanel: {
-			Label: Now-Playing widget
-			Tooltip: Top-left widget showing currently-open segments (biome you're in, alive bosses, weather events). Visible even with F9 closed.
-		}
-	}
-
-	OverlayMode: {
-		Tooltip: ""
-
-		Default: {
-			Label: Default
-			Tooltip: ""
-		}
-
-		Compact: {
-			Label: Compact
-			Tooltip: ""
-		}
 	}
 }

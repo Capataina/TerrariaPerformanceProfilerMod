@@ -1,0 +1,95 @@
+[h1]Performance Profiler[/h1]
+[i]A live dashboard for your modded Terraria session — runs in your browser.[/i]
+
+[b]Press F9 in-game. Your browser opens to a live performance dashboard. That's it.[/b]
+
+You install the mod, load a world, hit F9, and your default browser pops open at [code]http://127.0.0.1:7777/[/code] showing exactly what's happening inside your modlist in real time — which mods are costing you frames, which biome you're in, what just spiked, how much each boss fight cost you. The dashboard updates a few times a second while you play. Drag it onto a second monitor if you have one, or just keep it next to Terraria — either way, you can see what's going on under the hood without taking your eyes far off the game.
+
+[hr][/hr]
+[h2]What you get on the dashboard[/h2]
+
+[list]
+[*][b]Now[/b] — the live mission-control view. Frame-time chart, the segments you're currently in (biome / weather / boss / etc), live mod-cost ranking, recent events feed.
+[*][b]Mods[/b] — full per-mod cost ranking. Outliers are highlighted so it's obvious which mods are pulling more weight than the rest.
+[*][b]Timeline[/b] — every closed segment from your session. Click any biome visit / boss fight / weather event to see what it cost.
+[*][b]Spikes[/b] — every lag spike with the per-mod breakdown at the worst tick. So when you get a 24ms frame, you see who owned it.
+[*][b]Insights[/b] — pattern detection. "Verdant has been the top mod in 9 of your last 10 Blood Moons." "This Jungle visit ran 63% above your lifetime average." That kind of thing.
+[*][b]Self[/b] — the profiler measuring itself. Install footprint, KB-per-hook, severity. We're transparent about our own cost.
+[/list]
+
+[hr][/hr]
+[h2]Why is there no in-game UI?[/h2]
+
+Honest answer: we tried, and Terraria's rendering tools just aren't built for dashboard work. The font is blocky, charts look rough, click-targets drift around, and any overlay big enough to be useful eats half your screen.
+
+So we sent the data to a browser instead. The browser wins on every dimension — real typography, smooth charts, no overlap with your HUD, way more screen real estate. The mod's footprint inside the actual game is now just the F9 keybind and a one-line chat hint. Nothing pops up while you fight. Nothing covers your inventory.
+
+The old in-game overlay code is still in the source repository in case we ever want to ship a Steam-Deck-friendly variant where alt-tabbing isn't realistic. For desktop, the browser is where the data belongs.
+
+[hr][/hr]
+[h2]How is the dashboard "running" inside a mod?[/h2]
+
+The mod starts a tiny HTTP server [b]inside itself[/b] when tModLoader loads. No external programs, no Node.js, no Docker, no setup. It's a few hundred lines of code that ships in the same [code].tmod[/code] file as everything else.
+
+The server only listens on [b]localhost[/b] (your own computer can reach it; the outside world cannot). No data leaves your machine. No telemetry, no analytics, no upload, no firewall prompts. The dashboard is just your browser asking your own computer questions a few times a second.
+
+[hr][/hr]
+[h2]Heads up: Terraria pauses when it loses focus[/h2]
+
+This isn't something the mod can fix — Terraria itself pauses the simulation the moment its window stops being the active one. If you click into your browser, the dashboard freezes because the game stopped ticking. Three ways around it:
+
+[olist]
+[*][b]Side-by-side without clicking the browser[/b] — keep Terraria focused, glance at the browser. Dashboard updates as long as the game is the active window.
+[*][b]Second monitor[/b] — Terraria on monitor 1, dashboard on monitor 2. Don't click monitor 2.
+[*][b]Host & Play[/b] — open your world via [i]Multiplayer → Host & Play[/i] instead of Single Player. Multiplayer servers never pause, so you can alt-tab freely. You're still playing solo; the save file is the same one. AFK farmers already do this routinely.
+[/olist]
+
+[hr][/hr]
+[h2]The safety promises[/h2]
+
+[list]
+[*][b]Read-only.[/b] The profiler [i]measures[/i]. It never alters game behaviour, never edits save data, never touches other mods' state. Worst case if something goes wrong: it refuses to load. Your saves are never at risk.
+[*][b]No mod-specific code.[/b] Every detector works on generic surfaces tModLoader exposes (biome bits, NPC type IDs, weather flags, etc). We never hard-code "if mod is Calamity then X". That makes us fair across the whole modded ecosystem.
+[*][b]No telemetry, no uploads.[/b] All measurement data stays in a local database on your machine. We don't have a server. We can't collect what we never see.
+[*][b]MIT licensed, source on GitHub.[/b] Read the code yourself if you want to verify any of this.
+[/list]
+
+[hr][/hr]
+[h2]How much does the profiler itself cost?[/h2]
+
+Profiling is never free, so we measure our own cost and show it on the Self tab so the claim is verifiable, not just trusted.
+
+[list]
+[*][b]CPU:[/b] target under 1% overhead. On a real 18-mod install we measured 0.12ms per tick — about 0.7% of a 60fps frame budget.
+[*][b]RAM:[/b] roughly 36 KB per installed hook. A typical 10,000-hook install costs ~350 MB; a 50,000-hook kitchen-sink modlist costs ~1.7 GB. This scales with your modlist size and we're upfront about it.
+[*][b]Disk:[/b] a few KB per minute of play, in a local LiteDB database. Old data downsamples automatically.
+[*][b]Network:[/b] zero. Loopback only.
+[/list]
+
+[hr][/hr]
+[h2]Setup[/h2]
+
+[olist]
+[*]Subscribe in the Workshop.
+[*]Launch tModLoader, enable the mod, reload.
+[*]Load any world.
+[*]Press [b]F9[/b].
+[/olist]
+
+That's the whole setup. Your browser opens to the dashboard. The URL is also printed in chat at world-load in case F9 doesn't auto-open the browser (sometimes happens on Linux).
+
+[hr][/hr]
+[h2]Status[/h2]
+
+[b]v0.9.0[/b] — dashboard-first architecture. Stable and usable. Working toward v1.0 with first-launch UX polish, screenshots, and a session-summary HTML report you can share with friends.
+
+[b]Source code:[/b] [url=https://github.com/Capataina/PerformanceProfiler]github.com/Capataina/PerformanceProfiler[/url]
+[b]License:[/b] MIT
+[b]Bug reports / suggestions:[/b] GitHub issues or comments below.
+
+[hr][/hr]
+[h3]One last thing[/h3]
+
+If you've ever loaded up a 50-mod kitchen-sink modlist, watched your framerate drop to single digits during a Blood Moon, and had no idea which mod was actually responsible — that's the question this tool was built to answer. Not by blaming any specific mod, but by showing you the numbers and letting you decide what to do with them.
+
+Have fun. Stay above 30 fps.

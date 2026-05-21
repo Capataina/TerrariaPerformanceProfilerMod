@@ -21,6 +21,19 @@
   </ItemGroup>
 
   <!--
+    v0.9.0: in-game overlay archived. The browser dashboard (Web/) is the
+    only player surface; the UI/Overlay/ and UI/ProfilerOverlay.cs sources
+    stay on disk so a future variant (Steam Deck handheld mode, secondary
+    overlay) can resurrect them by removing this exclusion. Until then
+    they're excluded from compilation so the mod doesn't carry dead code
+    into runtime.
+  -->
+  <ItemGroup>
+    <Compile Remove="UI\Overlay\**\*.cs" />
+    <Compile Remove="UI\ProfilerOverlay.cs" />
+  </ItemGroup>
+
+  <!--
     LiteDB 5.0.21 — single-file managed embedded DB. Shipped inside the .tmod
     so the mod is self-contained; build.txt's `dllReferences = LiteDB` tells
     tModLoader to pack the assembly and load it before the mod assembly runs.
