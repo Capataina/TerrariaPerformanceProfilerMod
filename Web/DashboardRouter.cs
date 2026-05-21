@@ -80,6 +80,18 @@ internal static partial class DashboardRouter
             "/api/deaths"                   => HttpResponse.Json(BuildDeaths()),
             "/api/chronicle"                => HttpResponse.Json(BuildChronicle()),
 
+            "/api/lag-clusters"             => HttpResponse.Json(BuildLagClusters()),
+            "/api/gc"                       => HttpResponse.Json(BuildGcPressure()),
+            "/api/lag-density"              => HttpResponse.Json(BuildSegmentLagDensity()),
+            "/api/gc-causality"             => HttpResponse.Json(BuildAllocCausality()),
+            "/api/lag-rhythm"               => HttpResponse.Json(BuildLagRhythm()),
+
+            "/api/mod-observatory"          => HttpResponse.Json(BuildModObservatory()),
+            "/api/dormant"                  => HttpResponse.Json(BuildDormantSurface()),
+            "/api/cross-cutting"            => HttpResponse.Json(BuildCrossCutting()),
+            "/api/engagement-cost"          => HttpResponse.Json(BuildEngagementCost()),
+            "/api/mod-interaction"          => HttpResponse.Json(BuildModInteraction()),
+
             _                    => HttpResponse.NotFound,
         };
     }
