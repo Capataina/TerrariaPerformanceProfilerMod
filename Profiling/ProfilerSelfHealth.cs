@@ -61,13 +61,31 @@ public sealed class ProfilerSelfHealth
     /// <summary>Refresh cadence for live process state, in ticks (~1 s at 60 Hz).</summary>
     public const int RefreshIntervalTicks = 60;
 
-    // Budget thresholds expressed as fractions of process working set. These
-    // are relative because the absolute number depends entirely on the user's
-    // modlist size — a 200 MB install-delta on a 4-mod player is catastrophic;
-    // on a 60-mod kitchen-sink session it might be unavoidable. The ratio is
-    // what we can defend.
-    private const double SevereFraction = 0.20;     // >= 20% of process is us → red
-    private const double ConcerningFraction = 0.10; // 10-20% → amber
+    // v0.7.3: budget thresholds expressed as ratios over a measured baseline.
+    // The OLD signal (fraction of process working set) was technically
+    // "relative" but had a pathology: on a small modlist the tML process is
+    // small, so install delta dominates the ratio and we trip Severe even
+    // though per-hook cost is fine. On a large modlist both numerator and
+    // denominator scale together, so the ratio stays roughly fixed. The
+    // signal failed to distinguish "we regressed" from "the modlist is small."
+    //
+    // Bytes-per-hook is modlist-invariant by construction (10× hooks → 10×
+    // delta, per-hook flat). Measured baselines across releases:
+    //   v0.5   38.0 KB/hook
+    //   v0.6.1 35.0 KB/hook
+    //   v0.7.x 36.8 KB/hook
+    // BaselineBytesPerHook below pins the "healthy normal" we measure
+    // against. Bump it when an intentional install-path improvement lands
+    // and we want the new floor to be the comparison point; leave it alone
+    // if a per-hook regression slips in — then Severity surfaces it.
+    //
+    // Bands are ratios so the cutoffs scale with the baseline: a future
+    // release that improves install to 20 KB/hook would update Baseline
+    // to 20, and Concerning would automatically become 30 KB/hook
+    // (1.5×) rather than the stale 55 KB constant the previous design used.
+    private const long BaselineBytesPerHook = 36L * 1024L;     // v0.7.x measured normal
+    private const double ConcerningRatio = 1.5;                // 1.5× baseline → amber
+    private const double SevereRatio     = 2.5;                // 2.5× baseline → red
 
     private readonly Process _self;
     private long _lastRefreshTickIndex;
@@ -116,7 +134,7 @@ public sealed class ProfilerSelfHealth
     /// </summary>
     public double InstallDeltaFractionOfProcess { get; private set; }
 
-    /// <summary>Budget severity bucket derived from <see cref="InstallDeltaFractionOfProcess"/>.</summary>
+    /// <summary>Budget severity bucket derived from <see cref="BytesPerHook"/>. See <see cref="ClassifySeverity"/>.</summary>
     public SelfHealthSeverity Severity { get; private set; }
 
     /// <summary>True once <see cref="MarkInstallEnd"/> has run; refresh() is a no-op before that.</summary>
@@ -191,7 +209,10 @@ public sealed class ProfilerSelfHealth
                 ? (double)InstallDeltaBytes / ProcessWorkingSetBytes
                 : 0d;
 
-            Severity = ClassifySeverity(InstallDeltaFractionOfProcess);
+            // Severity now keyed on per-hook cost (modlist-size-invariant).
+            // The fraction-of-process number remains as an informational
+            // secondary on the Self tab; it's no longer the budget signal.
+            Severity = ClassifySeverity(BytesPerHook);
         }
         catch
         {
@@ -217,10 +238,12 @@ public sealed class ProfilerSelfHealth
         IsInstalled = false;
     }
 
-    private static SelfHealthSeverity ClassifySeverity(double fraction)
+    private static SelfHealthSeverity ClassifySeverity(long bytesPerHook)
     {
-        if (fraction >= SevereFraction) return SelfHealthSeverity.Severe;
-        if (fraction >= ConcerningFraction) return SelfHealthSeverity.Concerning;
+        if (bytesPerHook <= 0L) return SelfHealthSeverity.Healthy;
+        double ratio = (double)bytesPerHook / BaselineBytesPerHook;
+        if (ratio >= SevereRatio) return SelfHealthSeverity.Severe;
+        if (ratio >= ConcerningRatio) return SelfHealthSeverity.Concerning;
         return SelfHealthSeverity.Healthy;
     }
 }
