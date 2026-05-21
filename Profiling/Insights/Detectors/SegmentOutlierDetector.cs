@@ -92,7 +92,8 @@ public sealed class SegmentOutlierDetector : IInsightDetector
                     LastTickIndex = seg.EndTick,
                     Baseline = BaselineKind.ComparableContexts,
                 },
-                Confidence = ratio > 2.0d ? Confidence.High : Confidence.Medium,
+                // Emit Preliminary; store promotes on confirmations.
+                Confidence = Confidence.Preliminary,
                 Audience = Audience.Both,
                 Scope = EvidenceScope.LifetimeData,
                 FirstSeenTick = seg.StartTick,

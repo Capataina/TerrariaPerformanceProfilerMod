@@ -108,9 +108,9 @@ public sealed class SegmentTopModDetector : IInsightDetector
                     EffectSize = share,
                     Baseline = BaselineKind.ComparableContexts,
                 },
-                Confidence = share >= 0.95d ? Confidence.High
-                            : share >= 0.85d ? Confidence.Medium
-                            : Confidence.Low,
+                // Emit Preliminary; store promotes via PromoteConfidence
+                // based on observation count + p-adjusted value.
+                Confidence = Confidence.Preliminary,
                 Audience = Audience.Both,
                 Scope = EvidenceScope.LifetimeData,
                 ConfirmationCount = bestCount,

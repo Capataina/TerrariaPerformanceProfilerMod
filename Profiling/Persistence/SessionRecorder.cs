@@ -395,7 +395,7 @@ public sealed class SessionRecorder
                 _liveCluster.WorstDurationMs = s.TickPeriodMs;
             _liveCluster.SpanMs = _liveCluster.EndUnixMs - _liveCluster.StartUnixMs;
 
-            string causeKey = s.Cause.ToString();
+            string causeKey = EnumStringTable.CauseName(s.Cause);
             _clusterCauseCounts[causeKey] = (_clusterCauseCounts.TryGetValue(causeKey, out int cc) ? cc : 0) + 1;
 
             AccumulateContribCost(s.C0);
@@ -418,8 +418,8 @@ public sealed class SessionRecorder
                 UnixMs = s.StartTimestampUnixMs,
                 DurationMs = s.TickPeriodMs,
                 BaselineTickMs = s.BaselineMs,
-                Cause = s.Cause.ToString(),
-                Severity = s.Severity.ToString(),
+                Cause = EnumStringTable.CauseName(s.Cause),
+                Severity = EnumStringTable.SeverityName(s.Severity),
                 GcPauseDurationMs = s.GcPauseDurationMs,
                 Gen0Collections = s.Gen0Collections,
                 Gen1Collections = s.Gen1Collections,

@@ -35,7 +35,14 @@ internal sealed class PlayerDeathDetector
     public void OnTick(SessionRecorder recorder, in EventContext ctx)
     {
         var player = Main.LocalPlayer;
-        if (player == null) return;
+        if (player == null)
+        {
+            // Reset edge state when the local player is absent so a
+            // subsequent toggle back to a live player triggers the
+            // false→true edge again.
+            _wasDeadLastTick = false;
+            return;
+        }
 
         bool dead = player.dead;
         if (dead && !_wasDeadLastTick)

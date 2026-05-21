@@ -315,8 +315,13 @@ public sealed class ProfilerDatabase : IDisposable
 
     private void EnsureSchemaVersion()
     {
-        // LiteDB returns BsonValue for Pragma; USER_VERSION is stored as Int32.
-        int v = _db.Pragma("USER_VERSION").AsInt32;
+        // LiteDB returns BsonValue for Pragma; USER_VERSION is stored as
+        // Int32. Defensive read: AsInt32 throws on Null/Type-mismatch,
+        // so on a torn or oddly-built DB we fall through to version 0
+        // (which then forces the migration path) rather than aborting
+        // mod load.
+        var pragma = _db.Pragma("USER_VERSION");
+        int v = pragma != null && pragma.IsInt32 ? pragma.AsInt32 : 0;
         if (v == 0)
         {
             _db.Pragma("USER_VERSION", CurrentUserVersion);

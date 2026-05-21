@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using log4net;
@@ -78,11 +79,14 @@ internal static class LegacyJsonImporter
             : Path.GetFileNameWithoutExtension(path);
 
         ObjectId sessionId = ObjectId.NewObjectId();
+        // ISO-8601 (`o` format) round-trips cleanly through InvariantCulture
+        // + RoundtripKind. Plain DateTime.Parse uses CurrentCulture and
+        // would silently misparse on locales whose date format differs.
         DateTime started = root.TryGetProperty("startedUtc", out var startEl) && startEl.ValueKind == JsonValueKind.String
-            ? DateTime.Parse(startEl.GetString()!).ToUniversalTime()
+            ? DateTime.Parse(startEl.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime()
             : File.GetCreationTimeUtc(path);
         DateTime ended = root.TryGetProperty("endedUtc", out var endEl) && endEl.ValueKind == JsonValueKind.String
-            ? DateTime.Parse(endEl.GetString()!).ToUniversalTime()
+            ? DateTime.Parse(endEl.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime()
             : File.GetLastWriteTimeUtc(path);
         string mode = root.TryGetProperty("mode", out var modeEl) && modeEl.ValueKind == JsonValueKind.String
             ? modeEl.GetString() ?? "lite"

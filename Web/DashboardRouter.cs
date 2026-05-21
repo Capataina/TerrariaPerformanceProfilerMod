@@ -74,12 +74,17 @@ internal static class DashboardRouter
     // ----------------------------------------------------------------------
     private static string BuildNow()
     {
-        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        MetricCollector? c = sys?.Collector;
-        SegmentDetector? seg = sys?.Segments;
-        bool loaded = c != null && c.History.Count > 0;
-
-        if (!loaded)
+        // v0.10 — BuildNow migrated end-to-end onto the data pipeline.
+        // Previously this method reached into ProfilerSystem.Collector,
+        // .Segments, and the raw History/Spikes/Stalls lists from the
+        // HTTP worker thread; with the game thread mutating those
+        // collections concurrently, the indexer reads were a real (if
+        // small-window) data race. All values now come from snapshots
+        // pulled through DataRegistry.Shared.
+        var frameSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.FrameTimeSnapshot>(Data.Collectors.FrameTimeCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.FrameTimeSnapshot.Empty;
+        if (!frameSnap.WorldLoaded || frameSnap.History == null || frameSnap.History.Count == 0)
         {
             return JsonSerializer.Serialize(new
             {
@@ -87,28 +92,45 @@ internal static class DashboardRouter
                 unixMs = Time.UnixMsNow(),
             }, JsonOpts);
         }
+        var history = frameSnap.History;
+        var latest = history[history.Count - 1];
 
-        var latest = c!.History[c.History.Count - 1];
-        ProfilerSelfHealth h = c.SelfHealth;
-        double session30sAvg = AverageRecent(c.History, 30 * 60);
-
-        // KPI snapshot via the data pipeline. The router does no arithmetic
-        // here — the KpiStat owns the computation; we just emit its
-        // snapshot. (v0.9.x unified data pipeline migration step 3.)
         KpiSnapshot kpi = Data.DataRegistry.Shared
             .Lookup<KpiSnapshot>(Data.Stats.KpiStat.StreamName)?.CurrentSnapshot()
             ?? default;
+        var selfHealth = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.SelfHealthSnapshot>(Data.Stats.SelfHealthStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.SelfHealthSnapshot.Empty;
+        var allocSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Collectors.AllocationSnapshot>(Data.Collectors.AllocationCollector.StreamName)?
+            .CurrentSnapshot() ?? Data.Collectors.AllocationSnapshot.Empty;
+        var spikesSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.SpikesSnapshot>(Data.Stats.SpikesStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.SpikesSnapshot.Empty;
+        var stallsSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Stats.StallsSnapshot>(Data.Stats.StallsStat.StreamName)?
+            .CurrentSnapshot() ?? Data.Stats.StallsSnapshot.Empty;
+        var segSnap = Data.DataRegistry.Shared
+            .Lookup<Data.Aggregators.SegmentsSnapshot>(Data.Aggregators.SegmentAggregator.StreamName)?
+            .CurrentSnapshot() ?? Data.Aggregators.SegmentsSnapshot.Empty;
 
-        // Sum the live per-mod allocation bytes (smoothed) into a single
-        // "alloc bytes/tick across all mods" headline number. Null when
-        // allocation tracking is off.
+        // 30s rolling average — local to the formatting layer; trivial
+        // arithmetic over the snapshot, not a derivation in the spirit
+        // of "if it produces a number it lives in Data/" (a future
+        // refinement: hoist into KpiSnapshot itself).
+        double session30sAvg = AverageRecent(history, 30 * 60);
+
         double allocBytesPerTick = 0d;
-        bool tracksAlloc = c.TracksAllocations && c.PerModCategoryBytes != null;
+        bool tracksAlloc = allocSnap.TracksAllocations && allocSnap.SmoothedBytesByCategory != null;
         if (tracksAlloc)
         {
-            var bytes = c.PerModCategoryBytes!;
+            var bytes = allocSnap.SmoothedBytesByCategory!;
             for (int i = 0; i < bytes.Count; i++) allocBytesPerTick += bytes[i];
         }
+
+        int openSegmentCount = segSnap.Open?.Count ?? 0;
+        int spikeCount = spikesSnap.Windows?.Count ?? 0;
+        int stallCount = stallsSnap.Events?.Count ?? 0;
 
         return JsonSerializer.Serialize(new
         {
@@ -121,18 +143,18 @@ internal static class DashboardRouter
             npcCount = latest.NpcCount,
             projectileCount = latest.ProjectileCount,
             dustCount = latest.DustCount,
-            openSegmentCount = seg?.OpenSegments.Count ?? 0,
-            historyDepth = c.History.Count,
-            spikeCount = c.Spikes.Count,
-            stallCount = c.Stalls.Count,
+            openSegmentCount,
+            historyDepth = history.Count,
+            spikeCount,
+            stallCount,
             tracksAllocations = tracksAlloc,
             allocBytesPerTick,
-            installDeltaMb = h.InstallDeltaBytes / (1024d * 1024d),
-            processWorkingSetMb = h.ProcessWorkingSetBytes / (1024d * 1024d),
-            bytesPerHookKb = h.BytesPerHook / 1024d,
-            hookCount = h.InstalledHookCount,
-            severity = h.Severity.ToString(),
-            backend = HookBackend.Mode.ToString(),
+            installDeltaMb = selfHealth.InstallDeltaBytes / (1024d * 1024d),
+            processWorkingSetMb = selfHealth.ProcessWorkingSetBytes / (1024d * 1024d),
+            bytesPerHookKb = selfHealth.BytesPerHook / 1024d,
+            hookCount = selfHealth.InstalledHookCount,
+            severity = selfHealth.Severity.ToString(),
+            backend = selfHealth.BackendMode.ToString(),
             kpi = new
             {
                 avgFps = kpi.AvgFps,

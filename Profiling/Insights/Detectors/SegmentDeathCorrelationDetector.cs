@@ -105,9 +105,11 @@ public sealed class SegmentDeathCorrelationDetector : IInsightDetector
                 EffectSize = delta,
                 Baseline = BaselineKind.ComparableContexts,
             },
-            Confidence = delta > 1.0d ? Confidence.High
-                       : delta > 0.6d ? Confidence.Medium
-                       : Confidence.Low,
+            // Emit as Preliminary; InsightStore.PromoteConfidence drives
+            // the real confidence based on observation count + PValue.
+            // The previous emit-time tier was silently overwritten on
+            // store-side Submit (caught by code-health audit 2026-05-21).
+            Confidence = Confidence.Preliminary,
             Audience = Audience.Both,
             Scope = EvidenceScope.ThisSession,
             ConfirmationCount = 1,
