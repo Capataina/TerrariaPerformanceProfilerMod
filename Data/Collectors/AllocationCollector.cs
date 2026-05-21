@@ -52,11 +52,11 @@ public sealed class AllocationCollector : IDataCollector<AllocationSnapshot>
     public const string StreamName = "allocation";
 
     public string Name => StreamName;
-    public DataStreamCadence Cadence => DataStreamCadence.PerTick;
+    // OnDemand: pull-side adapter; the MetricCollector hot path owns
+    // the alloc accounting itself.
+    public DataStreamCadence Cadence => DataStreamCadence.OnDemand;
     public DataStage Stage => DataStage.Collector;
-
-    public TickCapture? PerTickCallback => Capture;
-    private static readonly TickCapture Capture = static (in TickContext _) => { };
+    public TickCapture? PerTickCallback => null;
 
     public void Initialise(SessionContext session) { }
     public void Reset() { }
@@ -66,15 +66,21 @@ public sealed class AllocationCollector : IDataCollector<AllocationSnapshot>
     {
         MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
         if (c == null || c.History.Count == 0) return AllocationSnapshot.Empty;
+        // Honour the doc contract: when the active backend does not track
+        // allocations, the array references are null even if MetricCollector
+        // happens to have pre-allocated zero-filled buffers. Consumers
+        // discriminate on `tracks`, but defensive null-out keeps a caller
+        // that ignores `tracks` from reading misleading zeros.
+        bool tracks = c.TracksAllocations;
         return new AllocationSnapshot(
             worldLoaded: true,
-            tracks: c.TracksAllocations,
+            tracks: tracks,
             modCount: PerModAttribution.ModCount,
             categoryCount: PerModAttribution.CategoryCount,
-            smoothed: c.PerModCategoryBytes,
-            averaged: c.PerModCategoryAverageBytes,
-            perHook: c.PerHookBytes,
-            perHookAvg: c.PerHookAverageBytes);
+            smoothed: tracks ? c.PerModCategoryBytes : null,
+            averaged: tracks ? c.PerModCategoryAverageBytes : null,
+            perHook: tracks ? c.PerHookBytes : null,
+            perHookAvg: tracks ? c.PerHookAverageBytes : null);
     }
 
     public object CurrentSnapshotBoxed() => CurrentSnapshot();

@@ -77,6 +77,21 @@ internal sealed class SegmentDetector
     // by OpenIfAbsent when it allocates the (single) biome composite segment.
     private string _biomeCompositeName = string.Empty;
 
+    // Memoisation for ComputeBiomeComposite — the biome bitset rarely
+    // changes between ticks but the function was rebuilding a fresh
+    // StringBuilder + final string every tick. Cache the previous
+    // input's key + name and short-circuit when the bitset is identical.
+    // Invariant 2 (zero per-tick allocation) compliance.
+    private int _cachedCompositeKey;
+    private string _cachedCompositeName = string.Empty;
+    private BiomeBitset _cachedCompositeBitset;
+    private bool _cachedCompositeValid;
+
+    // Reusable buffer for the rare path where the composite genuinely
+    // changes; cleared and re-filled in place. Single-threaded ownership
+    // (game thread) so a single instance field is safe.
+    private readonly System.Text.StringBuilder _compositeScratch = new System.Text.StringBuilder(64);
+
     public SegmentDetector(ObjectId sessionId, ISegmentSink sink)
     {
         _sessionId = sessionId;
@@ -477,26 +492,48 @@ internal sealed class SegmentDetector
     /// (sorted by id), e.g. "Forest Purity" or "Desert Corruption Underground".
     /// Returns 0 / empty when no biome is active.
     /// </summary>
-    private static int ComputeBiomeComposite(in BiomeBitset bitset, out string compositeName)
+    private int ComputeBiomeComposite(in BiomeBitset bitset, out string compositeName)
     {
+        // Hot-path memoisation: the biome composite changes only when
+        // the player crosses a biome boundary, which is rare relative
+        // to the 60-tick poll rate. Hash the bitset first; if it
+        // matches the previous tick's hash AND the bits are equal,
+        // return the cached name without allocating.
         int count = BiomeRegistry.Count;
         uint hash = 2166136261u; // FNV-1a offset basis
-        var sb = new System.Text.StringBuilder(64);
         bool any = false;
         for (int i = 0; i < count; i++)
         {
             if (!bitset.IsSet(i)) continue;
-            hash = (hash ^ (uint)i) * 16777619u; // FNV-1a prime
-            if (any) sb.Append(' ');
-            sb.Append(BiomeRegistry.Biomes[i].DisplayName);
+            hash = (hash ^ (uint)i) * 16777619u;
             any = true;
         }
-        if (!any) { compositeName = string.Empty; return 0; }
-        compositeName = sb.ToString();
-        // Mask to positive int — the SegmentRow.Key field is int.
-        int key = unchecked((int)(hash & 0x7FFFFFFFu));
-        // 0 is reserved for "no biome"; if FNV collides into 0, nudge to 1.
-        return key == 0 ? 1 : key;
+        int key = !any ? 0 : unchecked((int)(hash & 0x7FFFFFFFu));
+        if (any && key == 0) key = 1; // 0 reserved for "no biome".
+
+        if (_cachedCompositeValid && _cachedCompositeKey == key && _cachedCompositeBitset.Equals(bitset))
+        {
+            compositeName = _cachedCompositeName;
+            return key;
+        }
+
+        // Composite changed — rebuild the display name into the reusable
+        // scratch buffer. One allocation here per *change*, not per tick.
+        _compositeScratch.Clear();
+        bool first = true;
+        for (int i = 0; i < count; i++)
+        {
+            if (!bitset.IsSet(i)) continue;
+            if (!first) _compositeScratch.Append(' ');
+            _compositeScratch.Append(BiomeRegistry.Biomes[i].DisplayName);
+            first = false;
+        }
+        compositeName = !any ? string.Empty : _compositeScratch.ToString();
+        _cachedCompositeKey = key;
+        _cachedCompositeName = compositeName;
+        _cachedCompositeBitset.CopyFrom(bitset);
+        _cachedCompositeValid = true;
+        return key;
     }
 }
 

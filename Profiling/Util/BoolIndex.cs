@@ -59,7 +59,10 @@ public sealed class BoolIndex
     public void EnsureCapacity(int required)
     {
         if (required <= _bits.Length) return;
-        int newCap = _bits.Length;
+        // Floor the doubling base at 1 so a zero-capacity BoolIndex
+        // (e.g. constructed with `new BoolIndex(0)` as a placeholder)
+        // does not loop forever on `0 *= 2`.
+        int newCap = _bits.Length == 0 ? 1 : _bits.Length;
         while (newCap < required) newCap *= 2;
         var bigger = new bool[newCap];
         Array.Copy(_bits, bigger, _bits.Length);

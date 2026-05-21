@@ -34,16 +34,23 @@ internal static class DashboardRouter
         WriteIndented = false,
     };
 
+    // The CSS / JS bundles are immutable for the mod's lifetime; encode
+    // them once at type-init so /dashboard.css and /dashboard.js don't
+    // re-UTF-8-encode on every request (cold-tab refreshes were paying
+    // ~tens of KB allocator pressure per hit).
+    private static readonly byte[] CachedCssBytes
+        = System.Text.Encoding.UTF8.GetBytes(DashboardAssets.Css);
+    private static readonly byte[] CachedJsBytes
+        = System.Text.Encoding.UTF8.GetBytes(DashboardAssets.Js);
+
     public static HttpResponse Route(HttpRequest req)
     {
         if (req.Method != "GET") return HttpResponse.PlainText(405, "Method Not Allowed");
         return req.Path switch
         {
             "/"                  => HttpResponse.Html(DashboardAssets.IndexHtml),
-            "/dashboard.css"     => new HttpResponse(200, "text/css; charset=utf-8",
-                                        System.Text.Encoding.UTF8.GetBytes(DashboardAssets.Css)),
-            "/dashboard.js"      => new HttpResponse(200, "application/javascript; charset=utf-8",
-                                        System.Text.Encoding.UTF8.GetBytes(DashboardAssets.Js)),
+            "/dashboard.css"     => new HttpResponse(200, "text/css; charset=utf-8", CachedCssBytes),
+            "/dashboard.js"      => new HttpResponse(200, "application/javascript; charset=utf-8", CachedJsBytes),
             "/favicon.ico"       => new HttpResponse(200, "image/x-icon", Array.Empty<byte>()),
 
             "/api/now"           => HttpResponse.Json(BuildNow()),

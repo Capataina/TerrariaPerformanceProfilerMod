@@ -43,7 +43,13 @@ internal sealed class ModlistStream : IPersistenceStream
                 else
                 {
                     row.Id = existing.Id;
-                    row.SessionCount = existing.SessionCount + 1;
+                    // Re-derive SessionCount from the Sessions collection
+                    // instead of blindly incrementing. Pre-this-fix, a
+                    // journal-replay after a crash would over-increment
+                    // by however many times the op replayed; deriving
+                    // from the source of truth (the actual Sessions
+                    // rows) is replay-idempotent.
+                    row.SessionCount = db.Sessions.Count(s => s.ModlistFingerprint == row.Fingerprint) + 1;
                     if (existing.FirstSeenUtc != default) row.FirstSeenUtc = existing.FirstSeenUtc;
                     db.Modlists.Update(row);
                 }
@@ -59,7 +65,15 @@ internal sealed class ModlistStream : IPersistenceStream
                 {
                     row.Id = existing.Id;
                     if (existing.FirstSeenUtc != default) row.FirstSeenUtc = existing.FirstSeenUtc;
-                    if (existing.VersionSeen != row.VersionSeen)
+                    // Dedupe by Version field so a journal replay doesn't
+                    // append duplicate entries. The history is small, so
+                    // a linear scan is fine.
+                    bool alreadyTracked = false;
+                    foreach (var v in existing.VersionHistory)
+                    {
+                        if (v.Version == row.VersionSeen) { alreadyTracked = true; break; }
+                    }
+                    if (existing.VersionSeen != row.VersionSeen && !alreadyTracked)
                     {
                         row.VersionHistory = new List<ModVersionEntry>(existing.VersionHistory)
                         {

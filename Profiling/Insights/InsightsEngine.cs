@@ -30,12 +30,27 @@ public sealed class InsightsEngine
     /// this so the two surfaces never see different record sets. Cleared by
     /// <see cref="ProfilerSystem"/> at world unload to drop session state.
     /// </summary>
-    public static InsightsEngine? Shared { get; set; }
+    private static InsightsEngine? _shared;
+    public static InsightsEngine? Shared
+    {
+        get => System.Threading.Volatile.Read(ref _shared);
+        set => System.Threading.Volatile.Write(ref _shared, value);
+    }
 
-    /// <summary>Returns the shared engine, lazily allocating it if needed.</summary>
+    /// <summary>
+    /// Returns the shared engine, lazily allocating it if needed. Uses
+    /// CompareExchange so two concurrent first-callers see the same
+    /// instance — Shared was previously a plain `??= ` which could
+    /// race two `new InsightsEngine()` allocations and have one of
+    /// them silently win the field write, orphaning the other.
+    /// </summary>
     public static InsightsEngine GetOrCreateShared()
     {
-        return Shared ??= new InsightsEngine();
+        InsightsEngine? cur = System.Threading.Volatile.Read(ref _shared);
+        if (cur != null) return cur;
+        var candidate = new InsightsEngine();
+        var prior = System.Threading.Interlocked.CompareExchange(ref _shared, candidate, null);
+        return prior ?? candidate;
     }
 
     private readonly List<IInsightDetector> _detectors;

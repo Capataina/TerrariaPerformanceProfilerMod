@@ -50,11 +50,11 @@ public sealed class HookCpuCollector : IDataCollector<HookCpuSnapshot>
     public const string StreamName = "hookCpu";
 
     public string Name => StreamName;
-    public DataStreamCadence Cadence => DataStreamCadence.PerTick;
+    // OnDemand: see FrameTimeCollector for the rationale — MetricCollector
+    // owns the per-tick capture; this is a pull-side adapter.
+    public DataStreamCadence Cadence => DataStreamCadence.OnDemand;
     public DataStage Stage => DataStage.Collector;
-
-    public TickCapture? PerTickCallback => Capture;
-    private static readonly TickCapture Capture = static (in TickContext _) => { };
+    public TickCapture? PerTickCallback => null;
 
     public void Initialise(SessionContext session) { }
     public void Reset() { }

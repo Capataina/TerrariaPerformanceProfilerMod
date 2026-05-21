@@ -13,7 +13,7 @@ internal static partial class DashboardAssets
 const INSIGHT_LABEL_MAP = {
   'HotHookDominance': 'cost concentration',
   'AllocationBurst': 'allocation pressure',
-  'FreeRemovalCandidate': 'possibly removable',
+  'FreeRemovalCandidate': 'idle most of session',
   'PeakContributorToSpike': 'top spike contributor',
   'ContextCorrelatedSpike': 'context-linked spike',
   'ContextConditionalCost': 'context-conditional cost',

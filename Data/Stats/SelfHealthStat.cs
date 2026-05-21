@@ -37,6 +37,10 @@ public readonly struct SelfHealthSnapshot
         BackendMode = backend;
     }
 
+    public static readonly SelfHealthSnapshot Empty
+        = new SelfHealthSnapshot(false, 0L, 0L, 0, 0L, 0L, 0d,
+            SelfHealthSeverity.Healthy, HookBackendMode.Delegate);
+
     public static SelfHealthSnapshot From(ProfilerSelfHealth h)
         => new SelfHealthSnapshot(
             installed: h.IsInstalled,
@@ -71,7 +75,13 @@ public sealed class SelfHealthStat : IDataStat<SelfHealthSnapshot>
     public SelfHealthSnapshot CurrentSnapshot()
     {
         MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        ProfilerSelfHealth h = c?.SelfHealth ?? ProfilerSystem.SelfHealth;
+        // ProfilerSystem.SelfHealth is a static, eagerly-initialised
+        // singleton (see ProfilerSystem.cs:103) so the fallback is
+        // guaranteed non-null even in pre-world states. Belt-and-braces
+        // null check kept anyway — if a future refactor makes the
+        // static lazy, the snapshot stays well-defined.
+        ProfilerSelfHealth? h = c?.SelfHealth ?? ProfilerSystem.SelfHealth;
+        if (h == null) return SelfHealthSnapshot.Empty;
         return SelfHealthSnapshot.From(h);
     }
 

@@ -54,12 +54,13 @@ function openModCard(modId) {
     </div>
 
     <div class='mc-section'>
-      <h3>hypothetical · without this mod</h3>
+      <h3>modelled · cost without this mod's contribution</h3>
       <div class='mc-callout'>
-        if this mod were removed, your frame would be roughly <strong>${fmtMs(withoutAvg)} ms</strong>
-        (vs <strong>${fmtMs(totalAvg)} ms</strong> now). predicted fps: <strong>${fpsWithoutAvg.toFixed(0)}</strong>
+        subtracting this mod's measured CPU from the total gives a modelled frame of
+        roughly <strong>${fmtMs(withoutAvg)} ms</strong>
+        (vs <strong>${fmtMs(totalAvg)} ms</strong> now). corresponding fps: <strong>${fpsWithoutAvg.toFixed(0)}</strong>
         (vs <strong>${fpsAvg.toFixed(0)}</strong>).
-        <br/><span class='muted'>caveat: this assumes the other mods' behavior wouldn't change. some mods reduce their own work when sibling content isn't present, so this is an upper bound on the gain.</span>
+        <br/><span class='muted'>caveat: this is an upper bound — sibling mods may reduce their own work when this mod's content isn't present, so the real-world delta is usually smaller. the figure is descriptive of measured cost, not a recommendation.</span>
       </div>
     </div>
 

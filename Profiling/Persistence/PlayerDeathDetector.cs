@@ -61,7 +61,11 @@ internal sealed class PlayerDeathDetector
         for (int i = 0; i < ctx.Bosses.Count; i++) bosses.Add(ctx.Bosses[i]);
 
         string primaryBoss = bosses.Count > 0
-            ? (Lang.GetNPCNameValue((short)bosses[0]) ?? ("npc-" + bosses[0]))
+            // tML's int overload of GetNPCNameValue is the one that handles
+            // modded NPC types beyond short.MaxValue. Casting to short would
+            // truncate any modded boss type id ≥ 32768 — a real possibility
+            // on large modlists like Calamity + Thorium + 50-odd content mods.
+            ? (Lang.GetNPCNameValue(bosses[0]) ?? ("npc-" + bosses[0]))
             : "(no boss)";
 
         string primaryBiome = BiomeRegistry.NameOrIndex(ctx.Biomes.PrimaryBitIndex());

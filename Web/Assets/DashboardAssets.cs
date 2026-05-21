@@ -33,7 +33,7 @@ internal static partial class DashboardAssets
     /// every other selector so the dashboard's webkit scrollbar override
     /// wins.
     /// </summary>
-    public static string Css => string.Concat(
+    public static readonly string Css = string.Concat(
         CssPalette,
         CssShell,
         CssPanels,
@@ -60,7 +60,7 @@ internal static partial class DashboardAssets
     /// Order matters because later fragments reference earlier-declared
     /// globals (e.g. <c>lastNow</c>, <c>activeTab</c>) and helpers.
     /// </summary>
-    public static string Js => string.Concat(
+    public static readonly string Js = string.Concat(
         JsConfig,
         JsTabs,
         JsPolling,

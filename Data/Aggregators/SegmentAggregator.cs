@@ -62,7 +62,10 @@ public sealed class SegmentAggregator : IDataAggregator<SegmentsSnapshot>
     public SegmentsSnapshot CurrentSnapshot()
     {
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
-        if (sys?.Segments == null && sys?.SegmentStore == null) return SegmentsSnapshot.Empty;
+        if (sys == null || (sys.Segments == null && sys.SegmentStore == null))
+        {
+            return SegmentsSnapshot.Empty;
+        }
         return new SegmentsSnapshot(
             worldLoaded: sys.Collector != null,
             open: sys.Segments?.OpenSegments,

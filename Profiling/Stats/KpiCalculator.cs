@@ -18,6 +18,11 @@ public static class KpiCalculator
     /// <summary>Perceptual threshold for "this hitched" — used by the LAG SPIKES KPI count.</summary>
     public const double LagSpikeMsThreshold = 50d;
 
+    // ThreadStatic scratch buffer for the median sort. Avoids a fresh
+    // double[1800] (~14 KB) allocation on every /api/now poll (~1.5 Hz);
+    // the KPI endpoint was the dominant allocator before this cache.
+    [System.ThreadStatic] private static double[]? _medianScratch;
+
     /// <summary>
     /// Snapshot the live KPIs from the collector's rolling history. Returns
     /// <see cref="KpiSnapshot.IsEmpty"/> = true when the session has not
@@ -67,11 +72,13 @@ public static class KpiCalculator
             avgStall = stallN > 0 ? stallSum / stallN : 0d;
         }
 
-        // Median via lightweight copy + sort. n is bounded at 1800 (the
-        // rolling history capacity) so the cost is fine to do per poll.
-        double[] sorted = new double[n];
+        // Median via copy + sort, using a ThreadStatic scratch buffer to
+        // avoid per-poll allocation. n is bounded at 1800 (rolling
+        // history capacity) so the buffer never grows beyond that.
+        double[] sorted = _medianScratch ??= new double[n];
+        if (sorted.Length < n) sorted = _medianScratch = new double[n];
         for (int i = 0; i < n; i++) sorted[i] = hist[i].FrameTimeMs;
-        System.Array.Sort(sorted);
+        System.Array.Sort(sorted, 0, n);
         double median = sorted[n / 2];
 
         // Clamp FPS to 60 — that's Terraria's tick ceiling; values higher

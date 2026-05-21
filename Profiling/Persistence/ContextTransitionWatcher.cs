@@ -151,13 +151,15 @@ internal sealed class ContextTransitionWatcher
                 bool nowOn = (ctx.Weather & flag) != 0;
                 string label = WeatherSources.DisplayName(flag);
                 if (string.IsNullOrEmpty(label) || label.StartsWith("?")) continue;
-                recorder.OnContextTransition("weather",
+                // Encode the flag identity in the transition Type so the
+                // row remains queryable per-flag (Type = "weather:BloodMoon"
+                // not just "weather"); pre-this-fix, every weather change
+                // collapsed into an indistinguishable "(weather) on -> off"
+                // row with no way to tell BloodMoon from Rain.
+                recorder.OnContextTransition("weather:" + label,
                     nowOn ? "off" : "on",
                     nowOn ? "on" : "off",
                     ctx.TickIndex, frameMs);
-                // Encode the flag name in 'from' so the row reads naturally:
-                // "(weather) <flag> off -> on" via a second emission. Simpler
-                // for queries: encode the flag in the transition Type itself.
             }
             _lastWeather = ctx.Weather;
         }

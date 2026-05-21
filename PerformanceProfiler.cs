@@ -111,13 +111,6 @@ public class PerformanceProfiler : Mod
     }
 
     /// <summary>
-    /// Runs in reverse load order on Mods → Reload. Disposes the ILHook detours
-    /// constructed via <c>new ILHook(...)</c> in <see cref="ILHookInterceptor"/>;
-    /// these are not auto-tracked by tModLoader the way <c>MonoModHooks.Add</c>
-    /// detours are, so without explicit disposal here the IL patches would
-    /// reference types in this assembly that's about to be unloaded.
-    /// </summary>
-    /// <summary>
     /// Register every <see cref="Data.IDataStream"/> the mod ships with.
     /// Called once at <see cref="Load"/> before any world exists. Each
     /// migration step adds new <c>Register</c> lines here; the registry

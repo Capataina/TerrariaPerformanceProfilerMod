@@ -56,19 +56,19 @@ public sealed class FrameTimeCollector : IDataCollector<FrameTimeSnapshot>
     public const string StreamName = "frameTime";
 
     public string Name => StreamName;
-    public DataStreamCadence Cadence => DataStreamCadence.PerTick;
+    // OnDemand cadence — this adapter is pull-side. MetricCollector owns
+    // the per-tick capture path (its EndTick runs every tick from
+    // ProfilerSystem.PostUpdateEverything); this stream only exposes the
+    // already-captured state through the registry. Declaring PerTick
+    // here with a no-op delegate was honest about position-in-pipeline
+    // but dishonest about who-does-work — the OnDemand label matches
+    // what consumers can observe (call CurrentSnapshot to read state).
+    public DataStreamCadence Cadence => DataStreamCadence.OnDemand;
     public DataStage Stage => DataStage.Collector;
 
-    /// <summary>
-    /// Static no-op delegate so the registry's per-tick loop has work to
-    /// iterate. The actual frame timing is captured by MetricCollector's
-    /// own EndTick path; this adapter only EXPOSES that state through
-    /// the pipeline. The no-op exists so the registry can confirm the
-    /// stream is per-tick driven (and so future iterations can fill it
-    /// in without changing the registry contract).
-    /// </summary>
-    public TickCapture? PerTickCallback => Capture;
-    private static readonly TickCapture Capture = static (in TickContext _) => { };
+    // No callback; the registry's per-tick loop is gated on Cadence first
+    // (see DataRegistry.Freeze) and won't iterate this stream.
+    public TickCapture? PerTickCallback => null;
 
     public void Initialise(SessionContext session) { }
     public void Reset() { }

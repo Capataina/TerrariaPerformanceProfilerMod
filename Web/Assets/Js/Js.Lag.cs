@@ -40,7 +40,7 @@ function renderLag() {
   items.sort((a, b) => b.unix - a.unix);
 
   if (items.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no lag events yet — clean session</div>';
+    root.innerHTML = '<div class=""empty-line"">no spikes or stalls observed in the last 30s</div>';
     sub.textContent = '0 events';
     return;
   }

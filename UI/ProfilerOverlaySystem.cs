@@ -9,7 +9,7 @@ namespace PerformanceProfiler.UI;
 ///
 /// <para>
 /// v0.9.0 archived the in-game overlay entirely. The browser dashboard
-/// (served by <see cref="Web.TinyHttpServer"/> on loopback) is the only
+/// (served by <see cref="Web.Server.DashboardHttpServer"/> on loopback) is the only
 /// rendered surface this mod has. The historical overlay code lives under
 /// <c>UI/Overlay/</c> but nothing instantiates it any more — kept on disk
 /// so a future variant (Steam Deck handheld mode, post-1.0 secondary

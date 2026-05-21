@@ -45,15 +45,23 @@ public sealed class DataRegistry
     /// </summary>
     public TickCapture[] PerTickCallbacks { get; private set; } = Array.Empty<TickCapture>();
 
-    /// <summary>Register a stream. Collisions on <see cref="IDataStream.Name"/> throw.</summary>
+    /// <summary>
+    /// Register a stream. Collisions on <see cref="IDataStream.Name"/> throw.
+    /// The dictionary insert and the ordered-list append run under the same
+    /// lock so a concurrent <see cref="DisposeAll"/> can never observe one
+    /// without the other.
+    /// </summary>
     public void Register(IDataStream stream)
     {
-        if (!_byName.TryAdd(stream.Name, stream))
+        lock (_gate)
         {
-            throw new InvalidOperationException(
-                $"Data stream collision: '{stream.Name}' already registered.");
+            if (!_byName.TryAdd(stream.Name, stream))
+            {
+                throw new InvalidOperationException(
+                    $"Data stream collision: '{stream.Name}' already registered.");
+            }
+            _ordered.Add(stream);
         }
-        lock (_gate) _ordered.Add(stream);
     }
 
     /// <summary>Untyped lookup by registry key. <c>null</c> when not registered.</summary>
@@ -106,12 +114,20 @@ public sealed class DataRegistry
         foreach (var s in All) s.Reset();
     }
 
-    /// <summary>Dispose every stream and empty the registry. Invoked at mod-unload.</summary>
+    /// <summary>
+    /// Dispose every stream and empty the registry. Invoked at mod-unload.
+    /// Both the name map and the ordered list are cleared under the same
+    /// lock to keep the two views consistent under concurrent
+    /// <see cref="Register"/>.
+    /// </summary>
     public void DisposeAll()
     {
         foreach (var s in All) s.Dispose();
-        _byName.Clear();
-        lock (_gate) _ordered.Clear();
+        lock (_gate)
+        {
+            _byName.Clear();
+            _ordered.Clear();
+        }
         PerTickCallbacks = Array.Empty<TickCapture>();
     }
 }

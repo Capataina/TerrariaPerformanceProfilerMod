@@ -148,6 +148,15 @@ public sealed class TickDownsampler
         public double GcAverage => _count > 0 ? _gcSum / _count : 0d;
         public double Max => _max;
 
+        // Recompute _max from the current ring contents. Called when an
+        // outgoing sample held the current max — otherwise stale.
+        private void RecomputeMax()
+        {
+            double m = 0d;
+            for (int i = 0; i < _count; i++) if (_frames[i] > m) m = _frames[i];
+            _max = m;
+        }
+
         public double P95
         {
             get
@@ -176,10 +185,20 @@ public sealed class TickDownsampler
             }
             else
             {
-                _sum += frameMs - _frames[_head];
+                // Window full; the slot at _head is the eviction.
+                double evicted = _frames[_head];
+                _sum += frameMs - evicted;
                 _gcSum += gcMs - _gc[_head];
                 _frames[_head] = frameMs;
                 _gc[_head] = gcMs;
+                // If we just evicted the holder of the current max, we
+                // have to rescan; otherwise the max is still correct.
+                bool maxEvicted = evicted >= _max;
+                if (frameMs > _max) _max = frameMs;
+                else if (maxEvicted) RecomputeMax();
+                _head++;
+                if (_head == _frames.Length) _head = 0;
+                return;
             }
             if (frameMs > _max) _max = frameMs;
             _head++;
