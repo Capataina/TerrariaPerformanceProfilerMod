@@ -32,7 +32,7 @@ namespace PerformanceProfiler.Profiling.Segments;
 /// these to decide on the outlier card.
 /// </para>
 /// </summary>
-internal sealed class SegmentStore : ISegmentSink
+public sealed class SegmentStore : ISegmentSink
 {
     private const int LiveRingCapacity = 64;
 

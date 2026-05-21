@@ -7,6 +7,7 @@ using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Insights;
 using PerformanceProfiler.Profiling.Segments;
+using PerformanceProfiler.Profiling.Stats;
 
 namespace PerformanceProfiler.Web;
 
@@ -54,6 +55,7 @@ internal static class DashboardRouter
             "/api/insights"      => HttpResponse.Json(BuildInsights()),
             "/api/self"          => HttpResponse.Json(BuildSelf()),
             "/api/heatmap"       => HttpResponse.Json(BuildHeatmap()),
+            "/api/events"        => HttpResponse.Json(BuildEvents()),
 
             _                    => HttpResponse.NotFound,
         };
@@ -81,6 +83,11 @@ internal static class DashboardRouter
         var latest = c!.History[c.History.Count - 1];
         ProfilerSelfHealth h = c.SelfHealth;
         double session30sAvg = AverageRecent(c.History, 30 * 60);
+
+        // KPI snapshot computed server-side. Lets the dashboard render
+        // the four headline cards (avg fps, worst frame, lag spikes,
+        // stalls) without re-doing the math on every render frame.
+        KpiSnapshot kpi = KpiCalculator.Compute(c);
 
         // Sum the live per-mod allocation bytes (smoothed) into a single
         // "alloc bytes/tick across all mods" headline number. Null when
@@ -116,6 +123,51 @@ internal static class DashboardRouter
             hookCount = h.InstalledHookCount,
             severity = h.Severity.ToString(),
             backend = HookBackend.Mode.ToString(),
+            kpi = new
+            {
+                avgFps = kpi.AvgFps,
+                worstFrameMs = kpi.WorstFrameMs,
+                medianFrameMs = kpi.MedianFrameMs,
+                lagSpikeCount = kpi.LagSpikeCount,
+                stallCount = kpi.StallCount,
+                spikeCount = kpi.SpikeCount,
+                sampleN = kpi.SampleN,
+            },
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/events — pre-merged events feed (segments + spikes + stalls).
+    // Used to be assembled in JS by joining /api/segments + /api/spikes;
+    // moved server-side so it's a single endpoint and the dashboard
+    // doesn't need to re-merge on every render.
+    // ----------------------------------------------------------------------
+    private static string BuildEvents()
+    {
+        ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
+        MetricCollector? c = sys?.Collector;
+        SegmentStore? store = sys?.SegmentStore;
+        if (c == null && store == null)
+        {
+            return JsonSerializer.Serialize(new { worldLoaded = false, events = Array.Empty<object>() }, JsonOpts);
+        }
+
+        var list = EventsFeed.Build(c, store, max: 16);
+        var serialised = new List<object>(list.Count);
+        foreach (var e in list)
+        {
+            serialised.Add(new
+            {
+                kind = e.Kind,
+                text = e.Text,
+                unixMs = e.UnixMs,
+                tickIndex = e.TickIndex,
+            });
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = c != null,
+            events = serialised,
         }, JsonOpts);
     }
 
@@ -469,31 +521,77 @@ internal static class DashboardRouter
             return JsonSerializer.Serialize(new { worldLoaded = false, buckets = Array.Empty<object>() }, JsonOpts);
         }
 
-        // Bucket by 60-second wall-clock windows starting at History[0].
-        // ~30s of history maxes out, so usually we get 1-2 buckets; this
-        // expands gracefully when (later) the heatmap pulls from DB.
+        // Bucket by 60-second wall-clock windows. Pull from TickAggregateWarm
+        // when the DB is open so the heatmap spans the entire session, not
+        // just the 30s rolling buffer.
         const long BucketMs = 60_000;
         var buckets = new List<HeatBucket>();
-        long bucketStart = -1L;
-        HeatBucket? cur = null;
-        for (int i = 0; i < c.History.Count; i++)
+
+        var db = PerformanceProfiler.Database;
+        var sid = sys?.LiveRecorderSessionId;
+        bool fromDb = false;
+        if (db != null && sid != null)
         {
-            var tf = c.History[i];
-            // We don't have per-frame unix-ms on TickFrame; approximate from
-            // tick index assuming 60 tps and align to current Time.UnixMsNow().
-            long approxUnix = Time.UnixMsNow() - (c.History.Count - 1 - i) * 1000 / 60;
-            long bs = (approxUnix / BucketMs) * BucketMs;
-            if (bs != bucketStart)
+            try
             {
+                // TickAggregateWarm is 1Hz (one row per second). Group runs
+                // of 60 consecutive seconds into a single minute bucket.
+                long sessionStart = Time.UnixMsNow();
+                var sessionRow = db.Sessions.FindById(sid);
+                if (sessionRow != null && sessionRow.StartedUtc.Year > 2000)
+                {
+                    sessionStart = new System.DateTimeOffset(sessionRow.StartedUtc, System.TimeSpan.Zero).ToUnixTimeMilliseconds();
+                }
+                var warmRows = db.TickAggregatesWarm
+                    .Find(x => x.SessionId == sid)
+                    .GetEnumerator();
+                long bucketSecond = -1L;
+                HeatBucket? cur = null;
+                while (warmRows.MoveNext())
+                {
+                    var row = warmRows.Current;
+                    long minuteSecond = (row.SecondIndex / 60L) * 60L;
+                    if (minuteSecond != bucketSecond)
+                    {
+                        if (cur != null) buckets.Add(cur);
+                        cur = new HeatBucket { StartUnixMs = sessionStart + minuteSecond * 1000L };
+                        bucketSecond = minuteSecond;
+                    }
+                    cur!.Ticks += 60; // 1 warm row = ~60 ticks; approximation
+                    cur.TotalMs += row.AvgFrameMs * 60d;
+                    if (row.P95FrameMs > cur.WorstMs) cur.WorstMs = row.P95FrameMs;
+                }
+                warmRows.Dispose();
                 if (cur != null) buckets.Add(cur);
-                cur = new HeatBucket { StartUnixMs = bs };
-                bucketStart = bs;
+                fromDb = buckets.Count > 0;
             }
-            cur!.Ticks++;
-            cur.TotalMs += tf.FrameTimeMs;
-            if (tf.FrameTimeMs > cur.WorstMs) cur.WorstMs = tf.FrameTimeMs;
+            catch
+            {
+                // Fall through to in-memory fallback below.
+            }
         }
-        if (cur != null) buckets.Add(cur);
+
+        if (!fromDb)
+        {
+            long bucketStart = -1L;
+            HeatBucket? cur = null;
+            for (int i = 0; i < c.History.Count; i++)
+            {
+                var tf = c.History[i];
+                long approxUnix = Time.UnixMsNow() - (c.History.Count - 1 - i) * 1000 / 60;
+                long bs = (approxUnix / BucketMs) * BucketMs;
+                if (bs != bucketStart)
+                {
+                    if (cur != null) buckets.Add(cur);
+                    cur = new HeatBucket { StartUnixMs = bs };
+                    bucketStart = bs;
+                }
+                cur!.Ticks++;
+                cur.TotalMs += tf.FrameTimeMs;
+                if (tf.FrameTimeMs > cur.WorstMs) cur.WorstMs = tf.FrameTimeMs;
+            }
+            if (cur != null) buckets.Add(cur);
+        }
 
         // Boss-overlay: for each closed boss segment in the recent ring,
         // mark which buckets it touched. Open boss segments too via det.

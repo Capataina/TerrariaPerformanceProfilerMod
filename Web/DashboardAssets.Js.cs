@@ -24,7 +24,7 @@ const DISCONNECT_MS  = 4000;
 let activeTab = 'summary';
 let lastNow = null, lastFrames = null, lastMods = null, lastHooks = null;
 let lastSegments = null, lastSpikes = null, lastStalls = null;
-let lastInsights = null, lastSelf = null, lastHeatmap = null;
+let lastInsights = null, lastSelf = null, lastHeatmap = null, lastEvents = null;
 let lastSuccessAt = Date.now();
 let modSort = 'composite';
 let modFilter = '';
@@ -79,13 +79,15 @@ async function pollNow() {
 }
 
 async function pollDetail() {
-  const [mods, spikes, stalls, ins] = await Promise.all([
-    fetchJson('/api/mods'), fetchJson('/api/spikes'), fetchJson('/api/stalls'), fetchJson('/api/insights'),
+  const [mods, spikes, stalls, ins, events] = await Promise.all([
+    fetchJson('/api/mods'), fetchJson('/api/spikes'), fetchJson('/api/stalls'),
+    fetchJson('/api/insights'), fetchJson('/api/events'),
   ]);
   if (mods) { lastMods = mods; foldModSparkHistory(mods); }
   if (spikes) lastSpikes = spikes;
   if (stalls) lastStalls = stalls;
   if (ins) lastInsights = ins;
+  if (events) lastEvents = events;
   if (activeTab === 'summary' || activeTab === 'lag' || activeTab === 'insights') renderAll();
 }
 
@@ -362,37 +364,41 @@ function renderSummary() {
 }
 
 // ====== KPI strip =====================================================
+// KPI values are computed server-side now (KpiCalculator.Compute) and
+// delivered in /api/now's `kpi` block. The dashboard just picks the
+// right color band and draws the spark. Less JS math, single source
+// of truth, ready for DB-persisted vs-previous deltas later.
 function renderKpiStrip() {
-  if (!lastNow || !lastNow.worldLoaded || !lastFrames || !lastFrames.frameMs) {
+  if (!lastNow || !lastNow.worldLoaded || !lastNow.kpi || lastNow.kpi.sampleN === 0) {
     setKpi('fps', '—', '', '', null);
     setKpi('worst', '—', '', '', null);
     setKpi('spikes', '—', '', '', null);
     setKpi('stalls', '—', '', '', null);
     return;
   }
-  const ms = lastFrames.frameMs;
-  // avg fps: 1000 / avg-frame-ms, clamped to 60.
-  const avgMs = lastNow.avg30sMs || (ms.reduce((s, v) => s + v, 0) / ms.length);
-  const avgFps = avgMs > 0 ? Math.min(60, 1000 / Math.max(1000/60, avgMs)) : 0;
-  // worst: max(frameMs)
-  const worst = Math.max(...ms);
-  // lag spikes: count over 50ms
-  const lagSpikes = ms.filter(v => v > 50).length;
-  const totalSpikes = lastNow.spikeCount || 0;
-  const totalStalls = lastNow.stallCount || 0;
+  const k = lastNow.kpi;
+  const ms = (lastFrames && lastFrames.frameMs) || [];
 
-  // FPS color: green ≥55, amber ≥30, red below
-  const fpsClass = avgFps >= 55 ? 'good' : avgFps >= 30 ? 'warn' : 'bad';
-  setKpi('fps', avgFps.toFixed(0), '/ 60', avgFps < 30 ? 'rough' : avgFps < 55 ? 'okay' : 'smooth', ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0), fpsClass);
-  // Worst frame: warn at >50ms, bad at >100ms
-  const worstClass = worst > 100 ? 'bad' : worst > 50 ? 'orange' : worst > 33 ? 'warn' : 'good';
-  setKpi('worst', fmtMs(worst), 'ms', worst > 50 ? 'visible hitch' : 'smooth', ms, worstClass);
-  // Lag spikes
-  const spClass = lagSpikes >= 5 ? 'bad' : lagSpikes >= 1 ? 'orange' : 'good';
-  setKpi('spikes', String(lagSpikes), '', lagSpikes === 0 ? 'none in 30s' : (lagSpikes + ' over 50ms'), null, spClass);
-  // Stalls (session-cumulative)
-  const stClass = totalStalls > 0 ? 'bad' : 'good';
-  setKpi('stalls', String(totalStalls), '', totalStalls === 0 ? 'main thread clean' : 'session total', null, stClass);
+  const fpsClass = k.avgFps >= 55 ? 'good' : k.avgFps >= 30 ? 'warn' : 'bad';
+  setKpi('fps', k.avgFps.toFixed(0), '/ 60',
+    k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth',
+    ms.length > 1 ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : null,
+    fpsClass);
+
+  const worstClass = k.worstFrameMs > 100 ? 'bad' : k.worstFrameMs > 50 ? 'orange' : k.worstFrameMs > 33 ? 'warn' : 'good';
+  setKpi('worst', fmtMs(k.worstFrameMs), 'ms',
+    k.worstFrameMs > 50 ? 'visible hitch' : 'smooth',
+    ms, worstClass);
+
+  const spClass = k.lagSpikeCount >= 5 ? 'bad' : k.lagSpikeCount >= 1 ? 'orange' : 'good';
+  setKpi('spikes', String(k.lagSpikeCount), '',
+    k.lagSpikeCount === 0 ? 'none in 30s' : k.lagSpikeCount + ' over 50ms',
+    null, spClass);
+
+  const stClass = k.stallCount > 0 ? 'bad' : 'good';
+  setKpi('stalls', String(k.stallCount), '',
+    k.stallCount === 0 ? 'main thread clean' : 'session total',
+    null, stClass);
 }
 
 function setKpi(name, value, unit, sub, sparkVals, valueClass) {
@@ -681,34 +687,21 @@ function familyWeight(f) {
 
 function renderNowEvents() {
   const root = document.getElementById('nowevents');
-  const items = [];
-  if (lastSegments && lastSegments.recent) {
-    for (const s of lastSegments.recent) {
-      let kind = 'segment';
-      let what = `${s.name} ended · ${fmtDuration(s.durationMs)}`;
-      if (s.deathCount > 0) { kind = 'death'; what = `died in ${s.name}`; }
-      else if (s.bossKillCount > 0) { kind = 'boss-kill'; what = `${s.name} · victory · ${fmtDuration(s.durationMs)}`; }
-      else if (s.spikeCount > 0) { kind = 'spike'; what = `${s.name} closed with ${s.spikeCount} spike(s)`; }
-      items.push({ unix: s.endUnixMs, kind, what, glyph: glyphFor(kind) });
-    }
+  // /api/events delivers a pre-merged, pre-sorted, capped feed —
+  // the JS just renders. Replaces the previous client-side merge
+  // across segments + spikes (which had no access to stalls and
+  // got stall+segment interleaving wrong).
+  if (!lastEvents || !lastEvents.events || lastEvents.events.length === 0) {
+    root.innerHTML = '<div class=""empty-line"">nothing yet — events appear as segments close + spikes fire</div>';
+    return;
   }
-  if (lastSpikes && lastSpikes.spikes) {
-    for (const s of lastSpikes.spikes) {
-      const top = s.contributors && s.contributors.length > 0
-        ? `${s.contributors[0].name} ${fmtMs(s.contributors[0].ms)} ms` : '(unattributed)';
-      items.push({
-        unix: lastNow ? lastNow.unixMs - (lastNow.tickIndex - s.worstTick) * 16 : Date.now(),
-        kind: 'spike',
-        what: `spike ${fmtMs(s.worstFrameMs)}ms · top ${top}`,
-        glyph: '⚡',
-      });
-    }
-  }
-  items.sort((a, b) => b.unix - a.unix);
-  const trimmed = items.slice(0, 12);
-  root.innerHTML = trimmed.length === 0
-    ? '<div class=""empty-line"">nothing yet — events appear as segments close + spikes fire</div>'
-    : trimmed.map(e => `<div class='event' data-kind='${e.kind}'><span class='glyph'>${e.glyph}</span><span class='what'>${escapeHtml(e.what)}</span><span class='when'>${fmtAgo(e.unix)}</span></div>`).join('');
+  root.innerHTML = lastEvents.events.map(e =>
+    `<div class='event' data-kind='${e.kind}'>
+      <span class='glyph'>${glyphFor(e.kind)}</span>
+      <span class='what'>${escapeHtml(e.text)}</span>
+      <span class='when'>${fmtAgo(e.unixMs)}</span>
+    </div>`
+  ).join('');
 }
 function glyphFor(kind) {
   return ({ 'boss-kill':'✓', 'death':'☠', 'spike':'⚡', 'stall':'⏸', 'segment':'↺' })[kind] || '·';
