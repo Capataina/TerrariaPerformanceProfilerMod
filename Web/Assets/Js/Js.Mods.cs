@@ -16,7 +16,24 @@ internal static partial class DashboardAssets
 {
     private const string JsMods = @"
 // ====== Summary: Mod tree =============================================
+// Hover-suppression flag for the mod tree. The poll loop calls
+// renderSummaryMods() at ~1.5 s cadence, which wipes #modtable's
+// innerHTML and rebuilds it; doing that while the cursor is over a
+// row causes a visible flicker as the row briefly leaves the DOM
+// and rejoins it. We track hover state on #modtable; if a render is
+// requested while hovering, we mark it pending and run it on the
+// next mouseleave. User actions (twirl click, sort change, filter,
+// collapse-all) bypass the suppression via renderSummaryModsForced.
+let modtableHovered = false;
+let modtableRenderPending = false;
+
 function renderSummaryMods() {
+  if (modtableHovered) { modtableRenderPending = true; return; }
+  renderSummaryModsForced();
+}
+
+function renderSummaryModsForced() {
+  modtableRenderPending = false;
   const root = document.getElementById('modtable');
   if (!lastMods || !lastMods.worldLoaded || !lastMods.mods) {
     root.innerHTML = '<div class=""empty-line"">no data yet</div>';
@@ -189,7 +206,8 @@ function renderModTree(mod) {
           e.stopPropagation();
           if (expandedCategories.has(key)) expandedCategories.delete(key);
           else expandedCategories.add(key);
-          renderSummaryMods();
+          // User-driven — force past the hover-suppression gate.
+          renderSummaryModsForced();
         });
       }
     });
@@ -200,7 +218,8 @@ function renderModTree(mod) {
 function toggleExpandMod(modId) {
   if (expandedMods.has(modId)) expandedMods.delete(modId);
   else { expandedMods.add(modId); pollHooks(); }
-  renderSummaryMods();
+  // User-driven render — force, bypassing the hover-suppression gate.
+  renderSummaryModsForced();
 }
 
 // Mod-tree sort + filter wiring.
@@ -209,11 +228,29 @@ document.getElementById('mods-sort').addEventListener('click', e => {
   if (!b) return;
   modSort = b.dataset.sort;
   document.querySelectorAll('#mods-sort button').forEach(x => x.classList.toggle('active', x === b));
-  if (activeTab === 'summary') renderSummaryMods();
+  if (activeTab === 'summary') renderSummaryModsForced();
 });
 document.getElementById('mod-filter').addEventListener('input', e => {
   modFilter = e.target.value;
-  if (activeTab === 'summary') renderSummaryMods();
+  if (activeTab === 'summary') renderSummaryModsForced();
 });
+document.getElementById('mods-collapse-all').addEventListener('click', () => {
+  expandedMods.clear();
+  expandedCategories.clear();
+  if (activeTab === 'summary') renderSummaryModsForced();
+});
+
+// Pause polling-induced re-renders while the cursor is over the mod tree
+// — prevents the hover-flicker that happens when innerHTML is wiped and
+// rebuilt every 1.5 s. Pending renders fire on mouseleave.
+(function bindModtableHoverGate() {
+  const root = document.getElementById('modtable');
+  if (!root) return;
+  root.addEventListener('mouseenter', () => { modtableHovered = true; });
+  root.addEventListener('mouseleave', () => {
+    modtableHovered = false;
+    if (modtableRenderPending) renderSummaryModsForced();
+  });
+})();
 ";
 }

@@ -214,6 +214,7 @@ internal static partial class DashboardAssets
             <span class=""panel-title"">mods · cascading tree</span>
             <span class=""panel-actions"">
               <input type=""search"" id=""mod-filter"" placeholder=""filter…"" class=""filter-input"" />
+              <button id=""mods-collapse-all"" class=""mini-btn"" title=""collapse every expanded mod + category"">collapse all</button>
               <span class=""segctl"" id=""mods-sort"">
                 <button class=""active"" data-sort=""composite"" data-explain=""composite"">composite</button>
                 <button data-sort=""cpu"">cpu</button>

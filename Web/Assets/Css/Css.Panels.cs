@@ -47,6 +47,19 @@ internal static partial class DashboardAssets
 .segctl button:hover { color: var(--text); }
 .segctl button.active { background: var(--accent-soft); color: var(--accent); }
 
+/* Lightweight singleton button (sits next to segctl groups in panel-actions).
+   Used for collapse-all and similar one-shot actions where a single button
+   would look odd inside a one-item segmented control. */
+.mini-btn {
+  font: inherit; font-size: 0.78rem;
+  background: var(--header); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.18em 0.7em; cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.mini-btn:hover { color: var(--text); border-color: var(--accent-soft); }
+.mini-btn:active { background: var(--accent-soft); color: var(--accent); }
+
 .filter-input {
   background: var(--header); color: var(--text);
   border: 1px solid var(--border); border-radius: 3px;
