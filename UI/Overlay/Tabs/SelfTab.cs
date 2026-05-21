@@ -9,6 +9,15 @@ using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.UI.Overlay.Components;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.UI.Overlay.Tabs;
 
 /// <summary>

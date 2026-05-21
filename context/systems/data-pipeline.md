@@ -18,17 +18,64 @@ Data/
 ├── Collectors/
 │   ├── FrameTimeCollector.cs       Wraps MetricCollector frame history.
 │   ├── HookCpuCollector.cs         Wraps per-mod/per-hook CPU arrays.
-│   └── AllocationCollector.cs      Wraps optional allocation arrays.
+│   ├── AllocationCollector.cs      Wraps optional allocation arrays.
+│   └── ContextTagger.cs            Per-tick game-state snapshotter (biomes,
+│                                   bosses, weather, invasion, subworld).
 ├── Aggregators/
 │   ├── HeatmapAggregator.cs        DB + in-memory heatmap bucketing.
-│   └── SegmentAggregator.cs        Adapter over SegmentDetector + SegmentStore.
-└── Stats/
-    ├── KpiStat.cs                  /api/now headline numbers.
-    ├── EventsFeedStat.cs           /api/events feed.
-    ├── SelfHealthStat.cs           Process WorkingSet + per-hook overhead.
-    ├── SpikesStat.cs               Latest spike windows.
-    ├── StallsStat.cs               Latest stall events.
-    └── InsightsStat.cs             Live insights from InsightsEngine.
+│   ├── SegmentAggregator.cs        Adapter exposing SegmentDetector + Store.
+│   ├── EventAggregator.cs          Per-dimension bucket aggregator for the
+│   │                               Events tab; consumes EventContext stream.
+│   ├── PerModAttribution.cs        Hot-path per-mod / per-hook accumulator
+│   │                               (called from the IL-emitted timing path).
+│   ├── PerModSample.cs             Per-frame per-mod sample struct.
+│   ├── PerTickAttributionRing.cs   Ring buffer of per-tick per-mod samples.
+│   └── Segments/
+│       ├── SegmentDetector.cs      Opens / closes Biome/Boss/etc segments.
+│       ├── SegmentStore.cs         Ring of closed segments + DB writer.
+│       ├── OpenSegment.cs          In-flight segment (pooled).
+│       ├── Segment.cs              Closed-segment value record.
+│       ├── SegmentFamily.cs        Family enum (Biome/Boss/Weather/...).
+│       ├── SegmentNameTable.cs     Display-name resolver per family.
+│       └── SegmentPromoter.cs      Decides which closed segments get badges.
+├── Stats/
+│   ├── KpiStat.cs                  /api/now headline numbers.
+│   ├── KpiCalculator.cs            Pure logic computing KpiSnapshot.
+│   ├── KpiSnapshot.cs              Immutable KPI value struct.
+│   ├── EventsFeedStat.cs           /api/events feed adapter.
+│   ├── EventsFeed.cs               Pure feed builder used by EventsFeedStat.
+│   ├── SelfHealthStat.cs           Process WorkingSet + per-hook overhead.
+│   ├── SpikesStat.cs               Latest spike windows.
+│   ├── StallsStat.cs               Latest stall events.
+│   ├── InsightsStat.cs             Live insights from InsightsEngine.
+│   ├── Baseline.cs                 Rolling baseline statistics.
+│   ├── ModImpactScorer.cs          Per-mod impact ranking model.
+│   └── HookCoverageView.cs         Backend-aware coverage projection.
+├── Detectors/
+│   ├── SpikeDetector.cs            Frame-time spike threshold detector.
+│   ├── StallDetector.cs            Multi-tick stall + GC pause detector.
+│   └── Insights/
+│       ├── InsightsEngine.cs       Off-thread evaluation driver.
+│       ├── InsightStore.cs         Live + history records, confidence promotion.
+│       ├── InsightRecord.cs        Immutable record value type.
+│       ├── InsightRenderer.cs      Descriptive string templates.
+│       ├── RankingScorer.cs        Pattern-aware insight ranking.
+│       ├── IInsightDetector.cs     Detector contract.
+│       └── Detectors/              10 concrete detectors (HotHookDominance,
+│                                   AllocationBurst, FreeRemovalCandidate,
+│                                   PeakContributorToSpike, SegmentOutlier,
+│                                   SegmentTopMod, SegmentDeathCorrelation,
+│                                   GcPauseCulprit, etc.).
+└── Streams/
+    ├── IPersistenceStream.cs       Contract: Apply(DbWriteOp), Reconstruct.
+    ├── StreamRegistry.cs           Maps DbOpKind → IPersistenceStream.
+    ├── SessionRecorder.cs          Orchestrator — drives all streams.
+    └── *Stream.cs                  14 concrete streams (Session, Modlist,
+                                    Spike, Stall, StallCluster, Segment,
+                                    TickAggregate, ContextTransition,
+                                    Insight, PlayerDeath, WorldSnapshot,
+                                    Interaction, PerSessionAggregate,
+                                    StreamJson helpers).
 ```
 
 ## Contracts
@@ -93,8 +140,17 @@ PerformanceProfiler.Unload
 - **Heatmap aggregation** lived inline in DashboardRouter.BuildHeatmap pre-migration. Extracting it to `HeatmapAggregator` was the canonical "kill the inline math" step.
 - **Cadence vs callback honesty.** Three collectors initially declared `PerTick` cadence with no-op delegates. v0.10 audit corrected this to `OnDemand` (pull-side adapters; MetricCollector itself owns the per-tick capture).
 
-## Deferred work
+## What stays in `Profiling/`
 
-The original migration plan included physical file moves (steps 7-10): `ContextTagger → Data/Collectors/EventContextCollector.cs`, `SegmentDetector` split, `EventAggregator → BiomeBucketAggregator`, and the `Profiling/Persistence/Streams/**` move to `Data/Streams/`. These are pure renames with no behavioural impact; they remain in `Profiling/*` for now. The pipeline is functionally complete via the API-level migration in step 11 + the visibility tightening in step 12.
+Things that aren't streams themselves but support them — kept in `Profiling/` because they're not "data" in the pipeline sense, they're infrastructure:
 
-If the moves are picked up, use `git mv` to preserve blame and update the namespaces in lockstep with the consumer references (the rename surface is large but mechanical).
+- **`MetricCollector.cs`** — the hot-path per-tick engine. Owns the EMA loops, the ring buffer, the spike/stall lists. Streams adapt over it; it isn't a stream itself.
+- **Hook machinery** — `HookInterceptor.cs`, `ILHookInterceptor.cs`, `HookBackend.cs`, `HookCategoryRouter.cs`, `HookSurfaceCache.cs`, `ProbeStack.cs`. The instrumentation layer that produces the raw signal `MetricCollector` consumes.
+- **`ProfilerSystem.cs`** — the `ModSystem` lifecycle owner. Drives the per-tick callback loop into `Data/`.
+- **`ProfilerSelfHealth.cs`** — process-wide health (read by `SelfHealthStat`).
+- **Caches / primitives** — `LangNameCache`, `ModOwnerCache`, `RingBuffer`, `TickFrame`, `Time`, `EnumStringTable`, `ProfilerFocusProbe`.
+- **`Profiling/Events/`** support types — `BiomeBitset`, `BiomeRegistry`, `BossSampler`, `BossSlotArray`, `BucketStats`, `EventContext`, `GameMode`, `InvasionId`, `SubworldProbe`, `WeatherFlags`, `WeatherSources`. Internal data structures that `ContextTagger` (in `Data/Collectors/`) and `EventAggregator` (in `Data/Aggregators/`) operate on.
+- **`Profiling/Persistence/`** infrastructure — `ProfilerDatabase`, `DbWriterThread`, `EventJournal`, `DbWriteOp`, `BsonShortNames`, `Migrations`, `ModlistFingerprint`, `ProfilerPaths`, `PersistenceFileNames`, `ProfilerCompactCommand`, `SessionSummaryLogger`, `TickDownsampler`, `WorldSnapshotter`, `ContextTransitionWatcher`, `PlayerDeathDetector`, `LegacyJsonImporter`, `Commands/`, `Interactions/`, `Records/`. The DB layer + the side-channel event detectors that feed the streams. Streams themselves now live in `Data/Streams/`; their orchestration and the database that backs them stay here.
+- **`Profiling/Pools/`** — `ListPool`, `RowPool`, `IPoolReset`. Pooling primitives the streams use.
+
+The dividing line: **if it produces a stream-shaped artefact, it's in `Data/`. If it's infrastructure for producing or storing them, it stays in `Profiling/`.**

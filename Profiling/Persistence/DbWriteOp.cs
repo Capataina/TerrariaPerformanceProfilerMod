@@ -4,6 +4,14 @@ using System.Collections.Generic;
 using LiteDB;
 using PerformanceProfiler.Profiling.Persistence.Records;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
 namespace PerformanceProfiler.Profiling.Persistence;
 
 /// <summary>

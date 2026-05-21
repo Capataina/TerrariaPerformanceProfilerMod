@@ -10,6 +10,14 @@ using PerformanceProfiler.Profiling.Persistence.Records;
 using JsonDocument = System.Text.Json.JsonDocument;
 using JsonValueKind = System.Text.Json.JsonValueKind;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
 namespace PerformanceProfiler.Profiling.Persistence;
 
 /// <summary>

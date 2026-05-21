@@ -6,10 +6,16 @@ using System.Threading.Tasks;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Insights;
+using PerformanceProfiler.Data.Detectors.Insights;
 using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Segments;
+using PerformanceProfiler.Data.Aggregators.Segments;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.Profiling;
 
 /// <summary>
@@ -57,7 +63,7 @@ public sealed class ProfilerSystem : ModSystem
     public LiteDB.ObjectId? LiveRecorderSessionId => _recorder?.SessionId;
 
     /// <summary>Live recorder while a world is loaded; null otherwise. Read by the GlobalNPC / GlobalItem / ModPlayer interaction hooks.</summary>
-    public Persistence.SessionRecorder? LiveRecorder => _recorder;
+    public SessionRecorder? LiveRecorder => _recorder;
 
     /// <summary>
     /// Per-tick game-state snapshotter (biomes, bosses, weather, invasion,

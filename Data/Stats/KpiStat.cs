@@ -3,6 +3,14 @@
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.Data.Stats;
 
 /// <summary>
@@ -26,7 +34,7 @@ namespace PerformanceProfiler.Data.Stats;
 /// done. Consumers go through <c>DataRegistry.Shared.Lookup&lt;KpiSnapshot&gt;("kpi")</c>.
 /// </para>
 /// </summary>
-public sealed class KpiStat : IDataStat<Profiling.Stats.KpiSnapshot>
+public sealed class KpiStat : IDataStat<KpiSnapshot>
 {
     public const string StreamName = "kpi";
 
@@ -38,10 +46,10 @@ public sealed class KpiStat : IDataStat<Profiling.Stats.KpiSnapshot>
     public void Reset() { /* stateless */ }
     public void Dispose() { /* nothing to release */ }
 
-    public Profiling.Stats.KpiSnapshot CurrentSnapshot()
+    public KpiSnapshot CurrentSnapshot()
     {
         MetricCollector? c = ModContent.GetInstance<ProfilerSystem>()?.Collector;
-        return Profiling.Stats.KpiCalculator.Compute(c);
+        return KpiCalculator.Compute(c);
     }
 
     public object CurrentSnapshotBoxed() => CurrentSnapshot();

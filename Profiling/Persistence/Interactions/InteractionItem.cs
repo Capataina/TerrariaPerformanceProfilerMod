@@ -7,6 +7,15 @@ using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
 namespace PerformanceProfiler.Profiling.Persistence.Interactions;
 
 /// <summary>
@@ -72,13 +81,13 @@ internal sealed class InteractionItem : GlobalItem
 
     // ---- helpers --------------------------------------------------------
 
-    private static Persistence.SessionRecorder? ResolveRecorder()
+    private static SessionRecorder? ResolveRecorder()
     {
         var system = ModContent.GetInstance<ProfilerSystem>();
         return system?.LiveRecorder;
     }
 
-    private static void Emit(Persistence.SessionRecorder recorder, Item item, string sourceContext, string contextCategory)
+    private static void Emit(SessionRecorder recorder, Item item, string sourceContext, string contextCategory)
     {
         // v0.6.1: pooled row.
         var row = RowPool<ItemCreatedRow>.Rent();

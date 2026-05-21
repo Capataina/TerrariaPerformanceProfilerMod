@@ -4,6 +4,15 @@ using System;
 using System.Collections.Generic;
 using LiteDB;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
 namespace PerformanceProfiler.Profiling.Persistence.Records;
 
 /// <summary>One row per distinct sorted modlist; deduped on <see cref="Fingerprint"/>.</summary>

@@ -1,8 +1,17 @@
 #nullable enable
 
 using System.Collections.Generic;
-using PerformanceProfiler.Profiling.Insights;
+using PerformanceProfiler.Data.Detectors.Insights;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.Data.Stats;
 
 /// <summary>Live reference into <see cref="InsightsEngine.Shared"/>'s store.</summary>

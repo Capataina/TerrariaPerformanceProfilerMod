@@ -10,9 +10,17 @@ using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Segments;
+using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.UI;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.UI.Overlay.Components;
 
 /// <summary>

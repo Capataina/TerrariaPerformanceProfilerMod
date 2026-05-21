@@ -3,9 +3,17 @@
 using System.Linq;
 using LiteDB;
 using PerformanceProfiler.Profiling.Persistence.Records;
-using PerformanceProfiler.Profiling.Segments;
+using PerformanceProfiler.Data.Aggregators.Segments;
 using Terraria.ModLoader;
 
+using PerformanceProfiler.Data.Detectors;
+using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Profiling.Events;
+using PerformanceProfiler.Profiling.Persistence;
 namespace PerformanceProfiler.Profiling.Persistence.Commands;
 
 /// <summary>
