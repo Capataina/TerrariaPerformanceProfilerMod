@@ -1,0 +1,1765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>In-Game UI Designs 1 — Performance Profiler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* =========================================================================
+   In-Game UI Designs 1 — Performance Profiler
+
+   Five mockups of the F9 overlay, framed as a design document. Every mockup
+   is built with CSS Grid + Flexbox; you can drag the bottom-right corner of
+   any <.ui-frame> to resize it and watch the layout reflow honestly. No
+   absolute pixel widths anywhere in the mockups themselves — only inside
+   the surrounding document chrome.
+
+   Palette + typography pulled from the live mod (ProfilerTheme.cs):
+     panel    #0d1117    surface  #161b22    border  #1f2329
+     header   #11161f    text     #c5c8ce    muted   #6e7480
+     good     #95d4a3    amber    #f5b342    danger  #f47174
+   Font: Patrick Hand (closest Google Fonts equivalent to Terraria's
+         hand-drawn Andy-style face used in the live build).
+   ========================================================================= */
+
+:root {
+  --bg-page:      #07090e;
+  --bg-doc:       #0b0f15;
+  --panel:        #0d1117;
+  --surface:      #161b22;
+  --header:       #11161f;
+  --border:       #1f2329;
+  --border-soft:  #15191f;
+  --text:         #c5c8ce;
+  --muted:        #6e7480;
+  --good:         #95d4a3;
+  --amber:        #f5b342;
+  --danger:       #f47174;
+  --active-blue:  #4978a8;
+  --active-text:  #79c0ff;
+  --bar-cpu:      #a8d999;
+  --bar-cpu-bg:   #1b2128;
+  --pink:         #e8a1b6;
+  --purple:       #c39ad8;
+  --teal:         #7cc4c8;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-page);
+  color: #c5c8ce;
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+/* =========================================================================
+   Document framing (the "design document" website wrapping the mockups)
+   ========================================================================= */
+
+.doc {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 4rem 5% 8rem;
+}
+
+.doc h1 {
+  font-family: 'Patrick Hand', cursive;
+  font-size: 3.4rem;
+  font-weight: 400;
+  color: #fff;
+  margin: 0 0 0.4rem;
+  letter-spacing: 0.01em;
+}
+
+.doc .subtitle {
+  font-size: 1rem;
+  color: var(--muted);
+  margin-bottom: 3rem;
+}
+
+.intro {
+  background: var(--bg-doc);
+  border: 1px solid #1a1f28;
+  border-radius: 6px;
+  padding: 1.75rem 2rem;
+  margin-bottom: 4rem;
+}
+
+.intro h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.intro p {
+  margin: 0 0 0.8rem;
+  color: #aeb3bd;
+  font-size: 0.95rem;
+}
+
+.intro p:last-child { margin-bottom: 0; }
+
+.intro code {
+  background: #181d24;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: #c5c8ce;
+}
+
+.design-section {
+  margin-bottom: 5rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid #1a1f28;
+  padding-bottom: 0.7rem;
+}
+
+.section-head .index {
+  font-family: 'Patrick Hand', cursive;
+  font-size: 2.6rem;
+  color: var(--active-text);
+  line-height: 1;
+}
+
+.section-head h2 {
+  font-family: 'Patrick Hand', cursive;
+  font-size: 2.2rem;
+  font-weight: 400;
+  color: #fff;
+  margin: 0;
+}
+
+.section-head .tagline {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.section-desc {
+  color: #aeb3bd;
+  margin: 0 0 1.4rem;
+  font-size: 0.95rem;
+  max-width: 80ch;
+}
+
+.section-desc strong { color: #fff; font-weight: 600; }
+
+.section-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.6rem 1.2rem;
+  margin: 1.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  background: #0b0f15;
+  border: 1px solid #1a1f28;
+  border-radius: 4px;
+  padding: 1rem 1.2rem;
+}
+
+.section-notes .note strong {
+  display: block;
+  color: #c5c8ce;
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* =========================================================================
+   The .ui-frame is a resizable host. Drag the bottom-right corner to
+   change its width: every mockup inside re-flows honestly because every
+   internal dimension is relative.
+   ========================================================================= */
+
+.ui-frame {
+  resize: horizontal;
+  overflow: hidden;
+  min-width: 380px;
+  max-width: 100%;
+  width: 100%;
+  background: #050709;
+  border: 1px dashed #2a2f3a;
+  border-radius: 6px;
+  padding: 1rem;
+  position: relative;
+  /* container query host */
+  container-type: inline-size;
+  container-name: gameui;
+}
+
+.ui-frame::after {
+  content: '↘ resize';
+  position: absolute;
+  bottom: 0.4rem;
+  right: 1.2rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  pointer-events: none;
+  font-family: 'Inter', monospace;
+  opacity: 0.6;
+}
+
+/* =========================================================================
+   .game-panel: the actual in-game overlay rectangle, scoped fonts/colors
+   ========================================================================= */
+
+.game-panel {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: 'Patrick Hand', cursive;
+  font-size: 16px;
+  color: var(--text);
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+}
+
+.game-panel .row,
+.game-panel .col { display: flex; }
+
+/* Header --------------------------------------------------------- */
+.gp-header {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.9rem;
+  background: var(--header);
+  border-bottom: 1px solid var(--border-soft);
+  gap: 0.6rem;
+}
+
+.gp-header .title {
+  color: var(--active-text);
+  font-size: 1.25em;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.gp-header .title::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 1.05em;
+  background: var(--active-text);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.15em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85em;
+}
+
+.pill.active { color: var(--active-text); border-color: var(--active-blue); }
+
+.pill .led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 5px rgba(149, 212, 163, 0.55);
+}
+
+/* Tab strip — auto-fits, never spills */
+.gp-tabs {
+  display: flex;
+  gap: 0.35em;
+  padding: 0.45rem 0.9rem;
+  background: var(--header);
+  border-bottom: 1px solid var(--border-soft);
+  flex-wrap: nowrap;
+}
+
+.gp-tabs .tabs {
+  display: flex;
+  gap: 0.35em;
+  flex: 1;
+  min-width: 0;
+}
+
+.gp-tabs .tab {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  padding: 0.3em 0.4em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gp-tabs .tab.active {
+  background: rgba(73, 120, 168, 0.18);
+  border-color: var(--active-blue);
+  color: var(--active-text);
+}
+
+.gp-tabs .pill {
+  flex: 0 0 auto;
+  padding: 0.3em 0.7em;
+}
+
+/* Generic cards & labels --------------------------------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.card .label {
+  font-size: 0.78em;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.card .value {
+  font-size: 1.45em;
+  color: var(--good);
+  line-height: 1.05;
+}
+
+.card .footer {
+  font-size: 0.78em;
+  color: var(--muted);
+}
+
+.divider-h {
+  height: 1px;
+  background: var(--border-soft);
+  width: 100%;
+}
+
+.muted { color: var(--muted); }
+.text-good { color: var(--good); }
+.text-amber { color: var(--amber); }
+.text-danger { color: var(--danger); }
+.text-bright { color: #e5e8ee; }
+
+/* =========================================================================
+   Bar component — used for mod-cost rows in several designs
+   ========================================================================= */
+.modrow {
+  display: grid;
+  grid-template-columns: 1.6em minmax(0, 0.9fr) minmax(0, 2.4fr) 4.5em;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.15em 0;
+  font-size: 0.95em;
+  min-width: 0;
+}
+
+.modrow .rank { color: var(--muted); font-size: 0.85em; text-align: right; }
+.modrow .swatch { width: 0.55em; height: 0.55em; display: inline-block; margin-right: 0.4em; vertical-align: middle; }
+.modrow .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modrow .bar {
+  height: 0.85em;
+  background: var(--bar-cpu-bg);
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+.modrow .bar > span { display: block; height: 100%; background: var(--bar-cpu); }
+.modrow .value { text-align: right; color: var(--text); font-size: 0.95em; }
+.modrow .value .unit { color: var(--muted); margin-left: 0.25em; font-size: 0.85em; }
+
+/* =========================================================================
+   ==== DESIGN 1 : Faithful Current ========================================
+   Same regions / tab count as the live build, but each region uses a
+   proper Flex / Grid container so resizing the host reflows naturally
+   instead of clipping or overlapping.
+   ========================================================================= */
+
+.d1 .gp-body {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+}
+
+.d1 .stat-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.d1 .health {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.55rem 0.85rem 0.7rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  row-gap: 0.25rem;
+}
+
+.d1 .health .h-line { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.8em; font-size: 0.92em; }
+.d1 .health .h-line.muted { color: var(--muted); font-size: 0.82em; }
+.d1 .health .h-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: rgba(149,212,163,0.18);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.d1 .health .h-bar > span { display: block; height: 100%; width: 100%; background: var(--good); }
+.d1 .health .right { text-align: right; color: var(--text); font-size: 0.9em; }
+.d1 .health .h-line .right { margin-left: auto; }
+
+.d1 .main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.d1 .impact {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.d1 .impact .head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  color: var(--muted); font-size: 0.85em; letter-spacing: 0.05em; text-transform: uppercase;
+}
+
+.d1 .impact .body {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.1fr);
+  gap: 0.8rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.donut {
+  --d-size: min(100%, 200px);
+  width: var(--d-size); aspect-ratio: 1; border-radius: 50%;
+  background:
+    conic-gradient(
+      #e8a1b6 0% 39%,
+      #c39ad8 39% 71%,
+      #6da3c8 71% 83%,
+      #d68a8a 83% 89%,
+      #7cc4c8 89% 92%,
+      #b6cc8a 92% 94%,
+      #2a2f3a 94% 100%
+    );
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  margin: 0 auto;
+}
+.donut::after {
+  content: '';
+  position: absolute;
+  inset: 22%;
+  background: var(--surface);
+  border-radius: 50%;
+}
+.donut .center {
+  position: relative; z-index: 1;
+  text-align: center;
+  font-family: 'Patrick Hand', cursive;
+  color: var(--text);
+  font-size: 0.95em;
+}
+.donut .center .pct { font-size: 1.6em; color: #fff; line-height: 1; display: block; }
+.donut .center .ms  { font-size: 0.85em; color: var(--muted); }
+
+.d1 .impact .legend { display: flex; flex-direction: column; gap: 0.25em; min-width: 0; }
+.d1 .impact .legend .row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.92em;
+  min-width: 0;
+}
+.d1 .impact .legend .row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.d1 .top-c {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+  min-width: 0;
+}
+
+.d1 .top-c .head {
+  color: var(--muted); font-size: 0.85em; letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+
+.d1 .top-c .crow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.5fr) auto;
+  gap: 0.5em;
+  align-items: center;
+  font-size: 0.92em;
+  padding: 0.15em 0;
+  min-width: 0;
+}
+.d1 .top-c .crow .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.d1 .session-trend {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+}
+
+.d1 .session-trend .head {
+  color: var(--muted); font-size: 0.85em; letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 0.35rem;
+}
+
+.d1 .spark-row {
+  display: grid;
+  grid-template-columns: 3.5em minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.15em 0;
+}
+.d1 .spark-row .label { color: var(--muted); font-size: 0.85em; }
+.d1 .spark-row .spark {
+  height: 1.4em;
+  background: linear-gradient(180deg, transparent 0%, transparent 65%, rgba(73,120,168,0.4) 100%);
+  background-size: 4% 100%;
+  background-repeat: repeat-x;
+  position: relative;
+}
+.d1 .spark-row svg { width: 100%; height: 100%; display: block; }
+
+.d1 .ranking {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+}
+
+.d1 .ranking .head {
+  display: flex; align-items: center; gap: 0.8em; flex-wrap: wrap;
+  color: var(--muted); font-size: 0.85em;
+  margin-bottom: 0.4rem;
+}
+.d1 .ranking .head .chip {
+  padding: 0.05em 0.5em; border-radius: 2px; background: var(--header); color: var(--muted);
+}
+.d1 .ranking .head .chip.active { color: var(--active-text); border: 1px solid var(--active-blue); }
+
+/* Hide secondary sections when frame is narrow */
+@container gameui (max-width: 720px) {
+  .d1 .main { grid-template-columns: 1fr; }
+}
+@container gameui (max-width: 520px) {
+  .d1 .stat-strip { grid-template-columns: repeat(2, 1fr); }
+  .d1 .impact .body { grid-template-columns: 1fr; }
+}
+
+/* =========================================================================
+   ==== DESIGN 2 : Refined Same ============================================
+   Same skeleton as #1, smoothed: segmented controls, currently-playing
+   strip, outlier-first ranking, multi-axis contributor bars.
+   ========================================================================= */
+
+.d2 .gp-body {
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr;
+  gap: 0.55rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+}
+
+.d2 .stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.d2 .stat-strip .card {
+  border: 0; border-radius: 0; border-right: 1px solid var(--border-soft);
+  background: transparent;
+  padding: 0.55rem 0.85rem;
+}
+.d2 .stat-strip .card:last-child { border-right: 0; }
+
+.d2 .nowplaying {
+  background: linear-gradient(90deg, rgba(73,120,168,0.10) 0%, transparent 80%);
+  border: 1px solid #233447;
+  border-radius: 3px;
+  padding: 0.5rem 0.85rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8em;
+  font-size: 0.9em;
+}
+.d2 .nowplaying .badge {
+  display: inline-flex; align-items: center; gap: 0.35em;
+  color: var(--active-text); letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: 0.85em;
+}
+.d2 .nowplaying .badge .led {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--active-text);
+  box-shadow: 0 0 6px rgba(121,192,255,0.5);
+}
+.d2 .nowplaying .segments {
+  display: flex; gap: 0.8em; min-width: 0; overflow: hidden;
+}
+.d2 .nowplaying .seg { white-space: nowrap; }
+.d2 .nowplaying .seg .name { color: var(--text); }
+.d2 .nowplaying .seg .dur  { color: var(--muted); margin-left: 0.4em; }
+.d2 .nowplaying .right { color: var(--muted); white-space: nowrap; }
+
+.d2 .health {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.5rem 0.85rem 0.55rem;
+  display: grid; grid-template-columns: 1fr auto; align-items: center; row-gap: 0.25rem;
+}
+.d2 .health .h-line { grid-column: 1/-1; display: flex; gap: 0.8em; font-size: 0.88em; color: var(--muted); }
+.d2 .health .h-line .right { margin-left: auto; color: var(--text); }
+.d2 .health .h-bar {
+  grid-column: 1/-1; height: 4px; background: rgba(149,212,163,0.18);
+  border-radius: 2px; overflow: hidden;
+}
+.d2 .health .h-bar > span { display: block; height: 100%; width: 100%; background: var(--good); }
+
+.d2 .main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 0.55rem;
+}
+
+.d2 .impact, .d2 .top-c {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.6rem 0.85rem; min-width: 0;
+}
+.d2 .impact .head, .d2 .top-c .head {
+  color: var(--muted); font-size: 0.83em; letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 0.45rem; display: flex; justify-content: space-between;
+}
+.d2 .impact .body {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.9fr) minmax(0, 1.1fr);
+  gap: 0.8rem; align-items: center; min-width: 0;
+}
+.d2 .top-c .crow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) auto auto auto auto;
+  gap: 0.4em; align-items: center; font-size: 0.92em; padding: 0.15em 0; min-width: 0;
+}
+.d2 .top-c .crow .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d2 .top-c .crow .mini {
+  width: 2.4em; height: 0.5em; border-radius: 1px; background: var(--bar-cpu-bg);
+  overflow: hidden;
+}
+.d2 .top-c .crow .mini > span { display: block; height: 100%; }
+.d2 .top-c .crow .mini.cpu   > span { background: var(--bar-cpu); }
+.d2 .top-c .crow .mini.alloc > span { background: var(--purple); }
+.d2 .top-c .crow .mini.spike > span { background: var(--amber); }
+
+.d2 .ranking {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+}
+.d2 .ranking .head {
+  display: flex; gap: 0.5em; align-items: center;
+  color: var(--muted); font-size: 0.83em; margin-bottom: 0.55rem; flex-wrap: wrap;
+}
+.d2 .ranking .head .left { display: flex; gap: 0.4em; align-items: center; }
+.d2 .ranking .head .right { margin-left: auto; }
+.d2 .segctl {
+  display: inline-flex; border: 1px solid var(--border); border-radius: 3px; overflow: hidden;
+  background: var(--header);
+}
+.d2 .segctl button {
+  font: inherit; background: transparent; color: var(--muted);
+  border: 0; border-right: 1px solid var(--border-soft);
+  padding: 0.15em 0.7em; cursor: pointer;
+}
+.d2 .segctl button:last-child { border-right: 0; }
+.d2 .segctl button.active { background: rgba(73,120,168,0.18); color: var(--active-text); }
+
+.d2 .outliers .modrow { padding: 0.3em 0; }
+.d2 .outliers .modrow.hero {
+  background: rgba(245,179,66,0.08);
+  border-left: 2px solid var(--amber);
+  padding-left: 0.4em;
+  border-radius: 2px;
+}
+.d2 .outliers .modrow.hero .name { color: #fff; }
+.d2 .collapse-bar {
+  display: flex; align-items: center; gap: 0.6em;
+  color: var(--muted); font-size: 0.85em;
+  padding: 0.4em 0 0.2em;
+  border-top: 1px dashed var(--border-soft);
+  margin-top: 0.3em;
+}
+.d2 .collapse-bar .toggle { color: var(--active-text); cursor: pointer; }
+
+@container gameui (max-width: 720px) {
+  .d2 .main { grid-template-columns: 1fr; }
+}
+@container gameui (max-width: 500px) {
+  .d2 .impact .body { grid-template-columns: 1fr; }
+  .d2 .top-c .crow { grid-template-columns: 1fr auto auto auto; }
+  .d2 .top-c .crow .mini.spike { display: none; }
+}
+
+/* =========================================================================
+   ==== DESIGN 3 : Mission Control =========================================
+   Denser, btop-inspired multi-pane grid. The frame chart becomes the
+   hero region; everything else flexes around it. At narrow widths the
+   side panels stack under the frame chart automatically.
+   ========================================================================= */
+
+.d3 .gp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  gap: 0.45rem;
+  padding: 0.6rem 0.7rem 0.7rem;
+}
+
+.d3 .stat-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.4rem;
+}
+.d3 .stat-strip .card { padding: 0.4rem 0.65rem; }
+.d3 .stat-strip .card .value { font-size: 1.15em; }
+
+.d3 .frame-hero {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 0.3rem;
+  min-height: 9rem;
+}
+.d3 .frame-hero .head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  color: var(--muted); font-size: 0.82em; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.d3 .frame-hero .chart {
+  background: linear-gradient(180deg, rgba(149,212,163,0.06), transparent);
+  border-bottom: 1px solid var(--border-soft);
+  position: relative;
+}
+.d3 .frame-hero .legend {
+  display: flex; gap: 1em; font-size: 0.82em; color: var(--muted);
+}
+.d3 .frame-hero .legend .dot { width: 0.5em; height: 0.5em; display: inline-block; margin-right: 0.3em; }
+
+.d3 .side-stack {
+  display: grid; grid-template-rows: auto 1fr; gap: 0.45rem;
+}
+
+.d3 .right-rail {
+  display: grid; grid-template-rows: auto 1fr; gap: 0.45rem;
+  grid-column: 2;
+  min-width: 0;
+}
+
+.d3 .mini-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  display: grid; gap: 0.25rem;
+  min-width: 0;
+}
+.d3 .mini-card .head {
+  color: var(--muted); font-size: 0.78em; letter-spacing: 0.05em; text-transform: uppercase;
+}
+
+.d3 .ranking {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  grid-row: 3;
+  grid-column: 1;
+  min-width: 0;
+}
+.d3 .ranking .head {
+  color: var(--muted); font-size: 0.82em; letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 0.35rem;
+}
+
+.d3 .events {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  grid-row: 3;
+  grid-column: 2;
+  display: grid; grid-template-rows: auto 1fr; gap: 0.3rem;
+  min-width: 0;
+}
+.d3 .events .head {
+  color: var(--muted); font-size: 0.82em; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.d3 .events .feed { display: flex; flex-direction: column; gap: 0.25em; font-size: 0.88em; }
+.d3 .events .ev {
+  display: grid; grid-template-columns: 1.4em minmax(0,1fr) auto; gap: 0.5em; align-items: baseline;
+  min-width: 0;
+}
+.d3 .events .ev .glyph { color: var(--muted); }
+.d3 .events .ev .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.d3 .events .ev .when { color: var(--muted); font-size: 0.82em; }
+
+@container gameui (max-width: 880px) {
+  .d3 .gp-body { grid-template-columns: 1fr; }
+  .d3 .right-rail { grid-column: 1; }
+  .d3 .ranking { grid-column: 1; grid-row: auto; }
+  .d3 .events { grid-column: 1; grid-row: auto; }
+}
+
+/* =========================================================================
+   ==== DESIGN 4 : Adaptive Cockpit ========================================
+   Hero strip changes based on what's "loud" right now. Mod ranking moves
+   to a thin vertical strip on the right. Frame chart pinned at top so
+   spikes are always glanceable.
+   ========================================================================= */
+
+.d4 .gp-body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.5fr);
+  gap: 0.55rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+}
+
+.d4 .pinned-chart {
+  grid-column: 1 / -1;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.4rem 0.7rem;
+  display: grid; grid-template-columns: auto 1fr auto; gap: 0.7em; align-items: center;
+}
+.d4 .pinned-chart .label { color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+.d4 .pinned-chart .chart {
+  height: 1.6em; min-width: 0;
+  background: linear-gradient(90deg, rgba(149,212,163,0.10), rgba(149,212,163,0.20));
+  border-radius: 2px;
+  position: relative;
+}
+.d4 .pinned-chart .right .now { color: var(--good); }
+.d4 .pinned-chart .right .avg { color: var(--muted); margin-left: 0.5em; font-size: 0.85em; }
+
+.d4 .hero {
+  grid-column: 1;
+  background: var(--surface);
+  border: 1px solid #2b3447;
+  border-left: 3px solid var(--amber);
+  border-radius: 3px;
+  padding: 0.7rem 1rem;
+  display: grid; grid-template-rows: auto 1fr auto; gap: 0.5rem;
+}
+.d4 .hero .heading {
+  color: var(--amber);
+  font-size: 0.85em; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.d4 .hero .headline {
+  font-size: 1.4em; color: #fff;
+}
+.d4 .hero .headline .num { color: var(--amber); }
+.d4 .hero .breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.4em 1.2em;
+  font-size: 0.92em;
+}
+.d4 .hero .breakdown .row {
+  display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0.5em;
+}
+.d4 .hero .footer { color: var(--muted); font-size: 0.85em; }
+
+.d4 .modstrip {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.5rem 0.7rem;
+  display: grid; grid-template-rows: auto 1fr; gap: 0.4rem; min-width: 0;
+}
+.d4 .modstrip .head {
+  color: var(--muted); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em;
+}
+.d4 .modstrip .vrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; gap: 0.4em;
+  font-size: 0.9em; padding: 0.18em 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.d4 .modstrip .vrow:last-child { border-bottom: 0; }
+.d4 .modstrip .vrow .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d4 .modstrip .vrow .ms   { color: var(--good); }
+.d4 .modstrip .vrow.dim .name, .d4 .modstrip .vrow.dim .ms { color: var(--muted); }
+
+.d4 .ctx-cards {
+  grid-column: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.5rem;
+}
+.d4 .ctx-cards .card {
+  padding: 0.6rem 0.85rem;
+}
+.d4 .ctx-cards .card .heading {
+  color: var(--muted); font-size: 0.78em; letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+.d4 .ctx-cards .card .big {
+  font-size: 1.2em; color: var(--text);
+}
+.d4 .ctx-cards .card .sub {
+  color: var(--muted); font-size: 0.85em;
+}
+
+@container gameui (max-width: 720px) {
+  .d4 .gp-body { grid-template-columns: 1fr; }
+  .d4 .modstrip { grid-column: 1; grid-row: auto; }
+  .d4 .hero { grid-column: 1; }
+}
+
+/* =========================================================================
+   ==== DESIGN 5 : Timeline-First ==========================================
+   The horizontal segment timeline is the navigation. Past + now as a
+   chip strip; current segment ranks below. Stat cards demoted to inline
+   header pills. Reads like a play-history rather than a dashboard.
+   ========================================================================= */
+
+.d5 .gp-header.compact {
+  display: grid;
+  grid-template-columns: auto repeat(4, auto) 1fr auto;
+  gap: 0.6em 1em;
+  align-items: baseline;
+}
+.d5 .gp-header.compact .title { margin-right: 0; }
+.d5 .gp-header.compact .stat {
+  color: var(--muted); font-size: 0.85em; display: inline-flex; align-items: baseline; gap: 0.35em;
+}
+.d5 .gp-header.compact .stat .v { color: var(--good); font-size: 1em; }
+
+.d5 .gp-body {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 0.55rem;
+  padding: 0.7rem 0.9rem 0.9rem;
+}
+
+.d5 .tl {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.55rem 0.7rem;
+  display: grid; grid-template-rows: auto auto; gap: 0.4rem;
+}
+.d5 .tl .label {
+  color: var(--muted); font-size: 0.82em; letter-spacing: 0.05em; text-transform: uppercase;
+  display: flex; justify-content: space-between;
+}
+.d5 .tl .strip {
+  display: flex; gap: 0.4em; overflow: hidden; min-width: 0; align-items: stretch;
+}
+.d5 .tl .chip {
+  flex: 1 1 0; min-width: 0;
+  background: var(--header); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.35em 0.55em; display: grid; gap: 0.1em;
+  font-size: 0.85em; min-height: 2.6em;
+}
+.d5 .tl .chip .name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d5 .tl .chip .meta { color: var(--muted); font-size: 0.85em; }
+.d5 .tl .chip.boss   { border-left: 3px solid var(--danger); }
+.d5 .tl .chip.event  { border-left: 3px solid var(--amber); }
+.d5 .tl .chip.biome  { border-left: 3px solid var(--good); }
+.d5 .tl .chip.run    { border-left: 3px solid var(--muted); }
+.d5 .tl .chip.now {
+  border: 1px solid var(--active-text);
+  box-shadow: 0 0 0 1px rgba(121,192,255,0.2);
+  background: rgba(73,120,168,0.16);
+}
+.d5 .tl .chip.now .name { color: var(--active-text); }
+
+.d5 .row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0.55rem;
+  min-height: 14rem;
+}
+
+.d5 .current {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+  display: grid; grid-template-rows: auto auto auto 1fr; gap: 0.45rem; min-width: 0;
+}
+.d5 .current .head { color: var(--muted); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+.d5 .current .name { font-size: 1.3em; color: #fff; }
+.d5 .current .meta { color: var(--muted); font-size: 0.88em; display: flex; gap: 1em; flex-wrap: wrap; }
+.d5 .current .meta b { color: var(--text); font-weight: 400; }
+
+.d5 .loud {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.6rem 0.85rem;
+  display: grid; grid-template-rows: auto 1fr; gap: 0.35rem; min-width: 0;
+}
+.d5 .loud .head { color: var(--muted); font-size: 0.82em; text-transform: uppercase; letter-spacing: 0.05em; }
+.d5 .loud .item {
+  display: grid;
+  grid-template-columns: 1.8em minmax(0, 1fr) auto;
+  align-items: center; gap: 0.5em; padding: 0.18em 0;
+  font-size: 0.92em; border-bottom: 1px solid var(--border-soft);
+}
+.d5 .loud .item:last-child { border: 0; }
+.d5 .loud .item .glyph { color: var(--muted); text-align: center; }
+.d5 .loud .item .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@container gameui (max-width: 700px) {
+  .d5 .row { grid-template-columns: 1fr; }
+  .d5 .gp-header.compact { grid-template-columns: 1fr; }
+  .d5 .gp-header.compact .stat { display: none; }
+}
+@container gameui (max-width: 500px) {
+  .d5 .tl .chip:nth-child(n+5) { display: none; }
+}
+
+/* =========================================================================
+   Page footer
+   ========================================================================= */
+
+.page-footer {
+  margin-top: 5rem;
+  padding-top: 2rem;
+  border-top: 1px solid #1a1f28;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="doc">
+
+<h1>In-Game UI Designs 1</h1>
+<div class="subtitle">Performance Profiler — overlay overhaul concepts. v0.8 candidate set.</div>
+
+<div class="intro">
+  <h2>The discipline this file enforces</h2>
+  <p>
+    Every mockup on this page is built with CSS Grid and Flexbox. There are
+    <strong>no fixed pixel widths</strong> on any panel, card, row, column,
+    or chart inside any of the in-game mockups — every internal dimension
+    is a fraction (<code>fr</code>), a percentage, or an <code>em</code>/<code>rem</code>
+    relative to the font size. Drag the bottom-right resize handle on any
+    mockup to verify: the layout reflows honestly. Tabs auto-fit, cards
+    rewrap, click-targets stay aligned with what gets drawn. The same
+    discipline applied to the live mod kills the four classes of bug we
+    saw in v0.7.2 — tab overflow, chrome clipping, sort-chip click drift,
+    and overview-tab vertical overflow — at the architecture level rather
+    than as bugfix whack-a-mole.
+  </p>
+  <p>
+    The mockups use the live mod's actual palette (pulled from
+    <code>ProfilerTheme.cs</code>) and a Patrick Hand face — closest Google
+    Fonts equivalent to Terraria's hand-drawn "Andy" style. Numbers are
+    representative of a real 18-mod / 10 261-hook session captured this week.
+  </p>
+  <p>
+    Five concepts, ordered from "what we were trying to build" to "what we
+    could build instead". Each mockup demonstrates not just a look but a
+    layout philosophy you can map back to a flex / grid spec.
+  </p>
+</div>
+
+<!-- =========================================================================
+     DESIGN 1 : Faithful Current
+     ========================================================================= -->
+<section class="design-section">
+  <div class="section-head">
+    <span class="index">1</span>
+    <h2>Faithful Current — the version we meant to ship</h2>
+    <span class="tagline">same 7-tab philosophy, properly laid out</span>
+  </div>
+  <p class="section-desc">
+    Same tabs, same regions, same idea as v0.7.2 — but the tab strip
+    auto-fits, the stat row evenly subdivides, the impact donut + top
+    contributors split is a real 1.4fr / 1fr grid, and the all-mods
+    ranking owns whatever vertical space remains. At ~720 px the
+    impact + contributors split stacks; below ~520 px the stat row drops
+    to 2 columns. <strong>Nothing ever overlaps; nothing ever clips.</strong>
+  </p>
+
+  <div class="ui-frame">
+    <div class="game-panel d1">
+
+      <div class="gp-header">
+        <div class="title">Performance Profiler</div>
+        <span class="pill">NOW</span>
+        <span class="pill active"><span class="led"></span>LIVE</span>
+        <span class="pill">DEFAULT</span>
+      </div>
+
+      <div class="gp-tabs">
+        <div class="tabs">
+          <div class="tab active">Summary</div>
+          <div class="tab">Tree</div>
+          <div class="tab">Timeline</div>
+          <div class="tab">Lag</div>
+          <div class="tab">Events</div>
+          <div class="tab">Insights</div>
+          <div class="tab">Self</div>
+        </div>
+        <span class="pill active">CPU</span>
+      </div>
+
+      <div class="gp-body">
+
+        <!-- 4 stat cards, evenly distributed -->
+        <div class="stat-strip">
+          <div class="card"><div class="label">this tick</div><div class="value">1.33 <span class="unit muted">ms</span></div></div>
+          <div class="card"><div class="label">avg 30 s</div><div class="value">1.23 <span class="unit muted">ms</span></div><div class="footer">median 1.25 ms</div></div>
+          <div class="card"><div class="label">gc this tick</div><div class="value">0.0 <span class="unit muted">ms</span></div></div>
+          <div class="card"><div class="label">tick</div><div class="value text-bright">#21 994</div><div class="footer">4 npc · 0 proj · 1 dust</div></div>
+        </div>
+
+        <!-- Profiler health -->
+        <div class="health">
+          <div class="h-line">
+            <span class="muted" style="letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.85em;">Profiler Health</span>
+            <span>10 261 / 10 261 hooks</span>
+            <span class="right text-good">100 %</span>
+          </div>
+          <div class="h-line muted">
+            <span>full 18 · partial 0</span>
+            <span class="right" style="color: var(--active-text);">backend: ilhook</span>
+          </div>
+          <div class="h-bar"><span></span></div>
+          <div class="h-line muted">
+            <span>self 369 MB / 724 MB · 36.8 KB/hook</span>
+            <span class="right text-good">healthy · 1.02× baseline</span>
+          </div>
+        </div>
+
+        <!-- Impact donut + contributors -->
+        <div class="main">
+
+          <div class="impact">
+            <div class="head"><span>Impact Share</span><span>18 mods</span></div>
+            <div class="body">
+              <div class="donut">
+                <div class="center">
+                  <span class="pct">39 %</span>
+                  CheatSheet
+                  <div class="ms">1.0 ms</div>
+                </div>
+              </div>
+              <div class="legend">
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--pink);"></span><span class="name">CheatSheet</span><span>39.1 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--purple);"></span><span class="name">Verdant</span><span>31.7 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--active-text);"></span><span class="name">PerformanceProfi…</span><span>11.8 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--danger);"></span><span class="name">TheBindingOfRarria</span><span>6.2 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--teal);"></span><span class="name">ModLiquidLib</span><span>2.5 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--bar-cpu);"></span><span class="name">Arsenal_Mod</span><span>1.8 %</span></div>
+                <div class="row muted"><span></span><span class="name">+ 7 more</span><span>6.9 %</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="top-c">
+            <div class="head">Top Contributors</div>
+            <div class="crow"><span class="name">CheatSheet</span><span class="muted" style="font-size: 0.82em">cpu 1.03 ms · alloc 504 B/t</span><span class="text-bright">1.0</span></div>
+            <div class="crow"><span class="name">Verdant</span><span class="muted" style="font-size: 0.82em">cpu 0.84 ms · alloc 904 B/t</span><span class="text-bright">0.8</span></div>
+            <div class="crow"><span class="name">PerformanceProfiler</span><span class="muted" style="font-size: 0.82em">cpu 0.31 ms · alloc 609 B/t</span><span class="text-bright">0.3</span></div>
+            <div class="crow"><span class="name">TheBindingOfRarria</span><span class="muted" style="font-size: 0.82em">cpu 0.16 ms · alloc 11.4 KB/t</span><span class="text-bright">0.2</span></div>
+            <div class="crow"><span class="name">ModLiquidLib</span><span class="muted" style="font-size: 0.82em">cpu 0.06 ms · alloc 23.7 KB/t</span><span class="text-bright">0.1</span></div>
+          </div>
+
+        </div>
+
+        <!-- Session trend sparklines -->
+        <div class="session-trend">
+          <div class="head">Session Trend · Last 30 s</div>
+          <div class="spark-row">
+            <span class="label">frame</span>
+            <span class="spark"><svg viewBox="0 0 100 16" preserveAspectRatio="none">
+              <polyline points="0,12 5,11 10,10 15,11 20,10 25,12 30,10 35,2 40,10 45,11 50,10 55,9 60,10 65,11 70,10 75,11 80,10 85,11 90,9 95,11 100,4" fill="none" stroke="#79c0ff" stroke-width="0.7"/>
+            </svg></span>
+          </div>
+          <div class="spark-row">
+            <span class="label">alloc</span>
+            <span class="spark"><svg viewBox="0 0 100 16" preserveAspectRatio="none">
+              <polyline points="0,14 10,14 20,13 30,14 40,4 50,12 60,14 70,14 80,14 90,14 100,14" fill="none" stroke="#c39ad8" stroke-width="0.7"/>
+            </svg></span>
+          </div>
+          <div class="spark-row">
+            <span class="label">spikes</span>
+            <span class="spark"><svg viewBox="0 0 100 16" preserveAspectRatio="none">
+              <g stroke="#f5b342" stroke-width="0.8"><line x1="12" y1="0" x2="12" y2="16"/><line x1="18" y1="0" x2="18" y2="16"/><line x1="22" y1="0" x2="22" y2="16"/><line x1="24" y1="0" x2="24" y2="16"/><line x1="44" y1="0" x2="44" y2="16"/><line x1="60" y1="0" x2="60" y2="16"/><line x1="74" y1="0" x2="74" y2="16"/></g>
+            </svg></span>
+          </div>
+        </div>
+
+        <!-- All-mods ranking -->
+        <div class="ranking">
+          <div class="head">
+            <span style="text-transform: uppercase; letter-spacing: 0.05em;">sort by:</span>
+            <span class="chip active">composite ▼</span>
+            <span class="chip">cpu</span>
+            <span class="chip">spike</span>
+            <span class="chip">alloc</span>
+            <span class="chip" style="margin-left: auto;">showing all mods</span>
+          </div>
+          <div class="modrow"><span class="rank">1</span><span class="name"><span class="swatch" style="background:var(--pink)"></span>CheatSheet</span><span class="bar"><span style="width: 100%"></span></span><span class="value">1.03 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">2</span><span class="name"><span class="swatch" style="background:var(--purple)"></span>Verdant</span><span class="bar"><span style="width: 81%"></span></span><span class="value">0.84 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">3</span><span class="name"><span class="swatch" style="background:var(--active-text)"></span>PerformanceProfiler</span><span class="bar"><span style="width: 30%"></span></span><span class="value">0.31 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">4</span><span class="name"><span class="swatch" style="background:var(--danger)"></span>TheBindingOfRarria</span><span class="bar"><span style="width: 16%"></span></span><span class="value">0.16 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">5</span><span class="name"><span class="swatch" style="background:var(--teal)"></span>ModLiquidLib</span><span class="bar"><span style="width: 7%"></span></span><span class="value">0.07 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">6</span><span class="name"><span class="swatch" style="background:var(--bar-cpu)"></span>Arsenal_Mod</span><span class="bar"><span style="width: 5%"></span></span><span class="value">0.05 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">7</span><span class="name"><span class="swatch" style="background:var(--amber)"></span>RecipeBrowser</span><span class="bar"><span style="width: 4%"></span></span><span class="value">0.04 <span class="unit">ms</span></span></div>
+          <div class="modrow"><span class="rank">8</span><span class="name"><span class="swatch" style="background:var(--amber)"></span>MagicStorage</span><span class="bar"><span style="width: 4%"></span></span><span class="value">0.04 <span class="unit">ms</span></span></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="section-notes">
+    <div class="note"><strong>Tabs</strong>auto-fit row (<code>flex: 1 1 0</code>), labels ellipsis-truncate before overflowing</div>
+    <div class="note"><strong>Stat row</strong>4-col grid; collapses to 2-col below 520 px</div>
+    <div class="note"><strong>Donut / contributors</strong>1.4fr / 1fr; stacks below 720 px</div>
+    <div class="note"><strong>Bars</strong>width as percentage of the row's bar cell — never a px count</div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     DESIGN 2 : Refined Same
+     ========================================================================= -->
+<section class="design-section">
+  <div class="section-head">
+    <span class="index">2</span>
+    <h2>Refined — same philosophy, smoothed</h2>
+    <span class="tagline">currently-playing strip, outlier ranking, segmented controls</span>
+  </div>
+  <p class="section-desc">
+    Same 7-tab skeleton, but the chrome learns from current pain points.
+    Adds an always-visible <strong>currently playing</strong> strip below the
+    stat row (segments the player is in <em>right now</em>). The
+    contributors panel grows three mini-bars per mod
+    (cpu / alloc / spike) so the composite sort actually visualises a
+    composite. The all-mods ranking shows <strong>outliers first</strong>:
+    only the mods that materially differ from the median are listed; the
+    rest collapse into "+ 9 normal mods" you can expand.
+  </p>
+
+  <div class="ui-frame">
+    <div class="game-panel d2">
+
+      <div class="gp-header">
+        <div class="title">Performance Profiler</div>
+        <span class="pill">NOW</span>
+        <span class="pill active"><span class="led"></span>LIVE</span>
+        <span class="pill">DEFAULT</span>
+      </div>
+
+      <div class="gp-tabs">
+        <div class="tabs">
+          <div class="tab active">Summary</div>
+          <div class="tab">Tree</div>
+          <div class="tab">Timeline</div>
+          <div class="tab">Lag</div>
+          <div class="tab">Events</div>
+          <div class="tab">Insights</div>
+          <div class="tab">Self</div>
+        </div>
+        <span class="pill active">CPU</span>
+      </div>
+
+      <div class="gp-body">
+
+        <div class="stat-strip">
+          <div class="card"><div class="label">this tick</div><div class="value">1.33 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">avg 30 s</div><div class="value">1.23 <span class="muted" style="font-size:0.7em">ms</span></div><div class="footer">median 1.25 ms</div></div>
+          <div class="card"><div class="label">gc this tick</div><div class="value">0.0 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">tick</div><div class="value text-bright">#21 994</div><div class="footer">4 npc · 0 proj · 1 dust</div></div>
+        </div>
+
+        <div class="nowplaying">
+          <span class="badge"><span class="led"></span>now playing</span>
+          <div class="segments">
+            <span class="seg"><span class="name">Forest Purity visit</span><span class="dur">2m 04s</span></span>
+            <span class="seg"><span class="name">Run #2</span><span class="dur">1m 21s</span></span>
+            <span class="seg"><span class="name">Blood Moon</span><span class="dur">38s</span></span>
+          </div>
+          <span class="right">top: Verdant 0.41 ms/t</span>
+        </div>
+
+        <div class="health">
+          <div class="h-line">
+            <span class="muted" style="letter-spacing: 0.05em; text-transform: uppercase; font-size: 0.85em;">Profiler Health</span>
+            <span>10 261 / 10 261 hooks · 36.8 KB/hook</span>
+            <span class="right text-good">healthy · 1.02× baseline</span>
+          </div>
+          <div class="h-bar"><span></span></div>
+        </div>
+
+        <div class="main">
+          <div class="impact">
+            <div class="head"><span>Impact Share</span><span>18 mods · sorted by composite</span></div>
+            <div class="body">
+              <div class="donut">
+                <div class="center"><span class="pct">39 %</span>CheatSheet<div class="ms">1.0 ms</div></div>
+              </div>
+              <div class="legend">
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--pink);"></span><span class="name">CheatSheet</span><span>39.1 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--purple);"></span><span class="name">Verdant</span><span>31.7 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--active-text);"></span><span class="name">PerformanceProfi…</span><span>11.8 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--danger);"></span><span class="name">TheBindingOfRarria</span><span>6.2 %</span></div>
+                <div class="row"><span style="display:inline-block; width:0.6em; height:0.6em; background: var(--teal);"></span><span class="name">ModLiquidLib</span><span>2.5 %</span></div>
+                <div class="row muted"><span></span><span class="name">+ 13 more (≤ 2 % each)</span><span>8.7 %</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="top-c">
+            <div class="head"><span>Top Contributors</span><span class="muted" style="font-size:0.78em">cpu · alloc · spike</span></div>
+            <div class="crow"><span class="name">CheatSheet</span><span class="mini cpu"><span style="width:100%"></span></span><span class="mini alloc"><span style="width:8%"></span></span><span class="mini spike"><span style="width:0%"></span></span><span class="text-bright">1.0</span></div>
+            <div class="crow"><span class="name">Verdant</span><span class="mini cpu"><span style="width:81%"></span></span><span class="mini alloc"><span style="width:14%"></span></span><span class="mini spike"><span style="width:0%"></span></span><span class="text-bright">0.8</span></div>
+            <div class="crow"><span class="name">PerformanceProf…</span><span class="mini cpu"><span style="width:30%"></span></span><span class="mini alloc"><span style="width:10%"></span></span><span class="mini spike"><span style="width:0%"></span></span><span class="text-bright">0.3</span></div>
+            <div class="crow"><span class="name">TheBindingOfRarria</span><span class="mini cpu"><span style="width:16%"></span></span><span class="mini alloc"><span style="width:60%"></span></span><span class="mini spike"><span style="width:0%"></span></span><span class="text-bright">0.2</span></div>
+            <div class="crow"><span class="name">ModLiquidLib</span><span class="mini cpu"><span style="width:7%"></span></span><span class="mini alloc"><span style="width:90%"></span></span><span class="mini spike"><span style="width:0%"></span></span><span class="text-bright">0.1</span></div>
+          </div>
+        </div>
+
+        <div class="ranking">
+          <div class="head">
+            <div class="left">
+              <span style="text-transform: uppercase; letter-spacing: 0.05em;">sort by</span>
+              <span class="segctl">
+                <button class="active">composite</button><button>cpu</button><button>spike</button><button>alloc</button>
+              </span>
+            </div>
+            <div class="right" style="display:flex; gap:0.5em; align-items:center;">
+              <span style="text-transform: uppercase; letter-spacing: 0.04em;">show:</span>
+              <span class="segctl">
+                <button class="active">outliers</button><button>all 18</button>
+              </span>
+            </div>
+          </div>
+          <div class="outliers">
+            <div class="modrow hero"><span class="rank">1</span><span class="name"><span class="swatch" style="background:var(--pink)"></span>CheatSheet</span><span class="bar"><span style="width: 100%"></span></span><span class="value">1.03 <span class="unit">ms</span></span></div>
+            <div class="modrow hero"><span class="rank">2</span><span class="name"><span class="swatch" style="background:var(--purple)"></span>Verdant</span><span class="bar"><span style="width: 81%"></span></span><span class="value">0.84 <span class="unit">ms</span></span></div>
+            <div class="modrow hero"><span class="rank">3</span><span class="name"><span class="swatch" style="background:var(--active-text)"></span>PerformanceProfiler</span><span class="bar"><span style="width: 30%"></span></span><span class="value">0.31 <span class="unit">ms</span></span></div>
+            <div class="collapse-bar">
+              <span>15 mods within ±20 % of median</span>
+              <span class="toggle">▸ expand</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="section-notes">
+    <div class="note"><strong>Now playing</strong>always-on strip; reads from <code>SegmentDetector.OpenSegments</code></div>
+    <div class="note"><strong>Outlier ranking</strong>hides the "boring middle" by default — top + bottom outliers shown, median band collapsed</div>
+    <div class="note"><strong>Multi-axis bars</strong>three mini-bars per contributor row visualise the composite weight</div>
+    <div class="note"><strong>Segmented controls</strong>buttons own their hit-box rectangles — no draw / hit-test drift</div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     DESIGN 3 : Mission Control
+     ========================================================================= -->
+<section class="design-section">
+  <div class="section-head">
+    <span class="index">3</span>
+    <h2>Mission Control — btop-style density</h2>
+    <span class="tagline">multi-pane grid, frame chart as hero</span>
+  </div>
+  <p class="section-desc">
+    Inspired by the same family of tools the README calls out ("btop, but
+    for your modlist"). Frame-time becomes the hero region with a full
+    chart; everything else flexes around it as small panes. Lots of data
+    per square inch, all in their own bounded grid cells so resizing
+    rebalances rather than overlaps. At ~880 px the right rail stacks
+    underneath. Less ceremony, more signal.
+  </p>
+
+  <div class="ui-frame">
+    <div class="game-panel d3">
+
+      <div class="gp-header">
+        <div class="title">Performance Profiler</div>
+        <span class="pill">NOW</span>
+        <span class="pill active"><span class="led"></span>LIVE</span>
+        <span class="pill">DEFAULT</span>
+      </div>
+
+      <div class="gp-tabs">
+        <div class="tabs">
+          <div class="tab active">Dashboard</div>
+          <div class="tab">Tree</div>
+          <div class="tab">Timeline</div>
+          <div class="tab">Lag</div>
+          <div class="tab">Insights</div>
+          <div class="tab">Self</div>
+        </div>
+        <span class="pill active">CPU</span>
+      </div>
+
+      <div class="gp-body">
+        <div class="stat-strip">
+          <div class="card"><div class="label">this tick</div><div class="value">1.33 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">avg 30 s</div><div class="value">1.23 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">median</div><div class="value">1.25 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">p99 30 s</div><div class="value text-amber">8.4 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">gc</div><div class="value">0.0 <span class="muted" style="font-size:0.7em">ms</span></div></div>
+          <div class="card"><div class="label">tick</div><div class="value text-bright">#21 994</div></div>
+        </div>
+
+        <div class="frame-hero">
+          <div class="head"><span>Frame Time · last 60 s</span><span>spike threshold 4× median</span></div>
+          <div class="chart">
+            <svg viewBox="0 0 100 26" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
+              <polyline points="0,22 4,22 8,21 12,20 16,21 20,4 24,22 28,21 32,22 36,21 40,22 44,21 48,22 52,21 56,22 60,21 64,22 68,21 72,12 76,22 80,21 84,22 88,21 92,22 96,21 100,8" fill="none" stroke="#79c0ff" stroke-width="0.6"/>
+              <line x1="0" y1="16" x2="100" y2="16" stroke="#1f2329" stroke-width="0.3" stroke-dasharray="0.6,0.6"/>
+            </svg>
+          </div>
+          <div class="legend">
+            <span><span class="dot" style="background:#79c0ff"></span>frame</span>
+            <span><span class="dot" style="background:#f5b342"></span>spike</span>
+            <span><span class="dot" style="background:#c39ad8"></span>gc pause</span>
+            <span style="margin-left:auto" class="muted">6 spikes · 2 stalls</span>
+          </div>
+        </div>
+
+        <div class="right-rail">
+          <div class="mini-card">
+            <div class="head">Profiler Health</div>
+            <div style="display:grid; grid-template-columns: 1fr auto; gap: 0.2em; font-size: 0.9em;">
+              <span class="muted">hooks</span><span class="text-good">10 261 / 10 261</span>
+              <span class="muted">install</span><span>369 MB</span>
+              <span class="muted">bytes/hook</span><span class="text-good">36.8 KB · healthy</span>
+              <span class="muted">backend</span><span style="color: var(--active-text)">ilhook</span>
+            </div>
+          </div>
+          <div class="mini-card">
+            <div class="head">Impact Share</div>
+            <div style="display: grid; grid-template-columns: 7em 1fr; gap: 0.5em; align-items: center;">
+              <div class="donut" style="--d-size: 6.5em;"><div class="center"><span class="pct" style="font-size:1.1em">39%</span></div></div>
+              <div style="font-size: 0.85em; display:flex; flex-direction: column; gap: 0.1em;">
+                <span><span style="display:inline-block; width:0.5em;height:0.5em;background:var(--pink); margin-right:0.4em;"></span>CheatSheet 39 %</span>
+                <span><span style="display:inline-block; width:0.5em;height:0.5em;background:var(--purple); margin-right:0.4em;"></span>Verdant 32 %</span>
+                <span><span style="display:inline-block; width:0.5em;height:0.5em;background:var(--active-text); margin-right:0.4em;"></span>PerfProfiler 12 %</span>
+                <span class="muted">+ 15 more</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="ranking">
+          <div class="head">Mod Ranking · composite</div>
+          <div class="modrow"><span class="rank">1</span><span class="name"><span class="swatch" style="background:var(--pink)"></span>CheatSheet</span><span class="bar"><span style="width: 100%"></span></span><span class="value">1.03</span></div>
+          <div class="modrow"><span class="rank">2</span><span class="name"><span class="swatch" style="background:var(--purple)"></span>Verdant</span><span class="bar"><span style="width: 81%"></span></span><span class="value">0.84</span></div>
+          <div class="modrow"><span class="rank">3</span><span class="name"><span class="swatch" style="background:var(--active-text)"></span>PerformanceProfiler</span><span class="bar"><span style="width: 30%"></span></span><span class="value">0.31</span></div>
+          <div class="modrow"><span class="rank">4</span><span class="name"><span class="swatch" style="background:var(--danger)"></span>TheBindingOfRarria</span><span class="bar"><span style="width: 16%"></span></span><span class="value">0.16</span></div>
+          <div class="modrow"><span class="rank">5</span><span class="name"><span class="swatch" style="background:var(--teal)"></span>ModLiquidLib</span><span class="bar"><span style="width: 7%"></span></span><span class="value">0.07</span></div>
+        </div>
+
+        <div class="events">
+          <div class="head">Recent Events</div>
+          <div class="feed">
+            <div class="ev"><span class="glyph text-danger">☠</span><span class="what">Run #1 closed · died in Forest Purity</span><span class="when">2m ago</span></div>
+            <div class="ev"><span class="glyph text-amber">⚡</span><span class="what">spike 24 ms · top Arsenal_Mod 0.8 ms</span><span class="when">3m ago</span></div>
+            <div class="ev"><span class="glyph text-good">✓</span><span class="what">Eye of Cthulhu fight ended · 17s</span><span class="when">5m ago</span></div>
+            <div class="ev"><span class="glyph">↺</span><span class="what">Forest Purity → Desert Purity</span><span class="when">7m ago</span></div>
+            <div class="ev"><span class="glyph text-amber">⚡</span><span class="what">spike 13 ms · top CheatSheet 1.6 ms</span><span class="when">9m ago</span></div>
+            <div class="ev"><span class="glyph text-danger">⏸</span><span class="what">stall 1105 ms · CheatSheet</span><span class="when">11m ago</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="section-notes">
+    <div class="note"><strong>Hero chart</strong>frame-time chart owns the most pixels; you read it first</div>
+    <div class="note"><strong>Right rail</strong>health + impact share collapsed into compact pills; full detail one tab over</div>
+    <div class="note"><strong>Events feed</strong>recent segment-closes / spikes / stalls / transitions; the live history at a glance</div>
+    <div class="note"><strong>Reflow</strong>at &lt;880 px the right rail stacks under the chart; ranking + events become full-width rows</div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     DESIGN 4 : Adaptive Cockpit
+     ========================================================================= -->
+<section class="design-section">
+  <div class="section-head">
+    <span class="index">4</span>
+    <h2>Adaptive Cockpit — the layout reads the room</h2>
+    <span class="tagline">hero pane reflects what's loud right now</span>
+  </div>
+  <p class="section-desc">
+    The overlay learns what matters this moment and reshapes accordingly.
+    Pinned frame-time chart at the top so you always have the heartbeat.
+    The big <strong>hero pane</strong> is contextual: showing the most-recent
+    spike when one just landed; the active boss fight while one is alive;
+    the current segment otherwise. Mod ranking lives on the right rail as a
+    quieter, always-visible spine. Cards below the hero respond to state
+    too — "death analysis" appears only after a death, "spike chasers"
+    only during/after a spike cluster, etc.
+  </p>
+
+  <div class="ui-frame">
+    <div class="game-panel d4">
+
+      <div class="gp-header">
+        <div class="title">Performance Profiler</div>
+        <span class="pill">NOW</span>
+        <span class="pill active"><span class="led"></span>LIVE</span>
+        <span class="pill">DEFAULT</span>
+      </div>
+
+      <div class="gp-tabs">
+        <div class="tabs">
+          <div class="tab active">Now</div>
+          <div class="tab">Trees</div>
+          <div class="tab">Timeline</div>
+          <div class="tab">Insights</div>
+        </div>
+        <span class="pill active">CPU</span>
+      </div>
+
+      <div class="gp-body">
+
+        <div class="pinned-chart">
+          <span class="label">frame · 60s</span>
+          <div class="chart">
+            <svg viewBox="0 0 100 16" preserveAspectRatio="none" style="width:100%; height:100%; display:block;">
+              <polyline points="0,12 5,11 10,12 15,11 20,2 25,12 30,11 35,12 40,11 45,12 50,11 55,12 60,11 65,12 70,7 75,11 80,12 85,11 90,12 95,11 100,4" fill="none" stroke="#79c0ff" stroke-width="0.6"/>
+            </svg>
+          </div>
+          <div class="right">
+            <span class="now">1.33 ms</span>
+            <span class="avg">avg 1.23</span>
+          </div>
+        </div>
+
+        <div class="hero">
+          <div class="heading">⚡ spike just landed</div>
+          <div class="headline">24 ms frame at tick #5 430 — <span class="num">19×</span> over baseline</div>
+          <div class="breakdown">
+            <div class="row"><span>Arsenal_Mod</span><span class="text-amber">0.8 ms (3 %)</span></div>
+            <div class="row"><span>CheatSheet</span><span>1.6 ms (7 %)</span></div>
+            <div class="row"><span>Verdant</span><span>0.8 ms (3 %)</span></div>
+            <div class="row"><span class="muted">unattributed (vanilla / GC)</span><span class="muted">20.8 ms (87 %)</span></div>
+          </div>
+          <div class="footer">↳ click for full spike-window drilldown · 5 other spikes in last 60s</div>
+        </div>
+
+        <div class="ctx-cards">
+          <div class="card">
+            <div class="heading">currently in</div>
+            <div class="big">Forest Purity</div>
+            <div class="sub">2m 04s · top: Verdant 0.41 ms/t</div>
+          </div>
+          <div class="card">
+            <div class="heading">current run</div>
+            <div class="big">Run #2</div>
+            <div class="sub">1m 21s since last death</div>
+          </div>
+          <div class="card">
+            <div class="heading">profiler health</div>
+            <div class="big text-good">healthy</div>
+            <div class="sub">36.8 KB/hook · 1.02× baseline</div>
+          </div>
+          <div class="card">
+            <div class="heading">stalls 30 s</div>
+            <div class="big">0</div>
+            <div class="sub">last cluster 11m ago · CheatSheet</div>
+          </div>
+        </div>
+
+        <div class="modstrip">
+          <div class="head">live mods</div>
+          <div class="vrow"><span class="name"><span class="swatch" style="background:var(--pink);"></span>CheatSheet</span><span class="ms">1.03</span></div>
+          <div class="vrow"><span class="name"><span class="swatch" style="background:var(--purple);"></span>Verdant</span><span class="ms">0.84</span></div>
+          <div class="vrow"><span class="name"><span class="swatch" style="background:var(--active-text);"></span>PerfProfiler</span><span class="ms">0.31</span></div>
+          <div class="vrow"><span class="name"><span class="swatch" style="background:var(--danger);"></span>TheBindingOf…</span><span class="ms">0.16</span></div>
+          <div class="vrow dim"><span class="name"><span class="swatch" style="background:var(--teal);"></span>ModLiquidLib</span><span class="ms">0.07</span></div>
+          <div class="vrow dim"><span class="name"><span class="swatch" style="background:var(--bar-cpu);"></span>Arsenal_Mod</span><span class="ms">0.05</span></div>
+          <div class="vrow dim"><span class="name"><span class="swatch" style="background:var(--amber);"></span>RecipeBrowser</span><span class="ms">0.04</span></div>
+          <div class="vrow dim"><span class="name"><span class="swatch" style="background:var(--amber);"></span>MagicStorage</span><span class="ms">0.04</span></div>
+          <div class="vrow dim"><span class="name"><span class="swatch" style="background:var(--good);"></span>BossChecklist</span><span class="ms">0.04</span></div>
+          <div class="vrow dim"><span class="name muted">+ 9 quiet mods</span><span class="ms muted">0.04</span></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="section-notes">
+    <div class="note"><strong>Hero is state-driven</strong>spike-recent, boss-active, death-just-fired all have their own hero treatment</div>
+    <div class="note"><strong>Frame chart pinned</strong>never scrolls away — the heartbeat stays glanceable</div>
+    <div class="note"><strong>Mod strip</strong>vertical right-rail with dim/lit rows; "active" = recently lit, "dim" = below outlier threshold</div>
+    <div class="note"><strong>Tabs fewer</strong>4 instead of 7 — the cockpit collapses Summary / Tree / Lag into "Now"</div>
+  </div>
+</section>
+
+<!-- =========================================================================
+     DESIGN 5 : Timeline-First
+     ========================================================================= -->
+<section class="design-section">
+  <div class="section-head">
+    <span class="index">5</span>
+    <h2>Timeline-First — your session as the navigation</h2>
+    <span class="tagline">past + now as a chip strip; click a chip to drill in</span>
+  </div>
+  <p class="section-desc">
+    The biggest aesthetic leap. The whole overlay is reorganised around
+    the segment timeline — every minute of play is a coloured chip across
+    the top of the panel, with "now" pulsing on the right edge. Clicking
+    any chip drills into that segment's retrospective; live data shows
+    automatically when you click the "now" chip. Stat cards demote to
+    inline header pills. Reads like a play history rather than a system
+    dashboard — closer to how players actually think about their
+    session.
+  </p>
+
+  <div class="ui-frame">
+    <div class="game-panel d5">
+
+      <div class="gp-header compact">
+        <div class="title">Performance Profiler</div>
+        <span class="stat">tick <span class="v">1.33</span><span class="muted" style="font-size:0.85em">ms</span></span>
+        <span class="stat">avg <span class="v">1.23</span><span class="muted" style="font-size:0.85em">ms</span></span>
+        <span class="stat">gc <span class="v">0.0</span></span>
+        <span class="stat">tick <span class="v" style="color:#fff">#21 994</span></span>
+        <span></span>
+        <span class="pill active"><span class="led"></span>LIVE</span>
+      </div>
+
+      <div class="gp-tabs">
+        <div class="tabs">
+          <div class="tab active">Timeline</div>
+          <div class="tab">Mods</div>
+          <div class="tab">Insights</div>
+          <div class="tab">Self</div>
+        </div>
+        <span class="pill active">CPU</span>
+      </div>
+
+      <div class="gp-body">
+
+        <div class="tl">
+          <div class="label">
+            <span>your session so far · 17 segments</span>
+            <span>scroll →</span>
+          </div>
+          <div class="strip">
+            <div class="chip run"><span class="name">Run #1</span><span class="meta">53s · 1.15 ms/t</span></div>
+            <div class="chip boss"><span class="name">EoC fight</span><span class="meta">17s · died</span></div>
+            <div class="chip biome"><span class="name">Forest Purity</span><span class="meta">2m 42s</span></div>
+            <div class="chip event"><span class="name">Blood Moon</span><span class="meta">14m 23s</span></div>
+            <div class="chip biome"><span class="name">Desert Purity</span><span class="meta">1m 47s</span></div>
+            <div class="chip biome"><span class="name">Forest Corrupt</span><span class="meta">3m 11s</span></div>
+            <div class="chip run"><span class="name">Run #2</span><span class="meta">1m 21s · live</span></div>
+            <div class="chip now"><span class="name">▶ now</span><span class="meta">Forest Purity</span></div>
+          </div>
+        </div>
+
+        <div class="row">
+
+          <div class="current">
+            <div class="head">Now</div>
+            <div class="name">Forest Purity visit</div>
+            <div class="meta">
+              <span>elapsed <b>2m 04s</b></span>
+              <span>ticks <b>7 432</b></span>
+              <span>avg <b>1.27 ms/t</b></span>
+              <span>spikes <b class="text-amber">2</b></span>
+              <span>vs lifetime <b class="text-good">−7 %</b></span>
+            </div>
+            <div>
+              <div class="modrow"><span class="rank">1</span><span class="name"><span class="swatch" style="background:var(--purple)"></span>Verdant</span><span class="bar"><span style="width:90%"></span></span><span class="value">0.41 <span class="unit">ms/t</span></span></div>
+              <div class="modrow"><span class="rank">2</span><span class="name"><span class="swatch" style="background:var(--pink)"></span>CheatSheet</span><span class="bar"><span style="width:65%"></span></span><span class="value">0.30 <span class="unit">ms/t</span></span></div>
+              <div class="modrow"><span class="rank">3</span><span class="name"><span class="swatch" style="background:var(--active-text)"></span>PerformanceProfiler</span><span class="bar"><span style="width:25%"></span></span><span class="value">0.12 <span class="unit">ms/t</span></span></div>
+              <div class="modrow"><span class="rank">4</span><span class="name"><span class="swatch" style="background:var(--danger)"></span>TheBindingOfRarria</span><span class="bar"><span style="width:14%"></span></span><span class="value">0.07 <span class="unit">ms/t</span></span></div>
+              <div class="modrow"><span class="rank">5</span><span class="name muted"><span class="swatch" style="background:var(--teal)"></span>+ 14 quiet mods</span><span class="bar"><span style="width:3%"></span></span><span class="value muted">≤ 0.05</span></div>
+            </div>
+          </div>
+
+          <div class="loud">
+            <div class="head">What's loud right now</div>
+            <div class="item"><span class="glyph text-amber">⚡</span><span class="what">spike 8 ms · tick #6 142 · Verdant 0.6 ms</span><span class="muted" style="font-size:0.82em">12s ago</span></div>
+            <div class="item"><span class="glyph text-amber">⚡</span><span class="what">spike 10 ms · tick #5 980 · Arsenal_Mod 0.4</span><span class="muted" style="font-size:0.82em">36s ago</span></div>
+            <div class="item"><span class="glyph text-good">↗</span><span class="what">Verdant cost up 18 % this segment</span><span class="muted" style="font-size:0.82em">1m</span></div>
+            <div class="item"><span class="glyph muted">↺</span><span class="what">entered Forest Purity from Desert Purity</span><span class="muted" style="font-size:0.82em">2m</span></div>
+            <div class="item"><span class="glyph text-good">✓</span><span class="what">EoC fight ended · victory · 17s</span><span class="muted" style="font-size:0.82em">5m</span></div>
+            <div class="item"><span class="glyph text-danger">⏸</span><span class="what">stall 1.1 s · CheatSheet</span><span class="muted" style="font-size:0.82em">11m</span></div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="section-notes">
+    <div class="note"><strong>Timeline as nav</strong>chips own the routing — clicking a past chip flips the "Now" panel to the historical view</div>
+    <div class="note"><strong>Stat cards demoted</strong>inline header pills; less chrome, more content</div>
+    <div class="note"><strong>"Loud right now"</strong>events feed scoped to the current segment</div>
+    <div class="note"><strong>Reflow</strong>chips disappear from the right as space gets tight; below 700 px the row splits to single column</div>
+  </div>
+</section>
+
+<div class="page-footer">
+  Performance Profiler · UI design candidates 1 · 2026-05-21<br>
+  Drag any mockup's bottom-right corner. Everything stays where it should.
+</div>
+
+</div>
+</body>
+</html>

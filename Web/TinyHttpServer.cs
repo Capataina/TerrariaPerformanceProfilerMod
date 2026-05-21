@@ -1,0 +1,311 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+
+namespace PerformanceProfiler.Web;
+
+/// <summary>
+/// Minimal HTTP/1.1 server built on raw <see cref="TcpListener"/>.
+///
+/// <para>
+/// <b>Why hand-rolled instead of <see cref="HttpListener"/>.</b> Windows'
+/// <c>HttpListener</c> goes through the <c>http.sys</c> kernel driver, which
+/// refuses to bind for non-admin users unless an URL ACL has been configured
+/// via <c>netsh http add urlacl</c>. That breaks the "load → F10 → browser"
+/// seamless contract — players don't run admin commands to use a Terraria
+/// mod. <see cref="TcpListener"/> is a raw socket on the userspace TCP/IP
+/// stack; no admin needed on any port ≥ 1024 on any platform we target.
+/// </para>
+///
+/// <para>
+/// <b>Scope.</b> Loopback-only (127.0.0.1), GET-only, plain HTTP/1.1,
+/// connection-close per response, single-threaded accept loop with a small
+/// thread-per-request fan-out for the prototype. Sufficient for the
+/// dashboard polling case (a handful of <c>fetch</c> calls per second from
+/// one client) and explicitly NOT a general-purpose server. If the design
+/// ever grows (concurrent dashboards, big payloads, websockets) we revisit
+/// then.
+/// </para>
+///
+/// <para>
+/// <b>Lifecycle.</b> Constructed in <c>Mod.Load</c>, disposed in
+/// <c>Mod.Unload</c>. Binds to the first free port in
+/// <see cref="PortRangeStart"/>..<see cref="PortRangeEnd"/>. The chosen URL
+/// is exposed via <see cref="Url"/> for the keybind / chat command to read.
+/// </para>
+/// </summary>
+public sealed class TinyHttpServer : IDisposable
+{
+    /// <summary>First port to try. Hunts upward until one binds free.</summary>
+    public const int PortRangeStart = 7777;
+    /// <summary>Inclusive upper bound of the bind-port search.</summary>
+    public const int PortRangeEnd   = 7787;
+
+    private readonly TcpListener _listener;
+    private readonly Thread _acceptThread;
+    private readonly Action<string, Exception?> _log;
+    private readonly Func<HttpRequest, HttpResponse> _route;
+
+    private volatile bool _stopping;
+
+    /// <summary>The full URL the dashboard lives at. Loopback-only.</summary>
+    public string Url { get; }
+
+    /// <summary>The bound TCP port; useful for diagnostics.</summary>
+    public int Port { get; }
+
+    public TinyHttpServer(Func<HttpRequest, HttpResponse> route,
+                          Action<string, Exception?>? log = null)
+    {
+        _route = route;
+        _log = log ?? ((_, _) => { });
+
+        (int port, TcpListener listener) = BindFirstFreePort();
+        Port = port;
+        _listener = listener;
+        Url = $"http://127.0.0.1:{port}/";
+
+        _acceptThread = new Thread(AcceptLoop)
+        {
+            IsBackground = true,
+            Name = "PerfProfiler/HTTP",
+        };
+        _acceptThread.Start();
+
+        _log($"TinyHttpServer listening at {Url}", null);
+    }
+
+    /// <summary>
+    /// Walks <see cref="PortRangeStart"/>..<see cref="PortRangeEnd"/> and
+    /// returns the first <see cref="TcpListener"/> we can bind on
+    /// <see cref="IPAddress.Loopback"/>. Throws if every port in the range
+    /// is occupied — at that point another process (or another tML
+    /// session?) is already using all of them and the player needs to
+    /// resolve it manually.
+    /// </summary>
+    private static (int, TcpListener) BindFirstFreePort()
+    {
+        for (int port = PortRangeStart; port <= PortRangeEnd; port++)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, port);
+            try
+            {
+                listener.Start();
+                return (port, listener);
+            }
+            catch (SocketException)
+            {
+                // Port busy — try next.
+            }
+        }
+        throw new InvalidOperationException(
+            $"No free TCP port in range {PortRangeStart}..{PortRangeEnd}; " +
+            "another process is using all of them.");
+    }
+
+    private void AcceptLoop()
+    {
+        while (!_stopping)
+        {
+            TcpClient client;
+            try
+            {
+                client = _listener.AcceptTcpClient();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Listener disposed during Stop(); clean exit.
+                return;
+            }
+            catch (SocketException) when (_stopping)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _log("TinyHttpServer accept loop hit non-stop exception", ex);
+                continue;
+            }
+
+            // Thread-per-request is fine at the scale we expect (a handful
+            // of polls per second). If we ever serve more we revisit with
+            // an async pump, but the dashboard's read pattern doesn't justify
+            // that complexity today.
+            var t = new Thread(() => HandleClient(client))
+            {
+                IsBackground = true,
+                Name = "PerfProfiler/HTTP-req",
+            };
+            t.Start();
+        }
+    }
+
+    private void HandleClient(TcpClient client)
+    {
+        try
+        {
+            using (client)
+            using (var stream = client.GetStream())
+            {
+                // Per-request read timeout so a misbehaving client can't
+                // pin a request thread forever.
+                stream.ReadTimeout = 5000;
+                stream.WriteTimeout = 5000;
+
+                HttpRequest? req = TryReadRequest(stream);
+                if (req == null) return;
+
+                HttpResponse resp;
+                try
+                {
+                    resp = _route(req);
+                }
+                catch (Exception ex)
+                {
+                    _log($"TinyHttpServer route threw for {req.Path}", ex);
+                    resp = HttpResponse.PlainText(500, $"Internal error: {ex.GetType().Name}: {ex.Message}");
+                }
+                WriteResponse(stream, resp);
+            }
+        }
+        catch (IOException) { /* client hung up */ }
+        catch (SocketException) { /* same */ }
+        catch (Exception ex)
+        {
+            _log("TinyHttpServer request handler exception", ex);
+        }
+    }
+
+    private static HttpRequest? TryReadRequest(NetworkStream stream)
+    {
+        // Read until "\r\n\r\n" (end of headers). We never read a body —
+        // GET-only for the prototype.
+        var buffer = new byte[8192];
+        int total = 0;
+        int headerEnd = -1;
+        while (total < buffer.Length)
+        {
+            int n;
+            try { n = stream.Read(buffer, total, buffer.Length - total); }
+            catch { return null; }
+            if (n <= 0) break;
+            total += n;
+            headerEnd = IndexOfHeaderEnd(buffer, total);
+            if (headerEnd >= 0) break;
+        }
+        if (headerEnd < 0) return null;
+
+        string head = Encoding.ASCII.GetString(buffer, 0, headerEnd);
+        string[] lines = head.Split("\r\n");
+        if (lines.Length == 0) return null;
+
+        string[] requestLine = lines[0].Split(' ');
+        if (requestLine.Length < 3) return null;
+
+        string method = requestLine[0];
+        string target = requestLine[1];
+        // Strip any query string for prototype routing simplicity.
+        string path = target;
+        int q = target.IndexOf('?');
+        if (q >= 0) path = target.Substring(0, q);
+
+        return new HttpRequest(method, path, target);
+    }
+
+    private static int IndexOfHeaderEnd(byte[] buf, int len)
+    {
+        for (int i = 0; i + 3 < len; i++)
+        {
+            if (buf[i] == (byte)'\r' && buf[i+1] == (byte)'\n' &&
+                buf[i+2] == (byte)'\r' && buf[i+3] == (byte)'\n')
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static void WriteResponse(NetworkStream stream, HttpResponse resp)
+    {
+        var sb = new StringBuilder(256);
+        sb.Append("HTTP/1.1 ").Append(resp.Status).Append(' ').Append(StatusText(resp.Status)).Append("\r\n");
+        sb.Append("Content-Type: ").Append(resp.ContentType).Append("\r\n");
+        sb.Append("Content-Length: ").Append(resp.Body.Length).Append("\r\n");
+        // Loopback-only so a permissive CORS header is harmless; eases dev-time
+        // tinkering where the player edits the dashboard HTML and reloads.
+        sb.Append("Access-Control-Allow-Origin: *\r\n");
+        // No caching — every poll should return fresh state.
+        sb.Append("Cache-Control: no-store\r\n");
+        sb.Append("Connection: close\r\n");
+        sb.Append("\r\n");
+
+        byte[] header = Encoding.ASCII.GetBytes(sb.ToString());
+        stream.Write(header, 0, header.Length);
+        stream.Write(resp.Body, 0, resp.Body.Length);
+        stream.Flush();
+    }
+
+    private static string StatusText(int s) => s switch
+    {
+        200 => "OK",
+        404 => "Not Found",
+        500 => "Internal Server Error",
+        _   => "OK",
+    };
+
+    public void Dispose()
+    {
+        _stopping = true;
+        try { _listener.Stop(); } catch { /* swallow */ }
+        // Give the accept loop a moment to exit cleanly.
+        try { _acceptThread.Join(500); } catch { /* swallow */ }
+    }
+}
+
+/// <summary>Inbound HTTP request, parsed to the minimum we need.</summary>
+public sealed class HttpRequest
+{
+    public string Method { get; }
+    public string Path { get; }
+    public string RawTarget { get; }
+
+    public HttpRequest(string method, string path, string rawTarget)
+    {
+        Method = method;
+        Path = path;
+        RawTarget = rawTarget;
+    }
+}
+
+/// <summary>Outbound HTTP response. Body is bytes so binary assets fit too.</summary>
+public sealed class HttpResponse
+{
+    public int Status { get; }
+    public string ContentType { get; }
+    public byte[] Body { get; }
+
+    public HttpResponse(int status, string contentType, byte[] body)
+    {
+        Status = status;
+        ContentType = contentType;
+        Body = body;
+    }
+
+    public static HttpResponse Html(string html) =>
+        new HttpResponse(200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(html));
+
+    public static HttpResponse Json(string json) =>
+        new HttpResponse(200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes(json));
+
+    public static HttpResponse PlainText(int status, string text) =>
+        new HttpResponse(status, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(text));
+
+    public static readonly HttpResponse NotFound =
+        PlainText(404, "Not Found");
+}

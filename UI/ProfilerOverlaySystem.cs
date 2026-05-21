@@ -22,6 +22,9 @@ public sealed class ProfilerOverlaySystem : ModSystem
     /// </summary>
     public static ModKeybind? ToggleKeybind { get; private set; }
 
+    /// <summary>The F10 keybind that opens the browser dashboard. Polled by <c>ProfilerPlayer.ProcessTriggers</c>.</summary>
+    public static ModKeybind? DashboardKeybind { get; private set; }
+
     private UserInterface? _userInterface;
     private ProfilerOverlay? _overlay;
     private bool _visible;
@@ -29,6 +32,7 @@ public sealed class ProfilerOverlaySystem : ModSystem
     public override void OnModLoad()
     {
         ToggleKeybind = KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", "F9");
+        DashboardKeybind = KeybindLoader.RegisterKeybind(Mod, "OpenDashboard", "F10");
 
         // The UserInterface is client-only; a dedicated server has no UI.
         if (!Main.dedServ)
@@ -40,6 +44,7 @@ public sealed class ProfilerOverlaySystem : ModSystem
     public override void OnModUnload()
     {
         ToggleKeybind = null;
+        DashboardKeybind = null;
         _userInterface = null;
         _overlay = null;
     }

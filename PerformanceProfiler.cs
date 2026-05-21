@@ -1,12 +1,14 @@
 #nullable enable
 
 using System;
+using System.Diagnostics;
 using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.UI;
+using PerformanceProfiler.Web;
 
 namespace PerformanceProfiler;
 
@@ -35,6 +37,15 @@ public class PerformanceProfiler : Mod
     /// in <see cref="Unload"/>. Null if the mod hasn't loaded yet.
     /// </summary>
     public static log4net.ILog? LoggerOrNull { get; private set; }
+
+    /// <summary>
+    /// Local HTTP dashboard server. Loopback-only (127.0.0.1), bound at
+    /// <see cref="Load"/>, disposed at <see cref="Unload"/>. Null if the
+    /// bind failed (every port in the search range busy); in that case
+    /// the F10 keybind prints a failure message and the rest of the mod
+    /// keeps working.
+    /// </summary>
+    public static TinyHttpServer? Dashboard { get; private set; }
 
     public override void Load()
     {
@@ -67,6 +78,27 @@ public class PerformanceProfiler : Mod
             Database = null;
             Logger.Warn($"Profiler DB unavailable this session ({ex.GetType().Name}: {ex.Message}); the overlay still works in-memory only.");
         }
+
+        // v0.8 step 1 prototype: start the loopback HTTP dashboard server.
+        // TcpListener-based, no admin needed, binds 127.0.0.1:7777 (or the
+        // next free port up to 7787). F10 in-game opens the default browser
+        // to the chosen URL.
+        try
+        {
+            Dashboard = new TinyHttpServer(
+                route: DashboardRouter.Route,
+                log: (msg, ex) =>
+                {
+                    if (ex != null) Logger.Warn($"{msg}: {ex.GetType().Name}: {ex.Message}");
+                    else Logger.Info(msg);
+                });
+            Logger.Info($"Dashboard server bound at {Dashboard.Url} (press F10 in-game to open).");
+        }
+        catch (Exception ex)
+        {
+            Dashboard = null;
+            Logger.Warn($"Dashboard server failed to start ({ex.GetType().Name}: {ex.Message}); F10 keybind will be inert.");
+        }
     }
 
     /// <summary>
@@ -79,6 +111,19 @@ public class PerformanceProfiler : Mod
     public override void Unload()
     {
         ILHookInterceptor.Uninstall();
+
+        // Stop the HTTP dashboard server before the DB so the route handler
+        // can't call into a half-disposed DB on the way out.
+        try
+        {
+            Dashboard?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"Dashboard server dispose failed: {ex.GetType().Name}: {ex.Message}");
+        }
+        Dashboard = null;
+
         try
         {
             Database?.Dispose();
@@ -105,7 +150,16 @@ public class ProfilerPlayer : ModPlayer
         // tModLoader clears the chat during the load-to-in-game transition, so a
         // message printed there is wiped before the player sees it.
         Main.NewText("Performance Profiler ready. Press F9 for the overlay.", 255, 220, 100);
-        Mod.Logger.Info("OnEnterWorld fired; overlay hotkey announced.");
+
+        // v0.8 step 1: announce the dashboard URL so the player knows the
+        // browser route exists. Mentioning F10 is enough — Process.Start
+        // handles browser launch.
+        string? url = PerformanceProfiler.Dashboard?.Url;
+        if (url != null)
+        {
+            Main.NewText($"Browser dashboard available at {url} (press F10 to open).", 180, 220, 255);
+        }
+        Mod.Logger.Info("OnEnterWorld fired; overlay + dashboard hotkeys announced.");
     }
 
     public override void ProcessTriggers(TriggersSet triggersSet)
@@ -115,6 +169,48 @@ public class ProfilerPlayer : ModPlayer
         if (toggle != null && toggle.JustPressed)
         {
             ModContent.GetInstance<ProfilerOverlaySystem>().ToggleVisibility();
+        }
+
+        ModKeybind? dashboard = ProfilerOverlaySystem.DashboardKeybind;
+        if (dashboard != null && dashboard.JustPressed)
+        {
+            OpenDashboardInBrowser();
+        }
+    }
+
+    /// <summary>
+    /// Launches the player's default browser at the local dashboard URL.
+    /// Uses <c>Process.Start</c> with <c>UseShellExecute = true</c> — the
+    /// same pattern WikiThis uses, which is established Workshop-approved
+    /// practice (see <c>tModLoader/tModLoader#4223</c> for the precedent
+    /// discussion). Falls back to a chat message with the URL if the
+    /// shell can't open it (Linux quirks, missing default browser, etc).
+    /// </summary>
+    private static void OpenDashboardInBrowser()
+    {
+        TinyHttpServer? server = PerformanceProfiler.Dashboard;
+        if (server == null)
+        {
+            Main.NewText("Dashboard server not running — see client.log.", 255, 120, 120);
+            return;
+        }
+        string url = server.Url;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true,
+            });
+            PerformanceProfiler.LoggerOrNull?.Info($"Browser dashboard launched: {url}");
+        }
+        catch (Exception ex)
+        {
+            // Shell open failed (rare on Win/Mac, more common on Linux).
+            // Print the URL so the player can copy/paste manually.
+            Main.NewText($"Couldn't auto-open browser. Visit {url} manually.", 255, 220, 100);
+            PerformanceProfiler.LoggerOrNull?.Warn(
+                $"Process.Start({url}) failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }
