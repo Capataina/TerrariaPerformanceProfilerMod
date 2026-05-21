@@ -69,17 +69,19 @@ public sealed class ProfilerConfig : ModConfig
     /// death, invasion end, blood moon, etc). Off = silent; segments still
     /// land in the Timeline tab regardless. Default on.
     /// </summary>
-    [DefaultValue(true)]
-    public bool EnableRetrospectiveToasts { get; set; } = true;
+    [DefaultValue(false)]
+    public bool EnableRetrospectiveToasts { get; set; } = false;
 
     /// <summary>
     /// Always-visible "Now Playing" widget showing currently-open segments
     /// (which biome you're in, which boss is alive, weather events, etc).
     /// Anchored top-left of the screen; visible even with the F9 overlay
-    /// closed. Default on.
+    /// closed. Off by default — the widget needs more design work before
+    /// it earns its always-on slot (v0.7.2). Re-enable in Mod Config when
+    /// the visual treatment lands.
     /// </summary>
-    [DefaultValue(true)]
-    public bool EnableNowPlayingPanel { get; set; } = true;
+    [DefaultValue(false)]
+    public bool EnableNowPlayingPanel { get; set; } = false;
 
     /// <summary>
     /// Called by tModLoader whenever the user changes a value in the config

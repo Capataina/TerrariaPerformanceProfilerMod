@@ -73,6 +73,10 @@ internal sealed class SegmentDetector
     private int _bookmarkIndex;
     private long _lastCombatHitTick = -1L;
 
+    // Composite biome name resolved each tick from the active bitset; read
+    // by OpenIfAbsent when it allocates the (single) biome composite segment.
+    private string _biomeCompositeName = string.Empty;
+
     public SegmentDetector(ObjectId sessionId, ISegmentSink sink)
     {
         _sessionId = sessionId;
@@ -100,17 +104,25 @@ internal sealed class SegmentDetector
         int categoryCount = PerModAttribution.CategoryCount;
 
         // --- 1. Compute new active key sets from EventContext -----------------
+        // v0.7.2: biomes collapse to ONE composite segment per tick. The
+        // active set ("Forest" + "Purity") becomes a single key/name; when
+        // the set changes (e.g. enter Corruption while leaving Purity)
+        // the composite closes and a new composite opens. One transition,
+        // one Timeline row, regardless of how many bits flipped.
+        //
+        // _activeBiome holds the composite-key as a single entry; the
+        // scratch sweep code reuses the same HashSet machinery without
+        // a per-bit ceremony.
         _activeBiome.Clear();
-        for (int i = 0; i < BiomeRegistry.Count; i++)
+        int compositeKey = ComputeBiomeComposite(in ctx.Biomes, out string compositeName);
+        if (compositeKey != 0)
         {
-            if (!ctx.Biomes.IsSet(i)) continue;
-            // Skip "no-zone default" biomes (Purity is the always-on
-            // not-in-evil-biome marker; segmenting it just produces a
-            // shadow of every other biome segment). Forest is left in
-            // because it tracks a real "I'm on the surface" zone that
-            // closes when the player descends.
-            if (IsNoZoneDefault(i)) continue;
-            _activeBiome.Add(i);
+            _activeBiome.Add(compositeKey);
+            _biomeCompositeName = compositeName;
+        }
+        else
+        {
+            _biomeCompositeName = string.Empty;
         }
 
         _activeWeather.Clear();
@@ -357,7 +369,11 @@ internal sealed class SegmentDetector
         OpenSegment seg = Rent(modCount);
         seg.Family = family;
         seg.Key = key;
-        seg.Name = SegmentNameTable.For(family, key);
+        // Biome composites store their human-readable name on the side
+        // because the key is a hash and SegmentNameTable can't reverse it.
+        seg.Name = family == SegmentFamily.Biome && !string.IsNullOrEmpty(_biomeCompositeName)
+            ? _biomeCompositeName + " visit"
+            : SegmentNameTable.For(family, key);
         seg.StartTick = tickIndex;
         seg.StartUnixMs = unixMs;
         _open[composite] = seg;
@@ -454,16 +470,33 @@ internal sealed class SegmentDetector
     }
 
     /// <summary>
-    /// True when the biome at <paramref name="bitIndex"/> is a "default no-zone"
-    /// marker — currently just "Purity", which is on in every area that
-    /// isn't corruption/crimson/hallow. Without this skip the Timeline would
-    /// show a Purity segment paralleling every other biome segment.
+    /// Folds the full active biome bitset into a single composite (key, name)
+    /// pair. Key is an FNV-1a hash of the sorted bit ids — stable across
+    /// ticks for the same set, distinct for different sets, fits in an int.
+    /// Name is the corresponding biome display names joined with spaces
+    /// (sorted by id), e.g. "Forest Purity" or "Desert Corruption Underground".
+    /// Returns 0 / empty when no biome is active.
     /// </summary>
-    private static bool IsNoZoneDefault(int bitIndex)
+    private static int ComputeBiomeComposite(in BiomeBitset bitset, out string compositeName)
     {
-        if (bitIndex < 0 || bitIndex >= BiomeRegistry.Biomes.Count) return false;
-        string name = BiomeRegistry.Biomes[bitIndex].DisplayName;
-        return name == "Purity";
+        int count = BiomeRegistry.Count;
+        uint hash = 2166136261u; // FNV-1a offset basis
+        var sb = new System.Text.StringBuilder(64);
+        bool any = false;
+        for (int i = 0; i < count; i++)
+        {
+            if (!bitset.IsSet(i)) continue;
+            hash = (hash ^ (uint)i) * 16777619u; // FNV-1a prime
+            if (any) sb.Append(' ');
+            sb.Append(BiomeRegistry.Biomes[i].DisplayName);
+            any = true;
+        }
+        if (!any) { compositeName = string.Empty; return 0; }
+        compositeName = sb.ToString();
+        // Mask to positive int — the SegmentRow.Key field is int.
+        int key = unchecked((int)(hash & 0x7FFFFFFFu));
+        // 0 is reserved for "no biome"; if FNV collides into 0, nudge to 1.
+        return key == 0 ? 1 : key;
     }
 }
 
