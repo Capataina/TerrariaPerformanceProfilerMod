@@ -72,6 +72,14 @@ internal static partial class DashboardRouter
             "/api/heatmap"       => HttpResponse.Json(BuildHeatmap()),
             "/api/events"        => HttpResponse.Json(BuildEvents()),
 
+            "/api/segment-lifetime"         => HttpResponse.Json(BuildSegmentLifetime()),
+            "/api/segment-mod-attribution"  => HttpResponse.Json(BuildSegmentModAttribution()),
+            "/api/transitions"              => HttpResponse.Json(BuildTransitions()),
+            "/api/activity-strip"           => HttpResponse.Json(BuildActivityStrip()),
+            "/api/attendance"               => HttpResponse.Json(BuildAttendance()),
+            "/api/deaths"                   => HttpResponse.Json(BuildDeaths()),
+            "/api/chronicle"                => HttpResponse.Json(BuildChronicle()),
+
             _                    => HttpResponse.NotFound,
         };
     }

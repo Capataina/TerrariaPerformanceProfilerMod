@@ -11,6 +11,7 @@ using PerformanceProfiler.Profiling.Persistence.Records;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Detectors.Insights;
 using PerformanceProfiler.Data.Stats;
@@ -50,6 +51,8 @@ internal static partial class DashboardRouter
                     family = s.Family.ToString(),
                     key = s.Key,
                     name = s.Name,
+                    startUnixMs = s.StartUnixMs,
+                    startTick = s.StartTick,
                     elapsedMs = nowUnix - s.StartUnixMs,
                     ticks = s.Ticks,
                     spikeCount = s.SpikeCount,
@@ -88,6 +91,7 @@ internal static partial class DashboardRouter
                     name = s.Name,
                     startUnixMs = s.StartUnixMs,
                     endUnixMs = s.EndUnixMs,
+                    startTick = s.StartTick,
                     durationMs = s.DurationMs,
                     ticks = s.Ticks,
                     avgFrameMs = s.AvgFrameMs,
@@ -112,16 +116,9 @@ internal static partial class DashboardRouter
 
     // ----------------------------------------------------------------------
     // /api/events — pre-merged events feed (segments + spikes + stalls).
-    // Used to be assembled in JS by joining /api/segments + /api/spikes;
-    // moved server-side so it's a single endpoint and the dashboard
-    // doesn't need to re-merge on every render.
     // ----------------------------------------------------------------------
     private static string BuildEvents()
     {
-        // v0.9.x unified data pipeline migration step 4. The router no
-        // longer merges segments + spikes + stalls — that math is owned
-        // by EventsFeedStat, which calls into the pure-logic
-        // EventsFeed.Build. Router just serialises the snapshot.
         var snap = Data.DataRegistry.Shared
             .Lookup<Data.Stats.EventsFeedSnapshot>(Data.Stats.EventsFeedStat.StreamName)?
             .CurrentSnapshot() ?? Data.Stats.EventsFeedSnapshot.Empty;
@@ -141,6 +138,274 @@ internal static partial class DashboardRouter
         {
             worldLoaded = snap.WorldLoaded,
             events = serialised,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/segment-lifetime — per-segment lifetime baseline + delta. T1+T2.
+    //
+    // Returns a flat list of recently-closed segments paired with their
+    // lifetime mean and the deviation of this segment vs the running
+    // average. The Gantt UI uses delta to outlier-mark a block; the detail
+    // pane reads lifetime samples to qualify the badge.
+    // ----------------------------------------------------------------------
+    private static string BuildSegmentLifetime()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<SegmentLifetimeSnapshot>(RolloutStreamNames.SegmentLifetime)?
+            .CurrentSnapshot() ?? SegmentLifetimeSnapshot.Empty;
+
+        var entries = new List<object>(snap.Recent?.Count ?? 0);
+        if (snap.Recent != null)
+        {
+            foreach (var e in snap.Recent)
+            {
+                entries.Add(new
+                {
+                    segmentStartTick = e.SegmentStartTick,
+                    family = ((SegmentFamily)e.Family).ToString(),
+                    key = e.Key,
+                    name = e.Name,
+                    lifetimeAvgMs = e.LifetimeAvgMs,
+                    lifetimeSampleCount = e.LifetimeSampleCount,
+                    thisSegmentAvgMs = e.ThisSegmentAvgMs,
+                    deltaFraction = e.DeltaFraction,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            entries,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/segment-mod-attribution — per-segment per-mod ms attribution. T1.
+    //
+    // The Gantt block's inline waterfall and the detail pane drill both
+    // read from this. Mod ids are dereferenced into names server-side so
+    // the renderer does not need to cross-join against /api/mods.
+    // ----------------------------------------------------------------------
+    private static string BuildSegmentModAttribution()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<SegmentModAttributionSnapshot>(RolloutStreamNames.SegmentModAttribution)?
+            .CurrentSnapshot() ?? SegmentModAttributionSnapshot.Empty;
+
+        string[] modNames = HookInterceptor.ProfiledModNames;
+        var entries = new List<object>(snap.Recent?.Count ?? 0);
+        if (snap.Recent != null)
+        {
+            foreach (var e in snap.Recent)
+            {
+                var ids = e.ModIds;
+                var ms = e.ModMs;
+                int n = ids != null && ms != null ? Math.Min(ids.Count, ms.Count) : 0;
+                var perMod = new List<object>(n);
+                for (int i = 0; i < n; i++)
+                {
+                    int id = ids![i];
+                    perMod.Add(new
+                    {
+                        modId = id,
+                        modName = id >= 0 && id < modNames.Length ? modNames[id] : "mod:" + id,
+                        ms = ms![i],
+                    });
+                }
+                entries.Add(new
+                {
+                    segmentStartTick = e.SegmentStartTick,
+                    family = ((SegmentFamily)e.Family).ToString(),
+                    key = e.Key,
+                    perMod,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            entries,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/transitions — context transitions for the transition track. T3.
+    // ----------------------------------------------------------------------
+    private static string BuildTransitions()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<TransitionTrackSnapshot>(RolloutStreamNames.TransitionTrack)?
+            .CurrentSnapshot() ?? TransitionTrackSnapshot.Empty;
+
+        var transitions = new List<object>(snap.Transitions?.Count ?? 0);
+        if (snap.Transitions != null)
+        {
+            foreach (var t in snap.Transitions)
+            {
+                transitions.Add(new
+                {
+                    unixMs = t.UnixMs,
+                    tickIndex = t.TickIndex,
+                    type = t.Type,
+                    from = t.From,
+                    to = t.To,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            transitions,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/activity-strip — minute-bucketed activity heat strip. T4.
+    // ----------------------------------------------------------------------
+    private static string BuildActivityStrip()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<ActivityHeatStripSnapshot>(RolloutStreamNames.ActivityHeatStrip)?
+            .CurrentSnapshot() ?? ActivityHeatStripSnapshot.Empty;
+
+        var minutes = new List<object>(snap.Minutes?.Count ?? 0);
+        if (snap.Minutes != null)
+        {
+            foreach (var m in snap.Minutes)
+            {
+                minutes.Add(new
+                {
+                    minuteIndex = m.MinuteIndex,
+                    unixMs = m.UnixMs,
+                    segmentCount = m.SegmentCount,
+                    spikeCount = m.SpikeCount,
+                    stallCount = m.StallCount,
+                    avgFrameMs = m.AvgFrameMs,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            minutes,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/attendance — per-mod context attendance roll-up. T5.
+    // ----------------------------------------------------------------------
+    private static string BuildAttendance()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<AttendanceSnapshot>(RolloutStreamNames.Attendance)?
+            .CurrentSnapshot() ?? AttendanceSnapshot.Empty;
+
+        var byMod = new List<object>(snap.ByMod?.Count ?? 0);
+        if (snap.ByMod != null)
+        {
+            foreach (var e in snap.ByMod)
+            {
+                byMod.Add(new
+                {
+                    modId = e.ModId,
+                    modName = e.ModName,
+                    biomeTicks = e.BiomeTicks,
+                    invasionCount = e.InvasionCount,
+                    bossSegmentCount = e.BossSegmentCount,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            totalBiomeTicks = snap.TotalBiomeTicks,
+            moddedBiomeTicks = snap.ModdedBiomeTicks,
+            totalInvasions = snap.TotalInvasions,
+            totalBossSegments = snap.TotalBossSegments,
+            byMod,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/deaths — per-death 30s pre-window replay strips. T6.
+    // ----------------------------------------------------------------------
+    private static string BuildDeaths()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<DeathReplaySnapshot>(RolloutStreamNames.DeathReplay)?
+            .CurrentSnapshot() ?? DeathReplaySnapshot.Empty;
+
+        string[] modNames = HookInterceptor.ProfiledModNames;
+        var deaths = new List<object>(snap.Deaths?.Count ?? 0);
+        if (snap.Deaths != null)
+        {
+            foreach (var d in snap.Deaths)
+            {
+                var events = new List<object>(d.Events?.Count ?? 0);
+                if (d.Events != null)
+                {
+                    foreach (var ev in d.Events)
+                    {
+                        events.Add(new
+                        {
+                            offsetMs = ev.OffsetMs,
+                            kind = ev.Kind,
+                            label = ev.Label,
+                            modId = ev.ModId,
+                            modName = ev.ModId >= 0 && ev.ModId < modNames.Length ? modNames[ev.ModId] : null,
+                            magnitude = ev.Magnitude,
+                        });
+                    }
+                }
+                deaths.Add(new
+                {
+                    deathUnixMs = d.DeathUnixMs,
+                    deathTickIndex = d.DeathTickIndex,
+                    primaryBiome = d.PrimaryBiome,
+                    primaryBoss = d.PrimaryBoss,
+                    finalDamageModId = d.FinalDamageModId,
+                    finalDamageModName = d.FinalDamageModId >= 0 && d.FinalDamageModId < modNames.Length ? modNames[d.FinalDamageModId] : null,
+                    finalDamageSource = d.FinalDamageSource,
+                    finalDamageAmount = d.FinalDamageAmount,
+                    events,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            deaths,
+        }, JsonOpts);
+    }
+
+    // ----------------------------------------------------------------------
+    // /api/chronicle — session chronicle lines. T7.
+    // ----------------------------------------------------------------------
+    private static string BuildChronicle()
+    {
+        var snap = Data.DataRegistry.Shared
+            .Lookup<SessionChronicleSnapshot>(RolloutStreamNames.SessionChronicle)?
+            .CurrentSnapshot() ?? SessionChronicleSnapshot.Empty;
+
+        var lines = new List<object>(snap.Lines?.Count ?? 0);
+        if (snap.Lines != null)
+        {
+            foreach (var l in snap.Lines)
+            {
+                lines.Add(new
+                {
+                    unixMs = l.UnixMs,
+                    tickIndex = l.TickIndex,
+                    kind = l.Kind,
+                    text = l.Text,
+                });
+            }
+        }
+        return JsonSerializer.Serialize(new
+        {
+            worldLoaded = snap.WorldLoaded,
+            lines,
         }, JsonOpts);
     }
 }

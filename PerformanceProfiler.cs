@@ -154,6 +154,29 @@ public class PerformanceProfiler : Mod
         r.Register(new Data.Collectors.ModRosterScanner());
         r.Register(new Data.Aggregators.PerModUsageAggregator());
         r.Register(new Data.Aggregators.PerModCostTimeSeriesAggregator());
+
+        // v0.12 Timeline data layer.
+        r.Register(new Data.Aggregators.Segments.SegmentLifetimeStat());
+        r.Register(new Data.Aggregators.Segments.SegmentModAttributionStat());
+        r.Register(new Data.Stats.TransitionTrackStat());
+        r.Register(new Data.Aggregators.SessionActivityHeatStripAggregator());
+        r.Register(new Data.Stats.PerModContextAttendanceStat());
+        r.Register(new Data.Stats.DeathReplayStat());
+        r.Register(new Data.Stats.SessionChronicleStat());
+
+        // v0.12 Lag data layer.
+        r.Register(new Data.Aggregators.LagFingerprintAggregator());
+        r.Register(new Data.Stats.GcPressureStat());
+        r.Register(new Data.Stats.PerSegmentLagDensityStat());
+        r.Register(new Data.Stats.AllocationCausalityStat());
+        r.Register(new Data.Aggregators.LagRhythmAggregator());
+
+        // v0.12 Insights data layer.
+        r.Register(new Data.Stats.ModObservatoryStat());
+        r.Register(new Data.Stats.DormantSurfaceStat());
+        r.Register(new Data.Stats.CrossCuttingSignalStat());
+        r.Register(new Data.Stats.EngagementCostScatterStat());
+        r.Register(new Data.Aggregators.ModInteractionAggregator());
     }
 
     public override void Unload()
