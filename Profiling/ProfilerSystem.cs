@@ -28,10 +28,20 @@ public sealed class ProfilerSystem : ModSystem
     private const int HistoryCapacity = 30 * 60;
 
     /// <summary>
-    /// The per-tick measuring engine, live only while a world is loaded. The UI
-    /// reads this to draw the overlay. Null between worlds.
+    /// The per-tick measuring engine, live only while a world is loaded.
+    /// Null between worlds.
+    ///
+    /// <para>
+    /// v0.10 made this <c>internal</c> as part of the unified data pipeline
+    /// commitment: external consumers (router, UI, exporters) read state
+    /// through <see cref="Data.DataRegistry.Shared"/> by stream name, not
+    /// by reaching into the named field. Same-assembly consumers that
+    /// still need direct access (collector adapters, the per-tick
+    /// callback driver) are inside <c>Data/</c> or <c>Profiling/</c>,
+    /// where internal access is fine.
+    /// </para>
     /// </summary>
-    public MetricCollector? Collector { get; private set; }
+    internal MetricCollector? Collector { get; private set; }
 
     /// <summary>
     /// LiteDB-backed per-world recorder. Replaces the legacy JSON
