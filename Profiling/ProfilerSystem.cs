@@ -171,6 +171,22 @@ public sealed class ProfilerSystem : ModSystem
             $"{WeatherSources.All.Length} weather flags, " +
             $"subworld={(SubworldProbe.Available ? "true" : "false")}, " +
             $"modBiomeBinding={(BiomeRegistry.ModBiomeBindingOk ? "ok" : "missing")}");
+
+        // v0.12 F1 — install-time per-mod content roster scan. Walks every
+        // content loader once and produces ModRosterSnapshot. Runs here so
+        // every mod's content is registered + BiomeRegistry has its owner
+        // map before we walk it. The scanner caches its result; later
+        // Lookup calls from the dashboard read the cached snapshot.
+        try
+        {
+            var roster = Data.DataRegistry.Shared.Lookup<Data.Contracts.ModRosterSnapshot>(
+                Data.Contracts.RolloutStreamNames.ModRoster) as Data.Collectors.ModRosterScanner;
+            roster?.Scan();
+        }
+        catch (Exception ex)
+        {
+            Mod.Logger.Warn($"ModRosterScanner.Scan failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>

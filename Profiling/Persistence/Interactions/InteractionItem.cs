@@ -100,5 +100,13 @@ internal sealed class InteractionItem : GlobalItem
         row.ContextCategory = contextCategory;
         row.Stack = item.stack;
         recorder.OnItemCreated(row);
+
+        // F2: per-mod usage counter — modded items only (vanilla = no
+        // attribution). Name-keyed because OwningMod is already resolved here.
+        if (item.type >= ItemID.Count)
+        {
+            PerModUsageAggregator.Live?
+                .IncrementItemCreated(row.OwningMod);
+        }
     }
 }

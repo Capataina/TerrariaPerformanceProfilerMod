@@ -145,6 +145,15 @@ public class PerformanceProfiler : Mod
         r.Register(new Data.Stats.SpikesStat());
         r.Register(new Data.Stats.StallsStat());
         r.Register(new Data.Stats.InsightsStat());
+
+        // v0.12 foundations — F1 (per-mod install-time roster scan),
+        // F2 (per-mod session usage counters fed from event streams +
+        // per-tick context fold), F3 (1Hz per-mod cost time series).
+        // Power the Insights observatory + lag rhythm + interaction
+        // matrix and every downstream "per-mod ..." view.
+        r.Register(new Data.Collectors.ModRosterScanner());
+        r.Register(new Data.Aggregators.PerModUsageAggregator());
+        r.Register(new Data.Aggregators.PerModCostTimeSeriesAggregator());
     }
 
     public override void Unload()

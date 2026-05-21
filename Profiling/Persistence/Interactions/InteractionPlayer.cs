@@ -353,6 +353,15 @@ internal sealed class InteractionPlayer : ModPlayer
         row.OwningMod = ModOwnerCache.ForBuff(buffType);
         row.DurationTicks = -1;
         recorder.OnBuffEvent(row);
+
+        // F2: per-mod usage counter — modded buff "on" edges only.
+        // "off" edges don't add a fresh application; the same buff
+        // reapplied later will fire a new "on".
+        if (edge == "on" && buffType >= Terraria.ID.BuffID.Count)
+        {
+            PerModUsageAggregator.Live?
+                .IncrementBuffApplied(row.OwningMod);
+        }
     }
 
     private LoadoutSnapshotRow CaptureLoadout(string reason)

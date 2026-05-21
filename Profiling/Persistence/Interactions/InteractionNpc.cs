@@ -54,5 +54,24 @@ internal sealed class InteractionNpc : GlobalNPC
         row.TileY = npc.position.Y / 16f;
         row.IsBoss = npc.boss || (npc.type >= NPCID.None && npc.type < NPCID.Sets.ShouldBeCountedAsBoss.Length && NPCID.Sets.ShouldBeCountedAsBoss[npc.type]);
         recorder.OnNpcSpawn(row);
+
+        // F2: per-mod usage counter — modded NPCs only.
+        if (npc.type >= NPCID.Count)
+        {
+            PerModUsageAggregator.Live?
+                .IncrementNpcSpawned(owningMod);
+        }
+    }
+
+    /// <summary>F2 kill counter only. The kill is observed read-only; no
+    /// row is enqueued (death attribution lives in the death-replay stream).
+    /// Generic OnKill surface — Invariant 5 clean, fires for every mod's
+    /// NPCs without naming any of them.</summary>
+    public override void OnKill(NPC npc)
+    {
+        if (npc.type < NPCID.Count) return; // vanilla — no mod attribution
+        string owningMod = ModOwnerCache.ForNpc(npc.type);
+        PerModUsageAggregator.Live?
+            .IncrementNpcKilled(owningMod);
     }
 }
