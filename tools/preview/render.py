@@ -41,51 +41,62 @@ API = ["now", "mods", "hooks", "frames", "segments", "spikes", "stalls", "insigh
        "lag-rhythm", "mod-observatory", "dormant", "cross-cutting",
        "engagement-cost", "mod-interaction"]
 
-BOOT_FULL = r"""
-// Preview-only bootstrap. Reveals every pane and forces all renders so one tall
-// screenshot is the whole dashboard; unlocks the fixed-height scroll regions so
-// nothing is clipped. Injected by the harness, never shipped in the mod.
-(function () {
-  function go() {
-    document.querySelectorAll('.tab-pane').forEach(function (p) {
-      p.classList.add('active'); p.style.display = 'block';
+_UNLOCK = ("'.app{height:auto!important}'+"
+           "'.content{overflow:visible!important;height:auto!important;max-height:none!important}'+"
+           "'.modtable,.mem-table-wrap,.lag-table-wrap,.dtable,.events,.nowlist{max-height:none!important;overflow:visible!important}'+"
+           "'.overlay-state{display:none!important}'")
+
+# Some tabs (Lag) load via their own poll, gated on the tab being active and
+# only on an interval. So before rendering we cycle switchTab() through every
+# tab and fire every poll, which populates all the data, then reveal/render.
+_PUMP = """
+  var TABS = ['summary','timeline','lag','insights','self','memory'];
+  var POLLS = ['pollNow','pollDetail','pollHooks','pollSelf','pollHeatmap','pollLagData','pollMemory'];
+  function pump() {
+    TABS.forEach(function (x) {
+      try { if (typeof switchTab === 'function') switchTab(x); } catch (e) {}
+      POLLS.forEach(function (p) { try { if (typeof window[p] === 'function') window[p](); } catch (e) {} });
     });
+  }
+"""
+
+BOOT_FULL = r"""
+// Preview bootstrap: pump every tab's data, then reveal all panes + render all
+// for one tall printout. Unlocks fixed-height scroll regions. Harness-only.
+(function () {
+%s
+  function reveal() {
+    document.querySelectorAll('.tab-pane').forEach(function (p) { p.classList.add('active'); p.style.display = 'block'; });
     var s = document.createElement('style');
-    s.textContent =
-      '.app{height:auto!important}' +
-      '.content{overflow:visible!important;height:auto!important;max-height:none!important}' +
-      '.modtable,.mem-table-wrap,.lag-table-wrap,.dtable,.events,.nowlist{max-height:none!important;overflow:visible!important}' +
-      '.overlay-state{display:none!important}' +
-      '.tab-pane{border-top:1px solid #1b2028;padding-top:10px;margin-top:6px}';
+    s.textContent = %s + '.tab-pane{border-top:1px solid #1b2028;padding-top:10px;margin-top:6px}';
     document.head.appendChild(s);
-    ['renderSummary', 'renderTimeline', 'renderLag', 'renderInsights', 'renderSelf', 'renderMemory']
+    ['renderSummary','renderTimeline','renderLag','renderInsights','renderSelf','renderMemory']
       .forEach(function (fn) { try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {} });
     document.title = 'PREVIEW READY';
   }
-  setTimeout(go, 1200);
+  setTimeout(pump, 300);
+  setTimeout(reveal, 2600);
 })();
-"""
+""" % (_PUMP, _UNLOCK)
 
 BOOT_TAB = r"""
 (function () {
-  function go() {
-    var t = '%s';
+  var t = '%%s';
+%s
+  function show() {
+    try { if (typeof switchTab === 'function') switchTab(t); } catch (e) {}
     document.querySelectorAll('.tab-pane').forEach(function (p) {
-      var on = p.dataset.pane === t; p.classList.toggle('active', on);
-      p.style.display = on ? 'block' : 'none';
+      var on = p.dataset.pane === t; p.classList.toggle('active', on); p.style.display = on ? 'block' : 'none';
     });
-    if (typeof window.activeTab !== 'undefined') window.activeTab = t;
-    var s = document.createElement('style');
-    s.textContent = '.app{height:auto!important}.content{overflow:visible!important;height:auto!important;max-height:none!important}' +
-      '.modtable,.mem-table-wrap,.lag-table-wrap,.dtable,.events,.nowlist{max-height:none!important;overflow:visible!important}.overlay-state{display:none!important}';
-    document.head.appendChild(s);
+    var s = document.createElement('style'); s.textContent = %s; document.head.appendChild(s);
     var fn = 'render' + t.charAt(0).toUpperCase() + t.slice(1);
     try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {}
     document.title = 'PREVIEW READY';
   }
-  setTimeout(go, 1200);
+  setTimeout(pump, 300);
+  setTimeout(show, 2600);
 })();
-"""
+""" % (_PUMP, _UNLOCK)
 
 
 def read(p):
@@ -180,7 +191,7 @@ def serve(port):
     return httpd
 
 
-def shoot(url, out_png, w, h, budget=4500):
+def shoot(url, out_png, w, h, budget=9000):
     """Chrome --headless=new writes the PNG then sometimes fails to exit; kill it
     after the screenshot lands and report success on file existence, not exit."""
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
