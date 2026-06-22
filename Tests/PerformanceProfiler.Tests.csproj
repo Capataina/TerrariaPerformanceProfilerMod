@@ -16,10 +16,12 @@
     deliberately avoid a ProjectReference to the mod project because that
     would drag tModLoader assemblies into the test runner.
 
-    When you add a test fixture for a new pure-logic source file, add the
-    file to the Compile Include list AND ensure that file genuinely has no
-    Terraria.ModLoader references. If it does, mock the dependency or test
-    a lower-level helper instead.
+    Linked-source paths track the v0.10/v0.11 reorganisation that moved every
+    stream-shaped class from Profiling/ into Data/. When you add a test fixture
+    for a new pure-logic source file, add the file to the Compile Include list
+    at its current Data/ or Profiling/ location AND ensure that file genuinely
+    has no Terraria.ModLoader references. If it does, mock the dependency or
+    test a lower-level helper instead.
   -->
 
   <PropertyGroup>
@@ -45,31 +47,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Test files in this folder. -->
+    <!-- Test files in this folder (includes the folded-in
+         HookInstallRetentionDiagnostics.cs — pure System/Xunit, no mod deps). -->
     <Compile Include="**\*.cs" Exclude="bin\**;obj\**" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Pure-logic source files lifted in from the mod project. Each entry's
          file must have zero Terraria.ModLoader dependencies (verified per add).
-         The Events bitsets / flags / invasion / boss / mode files are dragged
-         in because TickFrame carries an EventContext field; they're all pure
-         data types themselves. -->
+         v0.10/v0.11 moved the stream-shaped classes Profiling/ -> Data/; paths
+         below point at the current locations (the Events bitsets / flags /
+         invasion / boss / mode files stayed in Profiling/Events/). -->
     <Compile Include="..\Profiling\RingBuffer.cs" Link="Source\RingBuffer.cs" />
-    <Compile Include="..\Profiling\PerModSample.cs" Link="Source\PerModSample.cs" />
-    <Compile Include="..\Profiling\PerModAttribution.cs" Link="Source\PerModAttribution.cs" />
+    <Compile Include="..\Data\Aggregators\PerModSample.cs" Link="Source\PerModSample.cs" />
+    <Compile Include="..\Data\Aggregators\PerModAttribution.cs" Link="Source\PerModAttribution.cs" />
     <Compile Include="..\Profiling\TickFrame.cs" Link="Source\TickFrame.cs" />
-    <Compile Include="..\Profiling\Baseline.cs" Link="Source\Baseline.cs" />
-    <Compile Include="..\Profiling\StallDetector.cs" Link="Source\StallDetector.cs" />
+    <Compile Include="..\Data\Stats\Baseline.cs" Link="Source\Baseline.cs" />
+    <Compile Include="..\Data\Detectors\StallDetector.cs" Link="Source\StallDetector.cs" />
     <Compile Include="..\Profiling\Events\BiomeBitset.cs" Link="Source\Events\BiomeBitset.cs" />
     <Compile Include="..\Profiling\Events\WeatherFlags.cs" Link="Source\Events\WeatherFlags.cs" />
     <Compile Include="..\Profiling\Events\InvasionId.cs" Link="Source\Events\InvasionId.cs" />
     <Compile Include="..\Profiling\Events\GameMode.cs" Link="Source\Events\GameMode.cs" />
     <Compile Include="..\Profiling\Events\BossSlotArray.cs" Link="Source\Events\BossSlotArray.cs" />
     <Compile Include="..\Profiling\Events\EventContext.cs" Link="Source\Events\EventContext.cs" />
-    <Compile Include="..\Profiling\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
-    <Compile Include="..\Profiling\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
-    <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+    <Compile Include="..\Data\Detectors\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
+    <Compile Include="..\Data\Detectors\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
+    <Compile Include="..\Data\Detectors\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification
@@ -83,12 +86,15 @@
     <Compile Include="..\Profiling\Util\BoolIndex.cs" Link="Source\Util\BoolIndex.cs" />
     <Compile Include="..\Profiling\EnumStringTable.cs" Link="Source\EnumStringTable.cs" />
 
-    <!-- Persistence sources. These reference LiteDB only (no tModLoader),
-         so they lift cleanly into the test runner. ProfilerDatabase,
-         every stream, the writer thread, the journal, all records. -->
+    <!-- Persistence sources. ProfilerDatabase, records, writer, journal stayed
+         under Profiling/Persistence/; the per-collection STREAM classes moved to
+         Data/Streams/ in v0.11. ProfilerDatabase references StreamRegistry, so
+         Data/Streams/ must be linked. All reference LiteDB only (no tModLoader);
+         the streams' inert Data.Collectors / Data.Aggregators.Segments header
+         usings resolve against the empty stubs in _TestNamespaceStubs.cs. -->
     <Compile Include="..\Profiling\Persistence\*.cs" Link="Source\Persistence\%(Filename)%(Extension)" />
     <Compile Include="..\Profiling\Persistence\Records\*.cs" Link="Source\Persistence\Records\%(Filename)%(Extension)" />
-    <Compile Include="..\Profiling\Persistence\Streams\*.cs" Link="Source\Persistence\Streams\%(Filename)%(Extension)" />
+    <Compile Include="..\Data\Streams\*.cs" Link="Source\Streams\%(Filename)%(Extension)" />
     <!-- Files that reference Terraria types must be excluded from the
          test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
          imports legacy JSON via game-runtime calls, ProfilerCompactCommand
@@ -99,12 +105,12 @@
     <Compile Remove="..\Profiling\Persistence\LegacyJsonImporter.cs" />
     <Compile Remove="..\Profiling\Persistence\ProfilerCompactCommand.cs" />
     <Compile Remove="..\Profiling\Persistence\ModlistFingerprint.cs" />
-    <!-- SessionRecorder + TickDownsampler + ContextTransitionWatcher all
-         depend on MetricCollector + SpikeWindow which transitively pull
-         in HookInterceptor and a Terraria entry point. They're integration
-         code; the persistence-layer tests exercise the writer + streams
-         directly without them. -->
-    <Compile Remove="..\Profiling\Persistence\SessionRecorder.cs" />
+    <!-- SessionRecorder (now Data/Streams/) + TickDownsampler + ContextTransitionWatcher
+         + WorldSnapshotter + PlayerDeathDetector + SessionSummaryLogger all depend
+         on MetricCollector + SpikeWindow which transitively pull in HookInterceptor
+         and a Terraria entry point. They're integration code; the persistence-layer
+         tests exercise the writer + records directly. -->
+    <Compile Remove="..\Data\Streams\SessionRecorder.cs" />
     <Compile Remove="..\Profiling\Persistence\TickDownsampler.cs" />
     <Compile Remove="..\Profiling\Persistence\ContextTransitionWatcher.cs" />
     <Compile Remove="..\Profiling\Persistence\WorldSnapshotter.cs" />

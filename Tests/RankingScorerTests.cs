@@ -1,6 +1,6 @@
 #nullable enable
 
-using PerformanceProfiler.Profiling.Insights;
+using PerformanceProfiler.Data.Detectors.Insights;
 using Xunit;
 
 namespace PerformanceProfiler.Tests;

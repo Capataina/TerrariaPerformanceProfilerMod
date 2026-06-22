@@ -1,6 +1,7 @@
 #nullable enable
 
 using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Data.Detectors;
 using Xunit;
 
 namespace PerformanceProfiler.Tests;

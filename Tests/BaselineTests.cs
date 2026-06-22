@@ -2,6 +2,7 @@
 
 using System;
 using PerformanceProfiler.Profiling;
+using PerformanceProfiler.Data.Stats;
 using Xunit;
 
 namespace PerformanceProfiler.Tests;
