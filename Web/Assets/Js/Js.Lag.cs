@@ -128,14 +128,20 @@ function renderLagKpiStrip() {
 // NEW: shared .rheat rectangular heatmap — rows = causeClass, cols = context.
 // Each cell shows eventCount, background = heatFill(eventCount/maxCount);
 // zero cells get .rh-cell.zero. Native title= carries the full breakdown.
+//
+// Degeneration guard: when every cluster shares one context (or context is
+// empty / '-'), a 1-column heatmap is pointless — so we fall back to a ranked
+// horizontal bar list, one row per cause (bar width = eventCount/maxCount via
+// cellBar). The genuine multi-context case (2+ distinct contexts) still gets
+// the real .rheat grid. The section header is static in IndexHtml.Lag.cs; this
+// renderer only owns #lag-heatmap-body.
 function renderLagHeatmap() {
-  const root = document.getElementById('lag-heatmap');
+  const root = document.getElementById('lag-heatmap-body');
   if (!root) return;
   const cells = (lastLagClusters && lastLagClusters.causeContext) || [];
 
   if (cells.length === 0) {
-    root.innerHTML = `<div class='lag-section-h'>cause × context · events</div>
-      <div class='lag-empty'>no events observed</div>`;
+    root.innerHTML = `<div class='lag-empty'>no events observed</div>`;
     return;
   }
 
@@ -146,6 +152,39 @@ function renderLagHeatmap() {
     if (!causeSet.has(c.causeClass)) { causeSet.add(c.causeClass); causes.push(c.causeClass); }
     if (!ctxSet.has(c.context))      { ctxSet.add(c.context);      contexts.push(c.context); }
   }
+
+  // Distinct, meaningful contexts: drop empty / '-' placeholders. If 0 or 1
+  // remain, the grid would degenerate to a single column, so render a bar list.
+  const realContexts = contexts.filter(c => c != null && c !== '' && c !== '-');
+  if (realContexts.length <= 1) {
+    // Ranked horizontal bar list: aggregate eventCount + totalMs per cause
+    // across whatever (single / placeholder) context each cluster carried.
+    const agg = new Map();
+    for (const c of cells) {
+      const a = agg.get(c.causeClass) || { eventCount: 0, totalMs: 0 };
+      a.eventCount += c.eventCount || 0;
+      a.totalMs += c.totalMs || 0;
+      agg.set(c.causeClass, a);
+    }
+    const rows = causes.map(cause => ({ cause, ...(agg.get(cause) || { eventCount: 0, totalMs: 0 }) }))
+                       .sort((a, b) => b.eventCount - a.eventCount);
+    let maxCount = 0;
+    for (const r of rows) if (r.eventCount > maxCount) maxCount = r.eventCount;
+    if (maxCount <= 0) maxCount = 1;
+    const ctxNote = realContexts.length === 1 ? ` · ${escapeHtml(realContexts[0])}` : '';
+    root.innerHTML = `<div class='lag-caption'>single context${ctxNote} · ranked by events</div>
+      <div class='lag-causebars'>` + rows.map(r => {
+        const frac = r.eventCount / maxCount;
+        const tip = `${r.cause} · ${fmtInt(r.eventCount)} events · ${fmtMs(r.totalMs)} ms total`;
+        return `<div class='lag-causebar-row' title='${escapeHtml(tip)}'>
+          <span class='lbl'>${escapeHtml(r.cause || '—')}</span>
+          <span class='bar'>${cellBar(frac, 'var(--accent)')}</span>
+          <span class='val'>${fmtInt(r.eventCount)}</span>
+        </div>`;
+      }).join('') + `</div>`;
+    return;
+  }
+
   const key = (a, b) => a + '\x1f' + b;
   const map = new Map();
   let maxCount = 0;
@@ -154,20 +193,19 @@ function renderLagHeatmap() {
     if ((c.eventCount || 0) > maxCount) maxCount = c.eventCount;
   }
 
-  // Grid: 1 row-label column + one column per context.
-  const cols = `minmax(7rem, auto) repeat(${contexts.length}, minmax(2.4rem, 1fr))`;
-  let html = `<div class='lag-section-h'>cause × context · events</div>
-    <div class='rheat lag-rheat' style='grid-template-columns:${cols}'>`;
+  // Grid: 1 row-label column + one column per real context.
+  const cols = `minmax(7rem, auto) repeat(${realContexts.length}, minmax(2.4rem, 1fr))`;
+  let html = `<div class='rheat lag-rheat' style='grid-template-columns:${cols}'>`;
 
   // Header row: empty corner + context labels.
   html += `<div class='rh-corner'></div>`;
-  for (const ctx of contexts) {
+  for (const ctx of realContexts) {
     html += `<div class='rh-col' title='${escapeHtml(ctx)}'>${escapeHtml(ctx)}</div>`;
   }
   // Body rows.
   for (const cause of causes) {
     html += `<div class='rh-row' title='${escapeHtml(cause)}'>${escapeHtml(cause)}</div>`;
-    for (const ctx of contexts) {
+    for (const ctx of realContexts) {
       const cell = map.get(key(cause, ctx));
       const count = cell ? (cell.eventCount || 0) : 0;
       const ms = cell ? (cell.totalMs || 0) : 0;
@@ -186,10 +224,21 @@ function renderLagHeatmap() {
 
 // ---------------------------------------------------------------- Cluster table
 // OLD: fingerprint galaxy (circles in 2D space, size = events, ring = share).
-// NEW: shared sortable .dtable. Columns: fingerprint, cause, context
-// (biome / weather / hardmode as .chip tokens), events, p95 (perf-tinted),
-// total ms, top mod + share (inline split bar coloured by modColor). Click
-// a row to select it (tr.sel) and fill the detail strip below.
+// NEW: shared sortable .dtable. Columns: cause + context chips, events, p95
+// (perf-tinted), total ms, top mod + share (inline split bar coloured by
+// modColor). Click a row to select it (tr.sel) and fill the detail strip below.
+//
+// The cryptic raw fingerprintId (e.g. 'Spike|m6|-||h0') is no longer a visible
+// cell — the leading column leads with the human-readable causeClass and the
+// context chips; the raw id moves into a title= tooltip on the cause cell (and
+// a dimmed secondary line in the detail strip). Selection is still keyed on
+// fingerprintId internally.
+//
+// Scroll-stability: the section header lives in IndexHtml.Lag.cs; the table is
+// written into the STABLE scroll container #lag-clusters-body via setHTML(),
+// which preserves scrollTop so a 3s poll doesn't snap the list to the top. The
+// detail strip is a separate static node (#lag-clusters-detail) replaced
+// outside the scroll container.
 function lagGalaxySort(key) {
   if (lagClusterSort.key === key) lagClusterSort.dir *= -1;
   else lagClusterSort = { key, dir: -1 };
@@ -197,13 +246,14 @@ function lagGalaxySort(key) {
 }
 
 function renderLagGalaxy() {
-  const root = document.getElementById('lag-clusters');
+  const root = document.getElementById('lag-clusters-body');
+  const detailRoot = document.getElementById('lag-clusters-detail');
   if (!root) return;
   const clusters = (lastLagClusters && lastLagClusters.clusters) || [];
 
   if (clusters.length === 0) {
-    root.innerHTML = `<div class='lag-section-h'>fingerprint clusters</div>
-      <div class='lag-empty'>no clusters yet</div>`;
+    setHTML(root, `<div class='lag-empty'>no clusters yet</div>`);
+    if (detailRoot) detailRoot.innerHTML = '';
     return;
   }
 
@@ -215,7 +265,6 @@ function renderLagGalaxy() {
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
   const head = `<thead><tr>
-    ${lagSortTh(lagClusterSort, 'fingerprintId', 'fingerprint', true, 'lagGalaxySort')}
     ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagGalaxySort')}
     <th class='l'>context</th>
     ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagGalaxySort')}
@@ -249,9 +298,11 @@ function renderLagGalaxy() {
         ${modBar}
       </div>`;
 
-    return `<tr class='clickable${sel}' onclick='lagGalaxyPick(""${escapeHtml(c.fingerprintId || '')}"")'>
-      <td class='l'>${escapeHtml(c.fingerprintId || '')}</td>
-      <td class='l'>${escapeHtml(c.causeClass || '—')}</td>
+    // Cause cell: human-readable causeClass; raw fingerprintId in the tooltip.
+    const fpId = c.fingerprintId || '';
+    const causeTip = fpId ? (c.causeClass || '—') + ' · id ' + fpId : (c.causeClass || '—');
+    return `<tr class='clickable${sel}' onclick='lagGalaxyPick(""${escapeHtml(fpId)}"")'>
+      <td class='l' title='${escapeHtml(causeTip)}'>${escapeHtml(c.causeClass || '—')}</td>
       <td class='l'>${ctxChips}</td>
       <td>${fmtInt(c.eventCount)}</td>
       <td class='${tint}'>${fmtMs(c.p95Ms)}</td>
@@ -271,8 +322,8 @@ function renderLagGalaxy() {
     details = `<div class='lag-detail'>
       <div class='ld-top'>
         <span class='ld-cause'>${escapeHtml(pick.causeClass || '—')}</span>
-        <span class='ld-fp'>${escapeHtml(pick.fingerprintId || '')}</span>
         <span class='ld-sub'>${subBits.join(' · ') || '—'}</span>
+        <span class='ld-fp' title='fingerprint id'>${escapeHtml(pick.fingerprintId || '')}</span>
       </div>
       <div class='ld-stats'>
         <span><b>${fmtInt(pick.eventCount)}</b> events</span>
@@ -285,9 +336,8 @@ function renderLagGalaxy() {
     details = `<div class='lag-hint'>click a row to inspect a fingerprint cluster</div>`;
   }
 
-  root.innerHTML = `<div class='lag-section-h'>fingerprint clusters</div>
-    <div class='lag-table-wrap'><table class='dtable'>${head}<tbody>${body}</tbody></table></div>
-    ${details}`;
+  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
+  if (detailRoot) detailRoot.innerHTML = details;
 }
 function lagGalaxyPick(fp) {
   if (!fp) return;
@@ -308,14 +358,20 @@ function lagDensitySortBy(key) {
 }
 
 function renderLagDensity() {
-  const root = document.getElementById('lag-density');
+  // Section header is static in IndexHtml.Lag.cs. The table is written into the
+  // STABLE scroll container #lag-density-body via setHTML() so a 3s poll
+  // preserves scrollTop; caption + legend are separate static nodes.
+  const root = document.getElementById('lag-density-body');
+  const capRoot = document.getElementById('lag-density-caption');
+  const legendRoot = document.getElementById('lag-density-legend');
   if (!root) return;
   const snap = lastSegmentLagDensity;
   const entries = (snap && snap.entries) || [];
 
   if (entries.length === 0) {
-    root.innerHTML = `<div class='lag-section-h'>per-segment lag density</div>
-      <div class='lag-empty'>no segments closed yet</div>`;
+    setHTML(root, `<div class='lag-empty'>no segments closed yet</div>`);
+    if (capRoot) capRoot.innerHTML = '';
+    if (legendRoot) legendRoot.innerHTML = '';
     return;
   }
 
@@ -354,10 +410,9 @@ function renderLagDensity() {
     </tr>`;
   }).join('');
 
-  root.innerHTML = `<div class='lag-section-h'>per-segment lag density</div>
-    <div class='lag-caption'>session baseline · ${baseline.toFixed(2)} events/min</div>
-    <div class='lag-table-wrap'><table class='dtable'>${head}<tbody>${body}</tbody></table></div>
-    <div class='lag-bar-legend'>${splitLegend([
+  if (capRoot) capRoot.innerHTML = `<div class='lag-caption'>session baseline · ${baseline.toFixed(2)} events/min</div>`;
+  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
+  if (legendRoot) legendRoot.innerHTML = `<div class='lag-bar-legend'>${splitLegend([
       { color: 'var(--spike)', label: 'spike' },
       { color: 'var(--stall)', label: 'stall' },
     ])}</div>`;
@@ -368,13 +423,19 @@ function renderLagDensity() {
 // NEW: a normal heap line (SVG area path) with the peak labelled, plus a
 // .statline stat block for every GC counter. Generation rates are three
 // plain labelled stat rows (no wind arrows). Respects worldLoaded.
+//
+// Y-axis is AUTO-SCALED to the heap's own min..max via seriesPaths/niceScale.
+// The managed heap sits at a near-constant ~7.6-8.0 GB band, so a 0-based axis
+// pinned the line to the very top of the box and hid all variation. seriesPaths
+// rescales to the data's own padded range; both the scaled baseline (min MB)
+// and peak (max MB) are labelled so the band the line lives in is explicit.
+// Section header is static in IndexHtml.Lag.cs; this renderer owns #lag-gc-body.
 function renderLagGcPressure() {
-  const root = document.getElementById('lag-gc');
+  const root = document.getElementById('lag-gc-body');
   if (!root) return;
   const gc = lastGcPressure;
   if (!gc || !gc.worldLoaded) {
-    root.innerHTML = `<div class='lag-section-h'>gc pressure</div>
-      <div class='lag-empty'>no gc data yet</div>`;
+    root.innerHTML = `<div class='lag-empty'>no gc data yet</div>`;
     return;
   }
 
@@ -384,33 +445,35 @@ function renderLagGcPressure() {
   for (const v of series) if (v > maxHeap) maxHeap = v;
   if (maxHeap <= 0) maxHeap = 1;
 
-  // Quiet area chart: filled path under a thin accent line, peak marked.
+  // Quiet area chart: auto-scaled filled path under a thin accent line, peak
+  // marked. seriesPaths handles the niceScale + path math; the y-axis runs the
+  // heap's own padded min..max instead of 0..max so variation is visible.
   const W = 540, H = 120, padX = 8, padTop = 16, padBot = 18;
   const innerW = W - padX * 2;
   const innerH = H - padTop - padBot;
-  function pt(i) {
-    const x = padX + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2);
-    const y = padTop + innerH - (series[i] / maxHeap) * innerH;
-    return [x, y];
-  }
-  let line = '', area = '', peakMark = '';
+  const sp = seriesPaths(series, { w: W, h: H, padX, padTop, padBot });
+  const scale = sp.scale; // { min, max } of the padded heap band
+  const span = (scale.max - scale.min) || 1;
+  function ptX(i) { return padX + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2); }
+  function ptY(v) { return padTop + innerH - ((v - scale.min) / span) * innerH; }
+
+  let peakMark = '';
   if (n > 0) {
-    const [x0, y0] = pt(0);
-    line = `M ${x0.toFixed(1)} ${y0.toFixed(1)}`;
-    for (let i = 1; i < n; i++) { const [x, y] = pt(i); line += ` L ${x.toFixed(1)} ${y.toFixed(1)}`; }
-    area = `M ${x0.toFixed(1)} ${(padTop + innerH).toFixed(1)} L ${line.slice(2)} L ${pt(n-1)[0].toFixed(1)} ${(padTop + innerH).toFixed(1)} Z`;
-    // Peak marker at the max sample.
+    // Peak marker at the max sample, placed on the same auto-scaled axis.
     let peakI = 0; for (let i = 1; i < n; i++) if (series[i] > series[peakI]) peakI = i;
-    const [px, py] = pt(peakI);
+    const px = ptX(peakI), py = ptY(series[peakI]);
     peakMark = `<circle cx='${px.toFixed(1)}' cy='${py.toFixed(1)}' r='2.5' class='gc-peak'/>
       <text x='${px.toFixed(1)}' y='${(py - 5).toFixed(1)}' class='gc-peak-l' text-anchor='middle'>${maxHeap.toFixed(1)} MB</text>`;
   }
+  // Axis labels: the scaled band's floor (left, on the baseline) and peak (top).
   const chart = `<svg class='gc-heap' viewBox='0 0 ${W} ${H}' preserveAspectRatio='none'>
       <line x1='${padX}' y1='${padTop + innerH}' x2='${W - padX}' y2='${padTop + innerH}' class='gc-baseline'/>
-      ${area ? `<path d='${area}' class='gc-area'/>` : ''}
-      ${line ? `<path d='${line}' class='gc-line'/>` : ''}
+      ${sp.area ? `<path d='${sp.area}' class='gc-area'/>` : ''}
+      ${sp.line ? `<path d='${sp.line}' class='gc-line'/>` : ''}
       ${peakMark}
       <text x='${padX}' y='${(padTop - 5).toFixed(1)}' class='gc-axis'>managed heap MB · 1Hz</text>
+      <text x='${W - padX}' y='${(padTop - 5).toFixed(1)}' class='gc-axis' text-anchor='end'>${scale.max.toFixed(0)} MB peak</text>
+      <text x='${padX}' y='${(padTop + innerH + 12).toFixed(1)}' class='gc-axis'>${scale.min.toFixed(0)} MB baseline</text>
     </svg>`;
 
   // Stat block: every GC counter as a .statline row.
@@ -430,8 +493,7 @@ function renderLagGcPressure() {
     `<div class='statline'><span class='k'>${escapeHtml(k)}</span><span class='v'>${escapeHtml(String(v))}</span></div>`
   ).join('');
 
-  root.innerHTML = `<div class='lag-section-h'>gc pressure</div>
-    <div class='lag-gc-grid'>
+  root.innerHTML = `<div class='lag-gc-grid'>
       <div class='lag-gc-stats'>${statBlock}</div>
       <div class='lag-gc-chart'>${chart}</div>
     </div>`;
@@ -445,13 +507,15 @@ function renderLagGcPressure() {
 // pauseMs, total bytes in window, freed bytes, windowMs. Keeps the empty
 // state.
 function renderLagCausality() {
-  const root = document.getElementById('lag-causality');
+  // Section header is static in IndexHtml.Lag.cs; .lag-causality-list is the
+  // STABLE scroll container, so cards are written via setHTML() to preserve
+  // scrollTop across the 3s poll.
+  const root = document.getElementById('lag-causality-body');
   if (!root) return;
   const chains = (lastAllocCausality && lastAllocCausality.chains) || [];
 
   if (chains.length === 0) {
-    root.innerHTML = `<div class='lag-section-h'>allocation → gc → freed</div>
-      <div class='lag-empty'>no gc stalls observed</div>`;
+    setHTML(root, `<div class='lag-empty'>no gc stalls observed</div>`);
     return;
   }
 
@@ -487,8 +551,7 @@ function renderLagCausality() {
     </div>`;
   }).join('');
 
-  root.innerHTML = `<div class='lag-section-h'>allocation → gc → freed</div>
-    <div class='lag-causality-list'>${cards}</div>`;
+  setHTML(root, cards);
 }
 
 // ---------------------------------------------------------------- Rhythm
@@ -498,15 +561,20 @@ function renderLagCausality() {
 // of rhythm clusters (centre ± width, events, top mod + share, share of
 // session).
 function renderLagRhythm() {
-  const root = document.getElementById('lag-rhythm');
-  if (!root) return;
+  // Section header + the two-column grid are static in IndexHtml.Lag.cs. The
+  // histogram (#lag-rhythm-hist) and the cluster table (#lag-rhythm-clusters,
+  // a .lag-table-wrap scroll container) are filled via setHTML() so a 3s poll
+  // preserves scrollTop on whichever side the user scrolled.
+  const histRoot = document.getElementById('lag-rhythm-hist');
+  const clusterRoot = document.getElementById('lag-rhythm-clusters');
+  if (!histRoot || !clusterRoot) return;
   const snap = lastLagRhythm;
   const hist = (snap && snap.histogram) || [];
   const clusters = (snap && snap.clusters) || [];
 
   if (hist.length === 0 && clusters.length === 0) {
-    root.innerHTML = `<div class='lag-section-h'>lag rhythm</div>
-      <div class='lag-empty'>not enough events for periodicity</div>`;
+    setHTML(histRoot, `<div class='lag-empty'>not enough events for periodicity</div>`);
+    setHTML(clusterRoot, '');
     return;
   }
 
@@ -549,11 +617,8 @@ function renderLagRhythm() {
       <tbody>${rows}</tbody></table>`;
   }
 
-  root.innerHTML = `<div class='lag-section-h'>lag rhythm</div>
-    <div class='lag-rhythm-grid'>
-      <div class='lag-hist'>${histHtml}</div>
-      <div class='lag-table-wrap'>${clusterTable}</div>
-    </div>`;
+  setHTML(histRoot, histHtml);
+  setHTML(clusterRoot, clusterTable);
 }
 ";
 }

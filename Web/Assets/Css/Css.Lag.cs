@@ -83,6 +83,22 @@ internal static partial class DashboardAssets
 /* ----- Cause × context heatmap (.rheat local sizing) ----- */
 .lag-rheat { align-content: start; }
 
+/* Single-context fallback: ranked horizontal bar list (one row per cause).
+   Used when there is only one distinct context, where a 1-column heatmap
+   would be pointless. Mirrors the rhythm histogram row layout. */
+.lag-causebars { display: flex; flex-direction: column; gap: 0.25rem; }
+.lag-causebar-row {
+  display: grid;
+  grid-template-columns: minmax(7rem, 12rem) 1fr 3rem;
+  gap: 0.5rem; align-items: center;
+  font-family: var(--mono); font-size: 0.74rem;
+}
+.lag-causebar-row .lbl { color: var(--text); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.lag-causebar-row .bar { display: block; }
+.lag-causebar-row .val { color: var(--text-bright); text-align: right;
+  font-variant-numeric: tabular-nums; }
+
 /* ----- Fingerprint cluster table cells ----- */
 /* Top-mod cell: name + share over a thin split bar coloured by modColor. */
 .lag-topmod { display: flex; flex-direction: column; gap: 0.12rem; min-width: 9rem; }
@@ -111,7 +127,8 @@ internal static partial class DashboardAssets
   background: var(--accent-soft);
   border-radius: 2px;
 }
-.lag-detail .ld-fp { color: var(--text); }
+/* Raw fingerprint id is now a dimmed secondary token (the cause leads). */
+.lag-detail .ld-fp { color: var(--dim); font-size: 0.7rem; }
 .lag-detail .ld-sub { color: var(--muted); font-size: 0.72rem; }
 .lag-detail .ld-stats {
   display: flex; gap: 1em; flex-wrap: wrap;

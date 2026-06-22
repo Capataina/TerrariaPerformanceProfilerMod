@@ -18,11 +18,17 @@ internal static partial class DashboardAssets
 // ====== INSIGHTS TAB ==================================================
 // The Insights tab is the per-mod observatory, rebuilt from the shared
 // readable vocabulary (split bars, perf-tinted sortable tables, chips,
-// stat lines, a rectangular heatmap) instead of bespoke metaphor charts.
+// stat lines) instead of bespoke metaphor charts.
 // Surfaces: KPI ring strip, dormant-content table (I2), mod card list
 // with a composition split bar + a tabular detail pane (I1+I3+I4), a
 // cross-cutting signal-class section list (I5), an engagement-vs-cost
-// table (I6), and a mod-pair correlation table + heatmap (I7).
+// table (I6), and a mod-pair correlation table (I7).
+//
+// Poll-stable scroll: every scrollable surface (dormant table, observatory
+// card list, detail pane, engagement table, correlation table) keeps a
+// stable inner scroll container across polls; its header stays static and
+// only the inner content is replaced via setHTML(), so scroll survives a
+// 3s poll instead of snapping to the top.
 //
 // Invariant 3: every string is descriptive. No 'should remove', no
 // 'junk'; only measurements like 'X items used of Y in roster'.
@@ -160,26 +166,43 @@ function renderInsightsKpiStrip() {
   `;
 }
 
+// Build (once) the static header + stable scroll container inside a
+// section root, returning the scroll element. The scroll element keeps a
+// stable identity across polls so setHTML() can preserve its scrollTop —
+// only its inner content is replaced each tick, never the wrapper itself.
+// hClass is the header element class, sClass the scroll container class.
+function ensureScrollSection(root, hClass, sClass) {
+  let scroll = root.querySelector('.' + sClass);
+  if (!scroll) {
+    root.innerHTML = `<div class='${hClass}'></div><div class='${sClass}'></div>`;
+    scroll = root.querySelector('.' + sClass);
+  }
+  return { head: root.querySelector('.' + hClass), scroll };
+}
+
 // ----- I2 dormant surface --------------------------------------------
 // Sortable perf-tinted table. Each row is a mod with a usage split bar
 // (engaged green vs unused surface) carrying the % text, a used/roster
 // count, and the dominant unused category as a chip. The caption carries
 // the two headline totals. Pure measurement — no judgement on any row.
+// The .dor-scroll container is stable across polls (setHTML preserves its
+// scroll position); only the table inside it is rebuilt each tick.
 function renderDormantSurface() {
   const root = document.getElementById('ins-dormant');
   if (!root) return;
+  const { head, scroll } = ensureScrollSection(root, 'dor-h', 'dor-scroll');
   const dor = lastDormant;
   if (!dor || !dor.worldLoaded) {
-    root.innerHTML = `<div class='dor-h'><span class='label'>dormant content</span><span>—</span></div>`;
+    head.innerHTML = `<span class='label'>dormant content</span><span>—</span>`;
+    setHTML(scroll, '');
     return;
   }
   const entries = (dor.entries || []).slice();
   const headSummary = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
+  head.innerHTML = `<span class='label'>dormant content</span><span>${headSummary}</span>`;
 
   if (entries.length === 0) {
-    root.innerHTML = `
-      <div class='dor-h'><span class='label'>dormant content</span><span>${headSummary}</span></div>
-      <div class='dor-empty'>no dormant entries recorded this session</div>`;
+    setHTML(scroll, `<div class='dor-empty'>no dormant entries recorded this session</div>`);
     return;
   }
 
@@ -226,14 +249,11 @@ function renderDormantSurface() {
     </tr>`;
   }).join('');
 
-  root.innerHTML = `
-    <div class='dor-h'><span class='label'>dormant content</span><span>${headSummary}</span></div>
-    <div class='dor-scroll'>
-      <table class='dtable'>
-        <thead>${headRow}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  setHTML(scroll, `
+    <table class='dtable'>
+      <thead>${headRow}</thead>
+      <tbody>${rows}</tbody>
+    </table>`);
 }
 
 // ----- I1 observatory list -------------------------------------------
@@ -244,9 +264,17 @@ function renderDormantSurface() {
 function renderObservatoryList() {
   const root = document.getElementById('ins-obs-list');
   if (!root) return;
+  // Stable inner scroll container: the .ins-obs-list wrapper persists, the
+  // .obs-scroll element keeps its identity across polls so setHTML preserves
+  // the card list's scroll position instead of snapping back to the top.
+  let scroll = root.querySelector('.obs-scroll');
+  if (!scroll) {
+    root.innerHTML = `<div class='obs-scroll'></div>`;
+    scroll = root.querySelector('.obs-scroll');
+  }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
-    root.innerHTML = `<div style='padding:1.5rem;color:var(--dim);text-align:center;font-size:0.85rem'>no per-mod observatory data yet</div>`;
+    setHTML(scroll, `<div style='padding:1.5rem;color:var(--dim);text-align:center;font-size:0.85rem'>no per-mod observatory data yet</div>`);
     return;
   }
   const cards = obs.cards.slice().sort((a, b) => b.cpuSharePct - a.cpuSharePct);
@@ -272,7 +300,7 @@ function renderObservatoryList() {
     return splitBar(segs, { thin: true });
   }
 
-  root.innerHTML = cards.map((c, i) => {
+  setHTML(scroll, cards.map((c, i) => {
     const sel = c.modId === selectedObservatoryModId ? 'selected' : '';
     const costFrac = c.cpuSharePct / maxCpu;
     const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage`;
@@ -286,9 +314,9 @@ function renderObservatoryList() {
       </div>
       <span class='ms'>${fmtMs(c.smoothedMsThisTick)}<span class='u'>ms</span></span>
     </div>`;
-  }).join('');
+  }).join(''));
 
-  root.querySelectorAll('.ins-obs-card').forEach(el => {
+  scroll.querySelectorAll('.ins-obs-card').forEach(el => {
     el.addEventListener('click', () => {
       selectedObservatoryModId = parseInt(el.dataset.mod, 10);
       renderObservatoryList();
@@ -305,14 +333,23 @@ function renderObservatoryList() {
 function renderObservatoryDetail() {
   const root = document.getElementById('ins-detail');
   if (!root) return;
+  // Stable inner scroll container: the .ins-detail aside persists, .det-scroll
+  // keeps identity across polls so setHTML preserves scroll position while a
+  // selected mod's long detail is open. Selecting a new mod replaces content
+  // (and naturally scrolls to top via the new shorter/longer body).
+  let scroll = root.querySelector('.det-scroll');
+  if (!scroll) {
+    root.innerHTML = `<div class='det-scroll'></div>`;
+    scroll = root.querySelector('.det-scroll');
+  }
   const obs = lastModObservatory;
   if (!obs || !obs.cards || obs.cards.length === 0) {
-    root.innerHTML = `<div class='empty'>select a mod from the list to see its observatory detail</div>`;
+    setHTML(scroll, `<div class='empty'>select a mod from the list to see its observatory detail</div>`);
     return;
   }
   const card = obs.cards.find(c => c.modId === selectedObservatoryModId) || obs.cards[0];
   if (!card) {
-    root.innerHTML = `<div class='empty'>no card selected</div>`;
+    setHTML(scroll, `<div class='empty'>no card selected</div>`);
     return;
   }
 
@@ -368,7 +405,7 @@ function renderObservatoryDetail() {
           <td>${fmtInt(it.equippedTicks)}</td>
         </tr>`).join('')}</tbody></table>`;
 
-  root.innerHTML = `
+  setHTML(scroll, `
     <div>
       <div class='det-title'>${escapeHtml(card.modName)}</div>
       <div style='font-family:var(--mono);font-size:0.74rem;color:var(--muted)'>roster total ${fmtInt(totalRoster)} entries</div>
@@ -398,7 +435,7 @@ function renderObservatoryDetail() {
       <h4>top loadout influence</h4>
       ${liHtml}
     </div>
-  `;
+  `);
 }
 
 // ----- I5 cross-cutting ----------------------------------------------
@@ -459,10 +496,12 @@ function renderCrossCutting() {
 function renderEngagementScatter() {
   const root = document.getElementById('ins-scatter');
   if (!root) return;
+  // Static header + stable scroll container so a poll preserves scroll position.
+  const { head, scroll } = ensureScrollSection(root, 'sc-h', 'sc-scroll');
   const ec = lastEngagementCost;
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
-    root.innerHTML = `<div class='sc-h'>engagement vs cost</div>
-      <div class='sc-empty'>no engagement vs cost data yet</div>`;
+    head.innerHTML = `engagement vs cost`;
+    setHTML(scroll, `<div class='sc-empty'>no engagement vs cost data yet</div>`);
     return;
   }
 
@@ -513,119 +552,61 @@ function renderEngagementScatter() {
     </tr>`;
   }).join('');
 
-  root.innerHTML = `
-    <div class='sc-h'>engagement vs cost — ${ec.dots.length} mods</div>
-    <div class='sc-scroll'>
-      <table class='dtable'>
-        <thead>${headRow}</thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+  head.innerHTML = `engagement vs cost — ${ec.dots.length} mods`;
+  setHTML(scroll, `
+    <table class='dtable'>
+      <thead>${headRow}</thead>
+      <tbody>${rows}</tbody>
+    </table>`);
 }
 
-// ----- I7 mod interaction matrix -------------------------------------
-// Leads with a readable top-pairs table (the primary signal), then keeps
-// the full Pearson matrix as a secondary .rheat grid. Both carry the
-// +/- semantic colouring: positive r tints green, negative tints red,
-// magnitude drives intensity. Replaces the bespoke grid with the shared
-// rheat vocabulary.
+// ----- I7 mod-pair cost correlation ----------------------------------
+// Readable top-coupled-pairs table only. The full NxN Pearson grid was
+// cut: it read as dead space and was twice misunderstood. The pairs table
+// carries the same signal in plain rows (mod A × mod B, r, magnitude bar,
+// samples) under a plain-English caption. Positive r tints green, negative
+// red; magnitude drives the bar. Descriptive only — no verdict on a pair.
 function renderModInteractionMatrix() {
   const root = document.getElementById('ins-matrix');
   if (!root) return;
+  // Static header + stable scroll container so a poll preserves scroll position.
+  const { head, scroll } = ensureScrollSection(root, 'mx-h', 'mx-scroll');
   const mi = lastModInteraction;
   if (!mi || !mi.worldLoaded || !mi.modIds || mi.modIds.length === 0) {
-    root.innerHTML = `<div class='mx-h'>mod-pair cost correlation</div>
-      <div class='mx-empty'>no mod interaction matrix yet (needs ≥2 active mods over time)</div>`;
+    head.innerHTML = `mod-pair cost correlation`;
+    setHTML(scroll, `<div class='mx-empty'>no mod interaction data yet (needs ≥2 active mods over time)</div>`);
     return;
   }
-  const ids = mi.modIds;
-  const names = mi.modNames || [];
-  const matrix = mi.matrixRowMajor || [];
-  const N = ids.length;
-  if (N < 2 || matrix.length < N * N) {
-    root.innerHTML = `<div class='mx-h'>mod-pair cost correlation</div>
-      <div class='mx-empty'>matrix not ready yet</div>`;
+  const N = mi.modIds.length;
+  if (N < 2 || !mi.topCoupled || mi.topCoupled.length === 0) {
+    head.innerHTML = `mod-pair cost correlation — ${N} mods`;
+    setHTML(scroll, `<div class='mx-empty'>no coupled pairs ranked yet</div>`);
     return;
   }
 
-  // Correlation -> cell background. Positive green, negative red, |r| drives
-  // intensity. Kept distinct from heatFill() because that helper is
-  // single-hue (accent) and cannot encode sign.
-  function corrColor(r) {
-    if (!isFinite(r)) return 'var(--surface)';
-    const a = Math.min(1, Math.abs(r));
-    if (r >= 0) return `rgba(79,157,106,${(0.06 + a * 0.7).toFixed(3)})`;   // --good family, positive
-    return        `rgba(185,78,88,${(0.06 + a * 0.7).toFixed(3)})`;          // --danger family, negative
-  }
-  function corrText(r) {
-    if (!isFinite(r)) return 'var(--dim)';
-    return Math.abs(r) > 0.45 ? 'var(--text-bright)' : 'var(--muted)';
-  }
+  head.innerHTML = `mod-pair cost correlation — ${N} mods (Pearson r)`;
 
-  let html = `<div class='mx-h'>mod-pair cost correlation — ${N} mods (Pearson r)</div>`;
+  const pairs = mi.topCoupled.slice(0, 12);
+  const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
+  const rows = pairs.map((p, i) => {
+    const r = p.pearson || 0;
+    const sign = r >= 0 ? 'pos' : 'neg';
+    return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
+      <td class='dim'>${i + 1}</td>
+      <td class='l'>${escapeHtml(p.modNameA)}</td>
+      <td class='l'>${escapeHtml(p.modNameB)}</td>
+      <td class='r-${sign}'>${r.toFixed(3)}</td>
+      <td class='l mx-cell'>${cellBar(Math.abs(r) / maxAbs, r >= 0 ? 'var(--good)' : 'var(--danger)')}</td>
+      <td>${fmtInt(p.samplesUsed)}</td>
+    </tr>`;
+  }).join('');
 
-  // --- Primary: top coupled pairs table ---
-  if (mi.topCoupled && mi.topCoupled.length > 0) {
-    const pairs = mi.topCoupled.slice(0, 12);
-    const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
-    const rows = pairs.map((p, i) => {
-      const r = p.pearson || 0;
-      const sign = r >= 0 ? 'pos' : 'neg';
-      return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
-        <td class='dim'>${i + 1}</td>
-        <td class='l'>${escapeHtml(p.modNameA)}</td>
-        <td class='l'>${escapeHtml(p.modNameB)}</td>
-        <td class='r-${sign}'>${r.toFixed(3)}</td>
-        <td class='l mx-cell'>${cellBar(Math.abs(r) / maxAbs, r >= 0 ? 'var(--good)' : 'var(--danger)')}</td>
-        <td>${fmtInt(p.samplesUsed)}</td>
-      </tr>`;
-    }).join('');
-    html += `<div class='mx-pairs'>
-      <table class='dtable'>
-        <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-  }
-
-  // --- Secondary: full correlation heatmap (rheat) ---
-  const labelColW = 130, cellW = 30;
-  const styleGrid = `grid-template-columns: ${labelColW}px repeat(${N}, ${cellW}px);`;
-  let grid = `<div class='rheat mx-rheat' style='${styleGrid}'>`;
-  grid += `<div class='rh-corner'></div>`;
-  for (let j = 0; j < N; j++) {
-    grid += `<div class='rh-col'>${escapeHtml(names[j] || ('mod:' + ids[j]))}</div>`;
-  }
-  for (let i = 0; i < N; i++) {
-    grid += `<div class='rh-row' title='${escapeHtml(names[i] || ('mod:' + ids[i]))}'>${escapeHtml(names[i] || ('mod:' + ids[i]))}</div>`;
-    for (let j = 0; j < N; j++) {
-      const r = matrix[i * N + j];
-      const isfin = isFinite(r);
-      const bg = corrColor(r);
-      const fg = corrText(r);
-      const zero = (!isfin || Math.abs(r) < 1e-9) ? ' zero' : '';
-      const txt = isfin ? (i === j ? '·' : r.toFixed(2).replace('0.', '.').replace('-0.', '-.')) : '';
-      const title = isfin
-        ? `${escapeHtml(names[i] || '?')} × ${escapeHtml(names[j] || '?')} — r = ${r.toFixed(3)}`
-        : 'no samples';
-      grid += `<div class='rh-cell${zero}' style='background:${bg};color:${fg}' title='${escapeHtml(title)}'>${txt}</div>`;
-    }
-  }
-  grid += `</div>`;
-
-  html += `<div class='mx-grid-h'>full correlation matrix</div>
-    <div class='mx-scroll'>${grid}</div>`;
-
-  // Legend for the sign/magnitude colouring.
-  html += `<div class='mx-legend'>
-    <span class='swatch' style='background:rgba(185,78,88,0.7)'></span><span>−1</span>
-    <span class='swatch' style='background:rgba(185,78,88,0.25)'></span><span>−0.3</span>
-    <span class='swatch' style='background:var(--surface)'></span><span>0</span>
-    <span class='swatch' style='background:rgba(79,157,106,0.25)'></span><span>+0.3</span>
-    <span class='swatch' style='background:rgba(79,157,106,0.7)'></span><span>+1</span>
-  </div>`;
-
-  root.innerHTML = html;
+  setHTML(scroll, `
+    <div class='mx-caption'>mods whose per-tick CPU rises and falls together — a high r means they tend to get busy at the same moments</div>
+    <table class='dtable'>
+      <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`);
 }
 ";
 }

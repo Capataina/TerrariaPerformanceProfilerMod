@@ -143,11 +143,13 @@ function familyVisible(f) {
 }
 
 // ---- T4: heat strip — per-minute vertical bar strip -----------------
-// One thin vertical bar per minute bucket; height encodes avgFrameMs
-// normalised against the session max, colour is the perf tint of
-// avgFrameMs vs a 16.6 ms (60 fps) reference. Spike/stall presence shows
-// as a small marker under the bar, not a mirrored waveform. Native title=
-// carries the full per-minute summary.
+// One thin fixed-width vertical bar per minute bucket inside a modest
+// fixed-height container. Bar height is avgFrameMs auto-scaled across the
+// session's minutes via niceScale (so a flat-but-busy session still shows
+// its variation rather than every bar pinning to the top), colour is the
+// perf tint of avgFrameMs vs a 16.6 ms (60 fps) reference. Spike/stall
+// presence shows as a small marker above the bar, never by inflating the
+// bar. Native title= carries the full per-minute summary.
 function renderTimelineHeatstrip() {
   const root = document.getElementById('tl-heatstrip');
   if (!root) return;
@@ -161,20 +163,23 @@ function renderTimelineHeatstrip() {
     return;
   }
 
-  let maxMs = 0;
-  for (const b of buckets) if (b.avgFrameMs > maxMs) maxMs = b.avgFrameMs;
-  if (maxMs <= 0) maxMs = 1;
+  // Auto-scale heights across the minutes so the strip reads as variation,
+  // not a wall. Floor each bar at a small visible stub so a near-zero minute
+  // still registers as a tick rather than vanishing.
+  const scale = niceScale(buckets.map(b => b.avgFrameMs), 0.05);
+  const span = (scale.max - scale.min) || 1;
 
   const bars = buckets.map(b => {
-    const hPct = Math.max(4, Math.min(100, (b.avgFrameMs / maxMs) * 100));
+    const norm = (b.avgFrameMs - scale.min) / span;
+    const hPct = Math.max(6, Math.min(100, norm * 100));
     const tint = tintClass(b.avgFrameMs / 16.6);   // 16.6 ms = 60 fps reference
     const tip = `min ${b.minuteIndex}: ${fmtMs(b.avgFrameMs)} ms/t, ${b.segmentCount} segs, ${b.spikeCount} spikes, ${b.stallCount} stalls`;
     let mark = '';
     if (b.stallCount > 0)      mark = `<span class='hs-mark stall' title='${escapeHtml(b.stallCount + ' stalls')}'></span>`;
     else if (b.spikeCount > 0) mark = `<span class='hs-mark spike' title='${escapeHtml(b.spikeCount + ' spikes')}'></span>`;
     return `<span class='hs-col' title='${escapeHtml(tip)}'>
-      <span class='hs-bar ${tint}' style='height:${hPct.toFixed(1)}%'></span>
       ${mark}
+      <span class='hs-bar ${tint}' style='height:${hPct.toFixed(1)}%'></span>
     </span>`;
   }).join('');
 
@@ -431,10 +436,12 @@ function renderTimelineDetail() {
     }).join('') + `</div>`;
   }
 
-  root.innerHTML =
+  // tl-detail is an overflow:auto pane; setHTML preserves scroll when the
+  // pane rebuilds on a poll (e.g. lifetime sample count ticking up).
+  setHTML(root,
     `<h4>segment detail</h4>` +
     rows.map(r => `<div class='statline'><span class='k'>${escapeHtml(r[0])}</span><span class='v'>${escapeHtml(String(r[1]))}</span></div>`).join('') +
-    modsHtml;
+    modsHtml);
 }
 
 // ---- T5: attendance — split bar + supporting table -----------------
@@ -500,7 +507,9 @@ function renderTimelineAttendance() {
     <tbody>${rows}</tbody>
   </table>`;
 
-  root.innerHTML = `<h4>attendance</h4>${totalsBand}<div class='tm-bar'>${barHtml}</div>${tableHtml}`;
+  // tl-attendance is an overflow:auto pane; setHTML preserves scroll when the
+  // table rebuilds on a poll instead of snapping the reader to the top.
+  setHTML(root, `<h4>attendance</h4>${totalsBand}<div class='tm-bar'>${barHtml}</div>${tableHtml}`);
 }
 
 // ---- T6: death replay — compact cards + labelled event chips --------
@@ -580,7 +589,10 @@ function renderTimelineChronicle() {
               <div class='cr-text'>${escapeHtml(l.text)}</div>
             </div>`;
   }).join('');
-  root.innerHTML = `<div class='cr-list'>${blocks}</div>`;
+  // tl-chronicle is itself the overflow:auto scroll container; setHTML keeps
+  // the reader's scroll position across the 2.5 s poll instead of snapping
+  // them back to the top whenever a new chronicle line lands.
+  setHTML(root, `<div class='cr-list'>${blocks}</div>`);
 }
 
 // ---- Top-level dispatch --------------------------------------------

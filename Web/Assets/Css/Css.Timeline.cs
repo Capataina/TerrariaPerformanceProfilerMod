@@ -52,39 +52,50 @@ internal static partial class DashboardAssets
 }
 
 /* ---- T4 heatstrip — per-minute vertical bar strip ----------------- */
+/* A modest fixed-height activity strip: one thin fixed-width bar per minute,
+   not a stretched slab. Bars are left-aligned and the strip scrolls
+   horizontally once the session outgrows the panel width, so each minute
+   keeps a legible width instead of being squeezed to a sliver. */
 .tl-heatstrip {
-  height: 60px;
+  height: 68px;
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
-  overflow: hidden;
-  padding: 4px 6px;
+  overflow-x: auto; overflow-y: hidden;
+  padding: 6px 8px;
 }
 .tl-heatstrip .hs-strip {
   display: flex; align-items: flex-end;
-  gap: 1px;
-  width: 100%; height: 100%;
+  gap: 2px;
+  height: 100%;
+  min-width: 100%;
+  width: max-content;
 }
 .tl-heatstrip .hs-col {
-  flex: 1 1 0; min-width: 1px;
+  flex: 0 0 auto;
+  width: 5px;
   height: 100%;
   position: relative;
-  display: flex; align-items: flex-end; justify-content: center;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
   cursor: default;
 }
 .tl-heatstrip .hs-bar {
   display: block;
   width: 100%;
-  min-height: 1px;
+  min-height: 2px;
   border-radius: 1px 1px 0 0;
   background: currentColor;
   opacity: 0.85;
 }
 .tl-heatstrip .hs-col:hover .hs-bar { opacity: 1; }
+/* Spike / stall presence as a small dot above the bar, never by inflating
+   the bar height — the bar encodes avgFrameMs alone. */
 .tl-heatstrip .hs-mark {
-  position: absolute; left: 50%; bottom: 0;
+  position: absolute; left: 50%; top: 1px;
   transform: translateX(-50%);
   width: 4px; height: 4px; border-radius: 50%;
+  z-index: 1;
 }
 .tl-heatstrip .hs-mark.spike { background: var(--orange); }
 .tl-heatstrip .hs-mark.stall { background: var(--danger); }
@@ -111,6 +122,10 @@ internal static partial class DashboardAssets
   position: absolute; top: 50%;
   transform: translate(-50%, -50%);
   z-index: 1;
+  /* Floor the token width so a closely-timed transition chip stays a
+     readable label rather than shrinking toward its text. */
+  min-width: 2rem;
+  justify-content: center;
 }
 .tl-transitions .tx-chip .tx-kind {
   color: var(--muted);
@@ -151,7 +166,10 @@ internal static partial class DashboardAssets
   border-radius: 2px;
   cursor: pointer;
   overflow: hidden;
-  min-width: 4px;
+  /* Floor the bar width so a short visit stays legible and clickable rather
+     than collapsing to a 1-2px sliver. Position stays time-accurate; only
+     the rendered width is floored. */
+  min-width: 1.6rem;
   color: var(--text-bright);
   font-family: var(--mono); font-size: 0.7rem;
 }
@@ -256,6 +274,11 @@ internal static partial class DashboardAssets
 .tl-deaths .tl-death .head .k { color: var(--muted); margin-right: 0.3em; }
 .tl-deaths .tl-death .ev-row {
   display: flex; flex-wrap: wrap; gap: 0.3rem;
+}
+.tl-deaths .tl-death .ev-chip {
+  /* Keep every event token legible regardless of how short its label is. */
+  min-width: 1.6rem;
+  justify-content: center;
 }
 .tl-deaths .tl-death .ev-chip .ev-off {
   color: var(--muted);

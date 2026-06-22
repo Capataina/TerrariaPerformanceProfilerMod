@@ -108,16 +108,26 @@ function renderMemory() {
     const sel = memSelected === m.id ? ' sel' : '';
     th += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
-      + `<td>${fmtBytes(r.v)}</td>`
+      + `<td class='mem-val'><span class='n'>${fmtBytes(r.v)}</span>`
+        + cellBar(r.v / total, modColor(m.id)) + `</td>`
       + `<td class='l'>${memBreakdownBar(m)}</td>`
       + `<td class='muted'>${fmtInt(m.hookCount)}</td>`
       + `<td class='muted'>${mem.tracksAllocations ? fmtBytes(m.allocBytes) : '—'}</td>`
       + `</tr>`;
   }
   th += `</tbody></table>`;
-  tableEl.innerHTML = th;
+  setHTML(tableEl, th);   // preserve scroll on poll-driven re-render
 
   renderMemoryDrawer();
+}
+
+// One compact instrumentation card: label, value, optional proportion bar
+// (frac of the mod's own total footprint, so the number gains a visual scale).
+function memCard(k, v, frac, color) {
+  let bar = '';
+  if (frac != null && isFinite(frac)) bar = `<span class='mem-card-bar'>${cellBar(frac, color)}</span>`;
+  return `<div class='mem-card'><span class='k'>${escapeHtml(k)}</span>`
+    + `<span class='v'>${escapeHtml(String(v))}</span>${bar}</div>`;
 }
 
 function renderMemoryDrawer() {
@@ -150,11 +160,17 @@ function renderMemoryDrawer() {
       + `<div class='empty-line'>tModLoader estimate unavailable</div></div>`;
   }
 
+  // Instrumentation — compact stat cards, capped width, not full-width rows.
+  // The scaffolding card carries a proportion bar (its share of the mod's own
+  // footprint) so the number reads as a quantity, not a bare figure.
+  const t = m.tmlTotal || 0;
+  const scaffoldFrac = t > 0 ? (m.hookBytes || 0) / t : null;
   h += `<div class='mem-sect'><div class='mem-sect-h'>profiler instrumentation</div>`
-    + `<div class='statline'><span class='k'>hook scaffolding · est</span><span class='v'>${fmtBytes(m.hookBytes)}</span></div>`
-    + `<div class='statline'><span class='k'>installed hooks</span><span class='v'>${fmtInt(m.hookCount)}</span></div>`
-    + `<div class='statline'><span class='k'>allocation rate</span><span class='v'>${mem.tracksAllocations ? fmtBytes(m.allocBytes) + '/s' : '—'}</span></div>`
-    + `</div>`;
+    + `<div class='mem-card-grid'>`
+    + memCard('hook scaffolding · est', fmtBytes(m.hookBytes), scaffoldFrac, 'var(--accent)')
+    + memCard('installed hooks', fmtInt(m.hookCount))
+    + memCard('allocation rate', mem.tracksAllocations ? fmtBytes(m.allocBytes) + '/s' : '—')
+    + `</div></div>`;
 
   drawerEl.innerHTML = h;
 }

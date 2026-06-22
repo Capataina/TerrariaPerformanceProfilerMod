@@ -23,6 +23,11 @@ internal static partial class DashboardAssets
 .bar-legend .lg[data-mod]:hover { color: var(--text); }
 
 .mem-table-wrap { max-height: 28rem; overflow-y: auto; }
+/* RAM / scaffold cell: the figure plus a proportion bar (share of the visible
+   total) so the dominant column reads as a quantity, not a bare number. */
+.mem-table-wrap .mem-val { white-space: nowrap; }
+.mem-table-wrap .mem-val .n { display: block; font-variant-numeric: tabular-nums; margin-bottom: 0.2rem; }
+.mem-table-wrap .mem-val .cellbar { min-width: 3.5rem; }
 
 .mem-drawer { min-height: 4rem; }
 .mem-drawer-head { display: flex; justify-content: space-between; align-items: baseline;
@@ -33,5 +38,20 @@ internal static partial class DashboardAssets
 .mem-sect:first-of-type { margin-top: 0.2rem; }
 .mem-sect-h { font-family: var(--ui); font-size: 0.65rem; text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.45rem; }
+
+/* Instrumentation stat cards: compact, capped width, label-over-value with a
+   proper internal gap — replaces the full-width space-between .statline rows. */
+.mem-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem; max-width: 30rem; }
+.mem-card { background: var(--surface); border: 1px solid var(--border-soft);
+  border-radius: 3px; padding: 0.5rem 0.65rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.mem-card .k { font-family: var(--ui); font-size: 0.62rem; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--muted); }
+.mem-card .v { font-family: var(--mono); font-size: 1.05rem; color: var(--text-bright);
+  font-variant-numeric: tabular-nums; }
+.mem-card-bar { display: block; margin-top: 0.3rem; }
+/* Card track shares the panel surface; lift it to the border tone so the
+   unfilled portion stays visible against the card's own surface fill. */
+.mem-card-bar .cellbar { background: var(--border-soft); }
 ";
 }

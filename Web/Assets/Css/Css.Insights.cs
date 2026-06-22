@@ -17,9 +17,12 @@ internal static partial class DashboardAssets
     private const string CssInsights = @"
 /* =================================================== INSIGHTS */
 /* Insights surfaces are built from the shared readable vocabulary
-   (.split-bar, .dtable, .chip, .statline, .rheat, .cellbar). The rules
-   below are layout + per-surface framing only; the components carry
-   their own styling from Css.Components.cs. */
+   (.split-bar, .dtable, .chip, .statline, .cellbar). The rules below are
+   layout + per-surface framing only; the components carry their own
+   styling from Css.Components.cs. Every scrollable surface keeps a stable
+   inner scroll container (.dor-scroll, .obs-scroll, .det-scroll,
+   .sc-scroll, .mx-scroll) so a poll re-render via setHTML preserves scroll
+   position instead of snapping to the top. */
 .ins-shell {
   display: flex; flex-direction: column; gap: 0.6rem;
   padding: 0.6rem 0.9rem 1rem;
@@ -55,14 +58,18 @@ internal static partial class DashboardAssets
 .ins-kpi .tile .sub { font-size: 0.72rem; color: var(--dim); }
 
 /* Mid section: 2-column observatory | detail ------------------------- */
+/* Both columns stretch to the same height (align-items: stretch is the grid
+   default) so the detail aside fills the column rather than leaving a gap
+   below it. min-height grows the row to use the vertical space the cut
+   matrix freed up. */
 .ins-mid {
-  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 0.6rem;
-  min-height: 320px;
+  min-height: 460px;
 }
 .ins-observatory {
   display: flex; flex-direction: column; gap: 0.4rem;
-  min-width: 0;
+  min-width: 0; min-height: 0;
 }
 
 /* Shared per-surface section header. */
@@ -94,13 +101,24 @@ internal static partial class DashboardAssets
 }
 
 /* I1 observatory card list ------------------------------------------ */
+/* The .ins-obs-list wrapper is the stable element; the inner .obs-scroll
+   carries overflow so a poll re-render via setHTML preserves scroll. The
+   wrapper fills the remaining height of the observatory column (flex:1)
+   and .obs-scroll fills the wrapper, so the list reaches the bottom of the
+   mid row instead of leaving dead space below short lists. */
 .ins-obs-list {
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
-  overflow-y: auto;
-  max-height: 520px;
+  flex: 1 1 auto;
   min-height: 240px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.ins-obs-list .obs-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
 }
 .ins-obs-card {
   display: grid;
@@ -138,14 +156,22 @@ internal static partial class DashboardAssets
 .ins-obs-card .ms .u { font-size: 0.65rem; color: var(--dim); margin-left: 0.15rem; }
 
 /* I1+I3+I4 detail pane ----------------------------------------------- */
+/* The .ins-detail aside is the stable element and fills its grid column
+   (stretch); the inner .det-scroll carries overflow so a poll re-render via
+   setHTML preserves scroll while a mod's detail is open. */
 .ins-detail {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 0.6rem 0.85rem;
-  overflow-y: auto;
-  max-height: 520px;
   min-height: 240px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.ins-detail .det-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
   display: flex; flex-direction: column; gap: 0.6rem;
 }
 .ins-detail .empty {
@@ -160,6 +186,20 @@ internal static partial class DashboardAssets
   margin-bottom: 0.1rem;
 }
 .ins-detail .det-stats { display: flex; flex-direction: column; }
+
+/* Lower analytical row: cross-cutting | engagement | correlation ------ */
+/* A responsive grid so the three surfaces pack across the full width
+   instead of stacking full-width with empty right-hand strips. Cross-cutting
+   is the widest (it holds its own auto-fit section grid) so it spans two
+   columns; engagement and correlation are narrow tables sharing the rest.
+   On narrow viewports the auto-fit collapses them to a single column. */
+.ins-lower {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.6rem;
+  align-items: start;
+}
+.ins-lower .ins-cross { grid-column: 1 / -1; }
 
 /* I5 cross-cutting — grouped section list ---------------------------- */
 .ins-cross {
@@ -201,7 +241,10 @@ internal static partial class DashboardAssets
   color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
 }
 
-/* I7 matrix — top-pairs table + correlation heatmap ------------------ */
+/* I7 mod-pair correlation — top-coupled-pairs table ------------------ */
+/* The full NxN Pearson grid was cut (dead space, twice misunderstood). Only
+   the readable pairs table remains, under a plain-English caption. .mx-scroll
+   is the stable scroll container so a poll preserves scroll position. */
 .ins-matrix {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
@@ -209,32 +252,17 @@ internal static partial class DashboardAssets
   padding: 0.55rem 0.8rem;
 }
 .ins-matrix .mx-h { margin-bottom: 0.4rem; }
-.ins-matrix .mx-pairs { margin-bottom: 0.7rem; }
+.ins-matrix .mx-caption {
+  font-size: 0.74rem; color: var(--dim); line-height: 1.35;
+  margin-bottom: 0.45rem;
+}
+.ins-matrix .mx-scroll { max-height: 360px; overflow-y: auto; }
 .ins-matrix .mx-cell { width: 6rem; }
 /* Signed correlation values: green positive, red negative. */
 .ins-matrix .r-pos { color: var(--good); }
 .ins-matrix .r-neg { color: var(--danger); }
-.ins-matrix .mx-grid-h {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.3rem;
-}
-.ins-matrix .mx-scroll { overflow-x: auto; }
-.ins-matrix .mx-rheat .rh-col {
-  writing-mode: vertical-rl; transform: rotate(180deg);
-  max-height: 70px; overflow: hidden; text-overflow: ellipsis;
-}
-.ins-matrix .mx-rheat .rh-row {
-  max-width: 130px; overflow: hidden; text-overflow: ellipsis;
-}
-.ins-matrix .mx-rheat .rh-cell { min-width: 30px; min-height: 1.6rem; font-size: 0.68rem; }
 .ins-matrix .mx-empty {
   color: var(--dim); font-size: 0.82rem; padding: 0.6rem 0; text-align: center;
 }
-.ins-matrix .mx-legend {
-  margin-top: 0.5rem;
-  display: flex; align-items: center; gap: 0.4rem;
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-}
-.ins-matrix .mx-legend .swatch { width: 14px; height: 14px; border: 1px solid var(--border-soft); }
 ";
 }
