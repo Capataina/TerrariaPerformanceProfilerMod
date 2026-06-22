@@ -60,5 +60,52 @@ function heatFill(intensity) {
   const a = Math.max(0, Math.min(1, intensity || 0));
   return `rgba(74,158,255,${(0.05 + a*0.5).toFixed(3)})`;
 }
+
+// Replace innerHTML while preserving the element's own scroll position, so a
+// poll-driven re-render of a scrollable list doesn't snap it back to the top.
+// The element passed MUST be the scroll container (the one with overflow:auto).
+function setHTML(el, html) {
+  if (!el) return;
+  const t = el.scrollTop, l = el.scrollLeft;
+  el.innerHTML = html;
+  el.scrollTop = t; el.scrollLeft = l;
+}
+
+// Auto-scale a numeric series to its own range (with padding) so a flat-but-high
+// band (e.g. heap always ~8 GB) shows its variation instead of hugging the top
+// of a 0-based axis. Returns {min, max}.
+function niceScale(values, padFrac) {
+  let lo = Infinity, hi = -Infinity;
+  for (const v of values) { if (!isFinite(v)) continue; if (v < lo) lo = v; if (v > hi) hi = v; }
+  if (!isFinite(lo) || !isFinite(hi)) return { min: 0, max: 1 };
+  if (hi === lo) { const e = Math.abs(hi) * 0.05 || 1; return { min: lo - e, max: hi + e }; }
+  const pad = (hi - lo) * (padFrac == null ? 0.12 : padFrac);
+  return { min: lo - pad, max: hi + pad };
+}
+
+// SVG line + area path d-strings for a series, auto-scaled by niceScale into a
+// box. opts: {w,h,padX,padTop,padBot}. Returns {line, area, scale}.
+function seriesPaths(values, opts) {
+  opts = opts || {};
+  const w = opts.w || 540, h = opts.h || 120;
+  const padX = opts.padX != null ? opts.padX : 8;
+  const padTop = opts.padTop != null ? opts.padTop : 16;
+  const padBot = opts.padBot != null ? opts.padBot : 16;
+  const innerW = w - padX * 2, innerH = h - padTop - padBot;
+  const n = values.length;
+  const s = niceScale(values);
+  const span = (s.max - s.min) || 1;
+  function pt(i) {
+    const x = padX + (n > 1 ? (i / (n - 1)) * innerW : innerW / 2);
+    const y = padTop + innerH - ((values[i] - s.min) / span) * innerH;
+    return [x, y];
+  }
+  if (n === 0) return { line: '', area: '', scale: s };
+  let line = '';
+  for (let i = 0; i < n; i++) { const p = pt(i); line += (i ? ' L ' : 'M ') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }
+  const area = 'M ' + pt(0)[0].toFixed(1) + ' ' + (padTop + innerH).toFixed(1) + ' L ' + line.slice(2) +
+               ' L ' + pt(n - 1)[0].toFixed(1) + ' ' + (padTop + innerH).toFixed(1) + ' Z';
+  return { line, area, scale: s };
+}
 ";
 }

@@ -121,7 +121,10 @@ internal static partial class DashboardAssets
 .tab.active .ki { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
 
 /* ============================================================== CONTENT */
-.content { min-height: 0; overflow-y: auto; padding: 1rem 1.2rem 4rem; }
+/* overflow: hidden auto — y scrolls, x is clipped. Setting only overflow-y:auto
+   makes the x-axis compute to auto too, which produced a few-px phantom
+   horizontal scroll whenever any child sat a hair over the width. */
+.content { min-height: 0; overflow: hidden auto; padding: 1rem 1.2rem 4rem; }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
 
