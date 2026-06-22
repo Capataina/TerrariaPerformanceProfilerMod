@@ -46,6 +46,7 @@ internal static partial class DashboardAssets
     public static readonly string Css = string.Concat(
         CssPalette,
         CssShell,
+        CssComponents,
         CssPanels,
         CssSummary,
         CssMods,
@@ -75,6 +76,7 @@ internal static partial class DashboardAssets
         JsTabs,
         JsPolling,
         JsHelpers,
+        JsComponents,
         JsTooltips,
         JsTopbar,
         JsRender,

@@ -28,7 +28,8 @@ function fmtBytes(v) {
   if (v == null || !isFinite(v) || v <= 0) return '—';
   if (v < 1024) return v.toFixed(0) + ' B';
   if (v < 1024*1024) return (v/1024).toFixed(1) + ' KB';
-  return (v/(1024*1024)).toFixed(1) + ' MB';
+  if (v < 1024*1024*1024) return (v/(1024*1024)).toFixed(1) + ' MB';
+  return (v/(1024*1024*1024)).toFixed(2) + ' GB';
 }
 function fmtDuration(ms) {
   if (ms == null) return '—';
