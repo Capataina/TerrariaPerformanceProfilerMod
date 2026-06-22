@@ -4,7 +4,7 @@
 
 ## Scope / Purpose
 
-Allocation tracking attributes per-tick managed-heap allocation bytes to individual mods, parallel to CPU attribution. When the player picks the MEM or BOTH metric pill, the overlay shows allocation columns alongside (or instead of) CPU columns. The data also feeds the `AllocationBurstDetector` in the insights engine.
+Allocation tracking attributes per-tick managed-heap allocation bytes to individual mods, parallel to CPU attribution. In the MEM or BOTH metric mode the rendered surface shows allocation columns alongside (or instead of) CPU columns. The data also feeds the `AllocationBurstDetector` in the insights engine.
 
 The mechanism is an alternate IL emission shape in `ILHookInterceptor`: the manipulator wraps each method with `ProbeStack.EnterCpuAlloc(hookId, gcBytesAtEnter)` and `ProbeStack.LeaveCpuAlloc()` instead of the cheap `Enter/Leave` pair. The leave reads the post-counter internally so the prologue stays a single `call` instruction.
 
@@ -14,14 +14,14 @@ Files (shared with hook instrumentation and metric collection):
 
 - IL emission: `Profiling/ILHookInterceptor.cs` (`ApplyTimingWrap`'s alloc branch, `_enterCpuAllocMethod` / `_leaveCpuAllocMethod`).
 - Probe targets: `Profiling/ProbeStack.cs` (`EnterCpuAlloc`, `LeaveCpuAlloc`).
-- Storage: `Profiling/PerModAttribution.cs` (parallel alloc-byte columns, allocated only when `HookBackend.AllocationTracking == true`).
+- Storage: `Data/Aggregators/PerModAttribution.cs` (parallel alloc-byte columns, allocated only when `HookBackend.AllocationTracking == true`; moved out of `Profiling/` in v0.11).
 - Switch: `Profiling/HookBackend.AllocationTracking` flag.
 
 Owns:
 
 - The alloc-aware IL emission shape.
 - The decision (at `Configure` time) whether to allocate alloc-byte columns.
-- The MEM/BOTH overlay pill behaviour (in `OverlayState`).
+- The CPU / MEM / BOTH metric-mode behaviour the renderer reads (live surface is the dashboard; the in-game MEM/BOTH overlay pill is archived under `UI/`).
 
 Does not own:
 
@@ -70,7 +70,7 @@ The (modId, categoryId) for the hookId comes from `PerModAttribution.Hooks[hookI
 
 `PerModAttribution.Configure(modCount, backendCount, allocTracking)` reads `allocTracking` and conditionally allocates the parallel alloc-byte columns. With `allocTracking = false`, alloc-write code paths still exist but their target arrays are `null` or empty; the writes no-op. With `allocTracking = true`, the columns are sized parallel to the CPU columns.
 
-### Overlay metric pill
+### Metric mode (CPU / MEM / BOTH)
 
 `OverlayState.MetricMode` cycles through `CPU` / `MEM` / `BOTH`:
 
@@ -78,7 +78,7 @@ The (modId, categoryId) for the hookId comes from `PerModAttribution.Hooks[hookI
 - `MEM` — rows show allocation KB/s only.
 - `BOTH` — rows show CPU ms with an allocation annotation underneath.
 
-Each tab reads `OverlayState.MetricMode` in its Tick and selects which columns to render.
+`OverlayState` is part of the in-game overlay archived in v0.9.0 (under `UI/`); the live surface is the browser dashboard (`systems/web-dashboard.md`), which exposes the same column selection. The mode semantics above describe the column choice any renderer reuses.
 
 ## Key Interfaces / Data Flow
 
@@ -111,9 +111,9 @@ overlay/insights consumers:
 
 | Surface | Source |
 |---------|--------|
-| Overview/Tree/Spikes MEM column | `PerModAttribution.AllocBytesForMod / Hook` |
+| Dashboard MEM column (archived Overview/Tree/Spikes tabs) | `PerModAttribution.AllocBytesForMod / Hook` |
 | `AllocationBurst` insight | `AllocationBurstDetector` reads alloc share |
-| Session JSON `modSummary[].allocBytes` (when tracking on) | aggregated `PerModAttribution` |
+| Persisted `modSummary[].allocBytes` (when tracking on) | aggregated `PerModAttribution` via `SessionRecorder` |
 
 ## Known Issues / Active Risks
 
@@ -144,5 +144,5 @@ Nothing.
 - `systems/hook-instrumentation.md` — the ILHook install loop that picks the alloc-aware emission.
 - `systems/metric-collection.md` — `TickFrame.AllocBytes` (independent path, tick-scoped).
 - `systems/insights-engine.md` — `AllocationBurstDetector`.
-- `systems/overlay.md` — MEM/BOTH metric pill behaviour.
-- `notes/spikes-and-allocations-plan.md` — design plan (shipped).
+- `systems/web-dashboard.md` — the live MEM/BOTH surface; the in-game metric pill is archived under `UI/`.
+- `notes/decisions.md` — the spikes-and-allocations design rationale (the per-feature plan note was folded in here).

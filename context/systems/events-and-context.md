@@ -10,14 +10,19 @@ This is the layer that answers "what was happening in the game when this cost wa
 
 ## Boundaries / Ownership
 
-Files under `Profiling/Events/`:
+The snapshotter and the aggregator moved into `Data/` in v0.11; the support data structures stayed in `Profiling/Events/`.
 
-- `ContextTagger.cs` — per-tick snapshotter
+In `Data/`:
+
+- `Data/Collectors/ContextTagger.cs` — per-tick snapshotter
+- `Data/Aggregators/EventAggregator.cs` — per-dimension bucket aggregation
+
+In `Profiling/Events/`:
+
 - `EventContext.cs` — the per-tick value struct
 - `BiomeRegistry.cs` — vanilla + modded biome enumeration
 - `BiomeBitset.cs` / `BiomeDescriptor.cs` — packed biome representation
 - `BossSampler.cs` / `BossSlotArray.cs` — boss identity + segmented-boss dedup
-- `EventAggregator.cs` — per-dimension bucket aggregation
 - `BucketStats.cs` — per-bucket rolling stats
 - `SubworldProbe.cs` — optional SubworldLibrary reflection probe
 - `WeatherFlags.cs` / `WeatherSources.cs` — weather state
@@ -34,7 +39,7 @@ Owns:
 Does not own:
 
 - The tick lifecycle — `ProfilerSystem` owns when `Snapshot()` and `Accumulate()` are called.
-- The bucket UI — see `systems/overlay.md`.
+- The bucket UI — the live surface is the browser dashboard (`systems/web-dashboard.md`); the archived in-game EventsTab lived under `UI/`.
 - The context-correlated detectors — gated, see `systems/insights-engine.md`.
 
 ## Current Implemented Reality
@@ -86,7 +91,9 @@ For each dimension (biome, boss, weather, invasion, subworld, gameMode):
 
 Per-tick allocation: zero. Buckets are inserted lazily (on first observation) but the insert is rare in steady state.
 
-### EventsTab
+### EventsTab (archived overlay)
+
+Part of the in-game overlay archived in v0.9.0 (lives under `UI/`, no longer instantiated); the live event surface is the browser dashboard (`systems/web-dashboard.md`). The rendering detail below is retained because it documents the bucket read pattern any renderer reuses.
 
 Reads the per-dimension bucket maps and renders rows. Each row carries a NOW-context summary (the bucket the current tick belongs to) plus aggregate stats.
 
@@ -117,9 +124,9 @@ OnWorldLoad:
 per tick (PostUpdateEverything):
    collector.EndTick(...)       // frame pushed to ring
    _contextTagger.Snapshot(tickIndex)  // EventContext written
-   _eventAggregator.Accumulate(in tagger.Current, frameMs)  // buckets updated
+   Events.Accumulate(in tagger.Current, frameMs)  // buckets updated
 
-EventsTab.Tick (1 Hz):
+renderer read (archived EventsTab / dashboard, 1 Hz):
    _cachedNowSummary = ComputeNowActiveSummary(aggregator.Latest)
    BuildRows(aggregator.Buckets)  // snapshot rows into reusable list
 
@@ -135,8 +142,8 @@ OnWorldUnload:
 | Surface | Source |
 |---------|--------|
 | `TickFrame.Context` | `ContextTagger.Snapshot` |
-| EventsTab dimension bucket rows | `EventAggregator.Buckets` |
-| EventsTab NOW summary | `_cachedNowSummary` |
+| Event dimension bucket rows (archived EventsTab / dashboard) | `EventAggregator.Buckets` |
+| Event NOW summary (archived EventsTab / dashboard) | `_cachedNowSummary` |
 | (Future) `ContextCorrelatedSpike` insight | gated; needs the transition stream |
 
 ## Known Issues / Active Risks
@@ -148,7 +155,7 @@ OnWorldUnload:
 
 ## Partial / In Progress
 
-- **Transition stream for `ContextCorrelatedSpikeDetector`.** Needed for the gated detector to ever fire. Not started; tracked in `notes/events-tab-plan.md` and `notes/insights-engine-plan.md §4.1`.
+- **Transition stream for `ContextCorrelatedSpikeDetector`.** Needed for the gated detector to ever fire. See `systems/insights-engine.md` for the gated-detector roster and `notes/decisions.md` for the events-correlation rationale.
 
 ## Planned / Missing / Likely Changes
 
@@ -170,5 +177,5 @@ Nothing.
 - `tmodloader/engagement-surfaces.md` — the API surface (`ModBiome`, `NPC.boss`, `Main.bloodMoon` etc.) the snapshotter reads.
 - `systems/metric-collection.md` — `TickFrame.Context` lives in the frame the collector pushes.
 - `systems/insights-engine.md` — the gated detectors that will consume the transition stream.
-- `systems/overlay.md` — EventsTab rendering.
-- `notes/events-tab-plan.md` — design plan (shipped, transition stream still pending).
+- `systems/web-dashboard.md` — the live event surface (the in-game EventsTab is archived under `UI/`).
+- `notes/decisions.md` — the events-context design rationale (the per-tab plan notes were folded in here).

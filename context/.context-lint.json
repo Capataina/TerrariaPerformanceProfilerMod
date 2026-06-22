@@ -1,5 +1,5 @@
 {
-  "_comment": "Project-local lint aliases. tmodloader/ is per-API reference content; integration/ is cross-cutting reference content. Both are intentional structural additions documented in _Overview.md's folder map. _Overview.md is the entry-point file (folder map + reading order) that lives alongside architecture.md; it is aliased into the architecture.md slot so the lint accepts it as a canonical top-level file.",
+  "_comment": "Project-local lint aliases. tmodloader/ is per-API reference content; integration/ is cross-cutting reference content; perf-pass/ is the v0.5-v0.6 performance-research record. All three are intentional structural additions documented in _Overview.md's folder map. _Overview.md is the entry-point file (folder map + reading order) that lives alongside architecture.md; it is aliased into the architecture.md slot so the lint accepts it as a canonical top-level file.",
   "architecture.md": ["architecture.md", "_Overview.md"],
-  "references": ["references", "tmodloader", "integration"]
+  "references": ["references", "tmodloader", "integration", "perf-pass"]
 }

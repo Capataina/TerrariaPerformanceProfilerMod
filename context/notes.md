@@ -4,21 +4,20 @@ Index of `notes/`. Each entry is one bullet pointing at the file that owns the t
 
 ## Active
 
-- [decisions](notes/decisions.md) — resolved decisions from working sessions, newest first; the project-internal decision record.
-- [conventions](notes/conventions.md) — repository-wide coding and structural conventions surfaced from the 2026-05-20 upkeep convention-capture pass.
+- [decisions](notes/decisions.md) — resolved decisions from working sessions, newest first; the project-internal decision record (current through v0.12).
+- [conventions](notes/conventions.md) — repository-wide coding and structural conventions not enforced by tooling, including the unified-`Data/`-pipeline rules.
+- [philosophy](notes/philosophy.md) — the project posture the five Invariants come from: universal not bespoke, capture the chain not the consequence, data stack vs presentation stack, descriptive attribution.
 
 ## Forward-looking (designs not yet implemented)
 
-- [litedb-migration-plan](notes/litedb-migration-plan.md) — research-backed plan for the eventual lifetime-data persistence layer; gates the `LifetimeData` and `NeedsPersistence` EvidenceScope branches.
-- [future-html-report](notes/future-html-report.md) — sketch for the post-session HTML report (separate from the session JSON).
-- [future-settings-design](notes/future-settings-design.md) — sketch for player-facing settings UI.
+- [future-html-report](notes/future-html-report.md) — sketch for the post-session HTML report (separate from the live dashboard and the LiteDB store).
+- [future-settings-design](notes/future-settings-design.md) — sketch for the player-facing settings UI.
 
-## Historical research plans (shipped — kept for context)
+## Historical records (shipped — kept as the original framing)
 
-These plans were the design briefs for features that have since landed. They stay in `notes/` as the historical record of what was being built and why. Each carries a status header indicating which sections shipped.
+- [future-unified-data-interface](notes/future-unified-data-interface.md) — the original framing note for the `Data/` pipeline; implemented in v0.10–v0.11. Canonical reality now lives in `systems/data-pipeline.md`; this is the why-record.
+- [ui-overhaul-plan](notes/ui-overhaul-plan.md) — the design brief for the in-game overlay overhaul. The overlay shipped, then was archived in v0.9.0 when the mod pivoted to the browser dashboard; kept as the historical design record.
 
-- [ilhook-migration-plan](notes/ilhook-migration-plan.md) — the IL backend migration plan. Shipped in commits `3eccf89` through `bb95091` and refined through the 2026-05-20 audit rounds.
-- [overview-tab-plan](notes/overview-tab-plan.md) — the Overview tab + composite-impact scorer. Shipped (`693847f`, `a376f6a`).
-- [events-tab-plan](notes/events-tab-plan.md) — the Events tab + context aggregation. Shipped (`18d19de`, `1062866`, then `bb95091` merge).
-- [insights-engine-plan](notes/insights-engine-plan.md) — the insights engine. Four detectors live, six gated. Shipped (`e6a1020`) and refined through audit rounds.
-- [spikes-and-allocations-plan](notes/spikes-and-allocations-plan.md) — spike detection + per-mod allocation tracking. Shipped (`08dd5eb`, `45baf02`, `f32d33d`).
+## Reference data
+
+- [modlist-pre-upgrade-2026-06-22](notes/modlist-pre-upgrade-2026-06-22.md) — the 99-mod play stack recovered before the machine upgrade, captured for re-subscribe. Distinct from the lean 18-mod benchmark stack the perf research measured against.

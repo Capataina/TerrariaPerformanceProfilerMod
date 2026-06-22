@@ -49,7 +49,9 @@ Does **not** own:
 - The spike or stall detectors themselves (lives in `SpikeDetector`, `StallDetector`).
 - UI rendering of session history (future HTML report).
 
-## Architecture
+## Current Implemented Reality
+
+### Architecture
 
 ```
    game thread                writer thread                disk
@@ -77,9 +79,9 @@ Does **not** own:
                     4. journal.TruncateOnCleanShutdown()
 ```
 
-## Data model
+### Data model
 
-Documented exhaustively in `notes/litedb-migration-plan.md` §3. Headline collections:
+The schema's design rationale is in `notes/decisions.md` (the v0.3 LiteDB-migration entry); the migration plan note it followed was deleted once the work landed. Headline collections:
 
 | Collection | One row per | Purpose |
 |---|---|---|
@@ -109,7 +111,13 @@ Documented exhaustively in `notes/litedb-migration-plan.md` §3. Headline collec
 
 Every row carries a `_schema: int` field so a future per-collection schema bump can be detected at read time without forcing a whole-DB migration.
 
-## Modular extension points
+### Crash safety (summary)
+
+The four-layer crash-safety stack and recovery flow are detailed under Implemented Outputs / Artifacts below; the persistence Invariants section near the end states the guarantees they uphold.
+
+## Implemented Outputs / Artifacts
+
+### Modular extension points
 
 Adding a new tracked subsystem (engagement, allocation tier, custom event) is a **one-file-per-concern** change. To add an `engagementEvents` collection:
 
@@ -121,9 +129,9 @@ Adding a new tracked subsystem (engagement, allocation tier, custom event) is a 
 
 No edit to the writer thread, the journal, the facade's dispatch path, or any other stream. The shape is open-for-extension, closed-for-modification by design.
 
-## Crash safety
+### Crash-safety stack
 
-Four layers, ordered from cheapest to strongest, each catching the failure modes the previous misses (full evaluation in `notes/litedb-migration-plan.md` §5):
+Four layers, ordered from cheapest to strongest, each catching the failure modes the previous misses (the design evaluation is in `notes/decisions.md`'s v0.3 entry; the migration plan note was deleted post-implementation):
 
 | Layer | What it catches |
 |---|---|
@@ -140,7 +148,7 @@ Recovery flow on next launch:
 4. Sweep expired warm rows (`ExpireAtUtc < now`).
 5. Touch the `metadata` row's `LastOpenedUtc` and append the current profiler version if new.
 
-## Performance characteristics
+### Performance characteristics
 
 Measured by `Tests/Persistence/PersistenceBenchmarkTests.cs` (M-series Apple Silicon, debug build):
 
@@ -153,22 +161,41 @@ Measured by `Tests/Persistence/PersistenceBenchmarkTests.cs` (M-series Apple Sil
 
 The game thread pays a single `Interlocked.Increment` + `Channel.Writer.TryWrite` per enqueued op. No disk in the per-tick path. Invariant 2 (overhead budget) is intact.
 
-## Invariants
+### Persistence invariants
 
 1. **Game thread never touches LiteDB.** Every write enqueues; the writer thread drains.
 2. **Idempotent apply.** Journal replay re-runs ops that already committed; every stream upserts on a natural key.
 3. **No fabricated timestamps.** A crash-cut session's `EndedUtc` stays null; consumers know the run was crash-cut.
 4. **Disk-failure surfaces.** Recovery quarantines unreadable files with a timestamped rename; the log line is the only record of the failure but the file is preserved.
 
-## How it plugs in
+## Key Interfaces / Data Flow
 
 `PerformanceProfiler.Mod.Load` opens the `ProfilerDatabase` singleton. `ProfilerSystem.OnWorldLoad` creates a `SessionRecorder` against it and upserts the modlist identity rows. `PostUpdateEverything` calls `SessionRecorder.OnTick(latestFrame, collector)` plus the `ContextTransitionWatcher` after each `EventContext` snapshot. `OnWorldUnload` calls `SessionRecorder.End("clean")` which builds the per-mod and per-hook aggregates, the archive row, and the SessionEnd op. `Mod.Unload` disposes the database (writer drain, final checkpoint, backup rotation, journal truncate).
 
 The legacy JSON path (`Profiling/SessionLogWriter.cs` and `Sessions/*.json` files) was deleted in v0.3. `LegacyJsonImporter.RunOnceIfNeeded` performs a one-shot ingestion of any pre-existing JSON files into the new schema and moves them to `ImportedLegacyJson/` so the directory is empty for future launches.
 
-## Open work (post-v0.3)
+## Known Issues / Active Risks
 
-- **Per-hook CallCount**: currently 0 in `PerSessionHookAggregate`. The plan notes this as a future enrichment; would require `PerModAttribution` to track per-hook call counts.
+- **Schema-snapshot test is deferred.** `Tests/Persistence/PersistenceRoundTripTests.cs` covers write/read fidelity but there is no frozen-schema snapshot test. A per-collection schema change that silently altered a record shape would not be caught until a read failed in-game. Downstream impact: a malformed record could break a dashboard endpoint that deserialises it.
+- **`worlds` collection is a stub.** The recorder passes `worldId: null`; the collection exists but carries no rows today. Any future per-world analytics has to populate it first.
+
+## Partial / In Progress
+
+Nothing in progress in this subsystem as of this pass. The streams themselves now live in `Data/Streams/`; this folder owns the database, the writer thread, and the side-channel detectors that feed those streams.
+
+## Planned / Missing / Likely Changes
+
+- **Per-hook CallCount**: currently 0 in `PerSessionHookAggregate`; a future enrichment would require `PerModAttribution` to track per-hook call counts.
 - **HTML report**: separate feature (`notes/future-html-report.md`). The schema is friendly to a future reader.
-- **`bossFights` precomputed collection**: today, boss windows are reconstructable from `contextTransitions` (`type=boss`). Promoting them to a first-class collection is `notes/litedb-migration-plan.md` §15.
+- **`bossFights` precomputed collection**: today, boss windows are reconstructable from `contextTransitions` (`type=boss`). Promoting them to a first-class collection was a future-enrichment item in the (now-deleted) migration plan; the segment engine (`Data/Aggregators/Segments/`) now covers most of this need via boss-family segments.
 - **Engagement attribution**: schema is forward-compatible (an `engagementEvents` collection plugs in via the stream registry without disturbing existing rows), but the per-tick instrumentation that would populate it is its own engineering surface.
+
+## Durable Notes / Discarded Approaches
+
+- **LiteDB 5.0.21, not the 6.0 prerelease.** The 6.0 line was in prerelease for over a year; the persistence layer of a public mod cannot take that risk. 5.0.21 is MIT, fully managed, a single ~510 KB DLL shipped inside the `.tmod`. Re-evaluate when 6.0 ships stable. (Full reasoning in `notes/decisions.md`'s v0.3 entry.)
+- **The stream registry replaced a 14-case switch.** The first cut had `ProfilerDatabase.ApplyOne` as a monolithic switch over every `DbOpKind`, with `ReconstructOp` duplicating the fan-out. Refactored to `IPersistenceStream` + `StreamRegistry` so a new collection is one new file plus one registry line. The modular shape is what makes the extension points above cheap.
+- **The legacy JSON `SessionLogWriter` is gone.** Deleted in v0.3; this LiteDB layer replaced it. `LegacyJsonImporter.RunOnceIfNeeded` performs a one-shot ingestion of any pre-existing `Sessions/*.json` files into the new schema and moves them to `ImportedLegacyJson/`. Two real bugs surfaced during the v0.3 test wiring (a `Pragma("USER_VERSION")` Int32-vs-Int64 cast and an unsupported `Channel.Reader.Count` on the unbounded variant) — both are recorded in `notes/decisions.md`.
+
+## Obsolete / No Longer Relevant
+
+- **The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) and the `Sessions/*.json` files.** Deleted in v0.3 and superseded by this layer. Mentioned here only so a reader who finds old JSON files (or old references) knows they predate the LiteDB store.

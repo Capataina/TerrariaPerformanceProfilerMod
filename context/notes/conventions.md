@@ -55,12 +55,36 @@ Every file uses `namespace PerformanceProfiler.X.Y;` (file-scoped, C# 10+ style)
 
 ## 12. XML doc comments with `<para>` blocks for non-trivial types
 
-Every `internal` or `public` type carrying non-trivial behaviour has an XML doc summary on the type. Multi-paragraph summaries use `<para>...</para>` blocks (see `ILHookInterceptor`, `HookCoverageView`, `SessionLogWriter`). Method-level docs are added to anything called from another file or another assembly; private helpers stay terse. The convention is "doc what a caller needs to know about contract and invariants", not "doc every line".
+Every `internal` or `public` type carrying non-trivial behaviour has an XML doc summary on the type. Multi-paragraph summaries use `<para>...</para>` blocks (see `ILHookInterceptor`, `HookCoverageView`, `DataRegistry`). Method-level docs are added to anything called from another file or another assembly; private helpers stay terse. The convention is "doc what a caller needs to know about contract and invariants", not "doc every line".
 
-## 13. The two `MethodImpl(...)` boundary
+## 13. The `MethodImpl(AggressiveInlining)` boundary
 
-`Profiling/MetricCollector.cs` and the probe stack use plain methods; no `[MethodImpl(MethodImplOptions.AggressiveInlining)]` is used anywhere in the codebase. If a hot-path measurement ever shows inlining as a win, that decision goes through the Invariant-2 measurement gate (CLAUDE.md) and gets a comment with the measurement before being committed.
+`[MethodImpl(MethodImplOptions.AggressiveInlining)]` IS applied on the per-tick probe entry/exit path (`ProbeStack.Enter/Leave/EnterCpuAlloc/LeaveCpuAlloc` and `Data/Aggregators/PerModAttribution.Add`), added in v0.6 Phase β so those tiny hot-path calls fold into their call sites. Everywhere else uses plain methods. The convention going forward: new hot-path inlining goes through the Invariant-2 measurement gate (CLAUDE.md) and gets a comment with the measurement before being committed, and the existing annotations are not added to or removed without measuring.
 
 ## 14. Audit category tags in commit messages
 
 Commits that implement an audit finding use a prefix like `CHA round 1:` / `CHA round 2:` / `CHA round 3:` and group findings by audit file (`hook-instrumentation`, `overlay-ui`, `persistence-session-logging`, `insights-engine`, `build-and-tests`). The body lists every finding addressed in that commit. Future audit-driven work should keep this shape so the implementation receipt in `plans/code-health-audit/index.md` stays easy to maintain.
+
+## 15. Numbers live in `Data/`; consumers ask the registry
+
+The single load-bearing rule of the unified data pipeline: if a piece of code *produces* a number it lives under `Data/` (a collector, aggregator, stat, or detector); if it *consumes* a number it asks the registry via `DataRegistry.Shared.Lookup<TSnapshot>(name)?.CurrentSnapshot()`. Routers, exporters, and dashboard JS must never derive a number themselves — the KPI cards used to be computed in JavaScript and drifted from the C# values; `BuildSpikes` and every other `DashboardRouter` builder now only reshapes a looked-up snapshot into JSON. A computation that appears in a consumer is the failure this convention prevents.
+
+## 16. Streams are looked up by stable string name, never class reference
+
+Every `IDataStream` is registered once in `PerformanceProfiler.RegisterDataPipeline` under a stable string `Name` (`"kpi"`, the `RolloutStreamNames` constants), and every consumer resolves it through `DataRegistry.Shared.Lookup<TSnapshot>(name)`, never by holding a class reference. The name is the contract; renaming a registered stream's `Name` silently breaks every consumer that looks it up, since the registry returns `null` rather than a compile error. New streams expose their name as a `const` (e.g. `KpiStat.StreamName`) so consumers cite the constant rather than a literal.
+
+## 17. The Snapshot + Stat + Calculator triad for derived facts
+
+Every new derived "fact about the session" is built as three pieces: an immutable `XxxSnapshot` value (struct or readonly record), an `XxxStat` that implements `IDataStream<XxxSnapshot>` and is registered by name, and a pure-logic `XxxCalculator` whose static method computes the snapshot from inputs. `KpiSnapshot` + `KpiStat` + `KpiCalculator` is the reference template. The split keeps attribution maths testable without a running game (Calculator), the registry contract uniform (Stat), and the wire shape immutable (Snapshot); a stat that computes inline instead of delegating to a calculator breaks the testability half.
+
+## 18. Snapshots are fresh and immutable; nobody caches or frees them
+
+`CurrentSnapshot()` returns a fresh immutable value built at call time; collection fields are `IReadOnlyList`/`IReadOnlyDictionary` copies, never live mutable references into producer state. Producers do not cache the snapshot they hand out and consumers do not own or free it — it is a value, garbage-collected when the consumer is done. Every snapshot also exposes an `Empty` default for the no-world-loaded path. This is what lets the router read a snapshot on a request thread while the producer mutates its own state on the game thread without a lock.
+
+## 19. Snapshot contracts frozen in one file for parallel builds
+
+When a feature wave is built across parallel agents, every snapshot type and every stream-name constant is frozen first in `Data/Contracts/RolloutContracts.cs` before any implementation exists. Downstream code (data layer, router, UI) then compiles against types whose producers are still being written, so independent agents never block on each other's in-progress work. The contracts file is the single source of truth for those shapes; changing a frozen contract mid-wave breaks every agent already compiling against it, so contract edits are a Wave-0 act, not a mid-build one.
+
+## 20. Per-section partial-class asset bundles
+
+The dashboard's CSS, JS, and HTML are each split into per-section partial classes (`Css.Palette.cs`, `Js.Polling.cs`, `IndexHtml.Summary.cs`), each contributing one `private const string` fragment that `DashboardAssets.Css`/`Js` concatenates in a stable, order-sensitive sequence into a bundle cached once at type-init. `DashboardRouter` is likewise split into per-tab partials (`DashboardRouter.Lag.cs`, `.Insights.cs`). A new dashboard section adds a new partial and one line to the concatenation list; it never bloats a monolith. The concatenation order is load-bearing for CSS cascade and JS declaration order, so new fragments slot into the right position, not the end.

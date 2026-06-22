@@ -124,20 +124,27 @@ So: nothing in the UI Renderer is *blocked*, but the component is mis-described 
 
 ---
 
-## How we plug in (post-implementation status, 2026-05-20)
+## How we plug in (post-implementation status)
 
-The 2026-05-19 analysis verdict was "the overlay shell is public-API; the overlay paint is custom DrawSelf against vanilla drawing types this XML does not document." That is exactly what was built.
+> [!important] The in-game overlay was archived in v0.9.0.
+> The F9 keybind is now `"OpenDashboard"` and opens the default browser to the loopback dashboard (`systems/web-dashboard.md`); it no longer toggles an overlay. The overlay shell + paint described below are preserved as the record of how the (now-archived) overlay plugged into the tModLoader UI surface, for a possible Steam-Deck / handheld revival. `ProfilerOverlaySystem` (in `UI/`) today owns only the keybind registration. See `systems/overlay.md`.
 
-### The shell
+The 2026-05-19 analysis verdict was "the overlay shell is public-API; the overlay paint is custom DrawSelf against vanilla drawing types this XML does not document." That is exactly what was built (and later archived).
 
-`ProfilerOverlaySystem : ModSystem` (`UI/ProfilerOverlaySystem.cs`) owns the mount:
+### The current keybind (live)
 
-- `PostSetupContent` → `KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", Keys.F9)` → stored as `ToggleKeybind`.
+`ProfilerOverlaySystem : ModSystem` (`UI/ProfilerOverlaySystem.cs`) registers `KeybindLoader.RegisterKeybind(Mod, "OpenDashboard", "F9")` at `PostSetupContent`, stored as `DashboardKeybind`. `ProfilerPlayer.ProcessTriggers` polls it and launches the default browser at the dashboard URL (`open`/`xdg-open`/shell). Local client only (per `ProcessTriggers`' tModLoader documentation).
+
+### The archived overlay shell (historical, for revival)
+
+When the overlay was the player surface, `ProfilerOverlaySystem` also owned:
+
+- `KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", Keys.F9)` → stored as the toggle keybind.
 - `ModifyInterfaceLayers(List<GameInterfaceLayer> layers)` → inserts a `LegacyGameInterfaceLayer` whose draw delegate calls `OverlayPanel.Draw`.
 - `UpdateUI(GameTime)` → drives the mod-owned `UserInterface.Update` while `OverlayState.Visible` is true.
 - `ToggleVisibility()` → flips `OverlayState.Visible`.
 
-`ProfilerPlayer.ProcessTriggers` polls the F9 keybind and calls `ToggleVisibility()`. Local client only (per `ProcessTriggers`' tModLoader documentation).
+This shell still exists in `UI/` but is not in the player path.
 
 ### The paint
 

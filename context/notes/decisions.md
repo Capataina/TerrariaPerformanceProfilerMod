@@ -146,7 +146,7 @@ Triggered by a real-world playtest where Caner's session lagged dramatically whe
 
 ## 2026-05-20 — LiteDB persistence + v0.3 (afternoon session)
 
-The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) is gone. The new persistence layer is a single LiteDB file plus a redo log plus three rotating backups, all under `Profiling/Persistence/`. Implementation followed `context/notes/litedb-migration-plan.md` end to end; every decision below is the plan's recommendation accepted.
+The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) is gone. The new persistence layer is a single LiteDB file plus a redo log plus three rotating backups, all under `Profiling/Persistence/`. Implementation followed the LiteDB-migration plan note end to end (that note was deleted once the work landed; its durable rationale is captured in this entry and in `systems/persistence.md`); every decision below is the plan's recommendation accepted.
 
 **LiteDB 5.0.21, not 6.0 prerelease.** The 6.0 line has been in prerelease for a year; we cannot accept that risk on the persistence layer of a public mod. 5.0.21 is MIT, 100% managed, single 510 KB DLL, ships inside the `.tmod` via `dllReferences = LiteDB` and `lib/LiteDB.dll`. Re-evaluate when 6.0 ships stable.
 

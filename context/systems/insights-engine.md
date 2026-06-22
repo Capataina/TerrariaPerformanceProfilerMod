@@ -10,7 +10,7 @@ The honesty contract (Invariant 3) governs every output: every record carries a 
 
 ## Boundaries / Ownership
 
-Files: `Profiling/Insights/InsightsEngine.cs`, `InsightStore.cs`, `InsightRecord.cs`, `RankingScorer.cs`, `InsightRenderer.cs`, `IInsightDetector.cs`, plus five detectors in `Detectors/` (`HotHookDominanceDetector`, `AllocationBurstDetector`, `FreeRemovalCandidateDetector`, `PeakContributorToSpikeDetector`) and `GatedDetectors.cs` carrying six stub detectors.
+Files under `Data/Detectors/Insights/` (the whole subsystem moved out of `Profiling/Insights/` in v0.11): `InsightsEngine.cs`, `InsightStore.cs`, `InsightRecord.cs`, `RankingScorer.cs`, `InsightRenderer.cs`, `IInsightDetector.cs`, plus the live detectors in `Data/Detectors/Insights/Detectors/` (`HotHookDominanceDetector`, `AllocationBurstDetector`, `FreeRemovalCandidateDetector`, `PeakContributorToSpikeDetector`) and `GatedDetectors.cs` carrying six stub detectors.
 
 Owns:
 
@@ -19,14 +19,14 @@ Owns:
 - Confidence promotion gated by `PValueAdjusted`.
 - `EvidenceScope` classification per record.
 - Pattern-aware magnitude normalisation for ranking.
-- The shared singleton (`InsightsEngine.Shared`) consumed by both the InsightsTab and SessionLogWriter.
+- The shared singleton (`InsightsEngine.Shared`) consumed by both the dashboard insights surface and the `SessionRecorder` (via `Data/Streams/InsightStream.cs`).
 
 Does not own:
 
 - The metric data the detectors read — that belongs to `systems/metric-collection.md` and `systems/spike-detection.md`.
-- The InsightsTab UI rendering — see `systems/overlay.md`.
-- The JSON schema — see `systems/session-logging.md`.
-- The eventual lifetime-data persistence — see `notes/litedb-migration-plan.md`.
+- The insights UI rendering — the live surface is the browser dashboard (`systems/web-dashboard.md`); the in-game InsightsTab is archived under `UI/`.
+- The persisted schema — see `systems/persistence.md`.
+- The lifetime-data persistence layer — LiteDB (`SessionRecorder`); see `systems/persistence.md`.
 
 ## Current Implemented Reality
 
@@ -46,7 +46,7 @@ Does not own:
 | 8 | `NewContributor` | `NewContributorDetector` | gated on `litedb` | Needs cross-session diff |
 | 10 | `HookFrequencyTail` | `HookFrequencyTailDetector` | gated on `events` | Needs per-hook call counts |
 
-Gated detectors are registered in the roster but `Evaluate` short-circuits on `det.IsGated` (`InsightsEngine.cs:128-130`). They contribute to the `gated` map of the JSON via `GatedPatterns()`.
+Gated detectors are registered in the roster but `Evaluate` short-circuits on `det.IsGated` (`InsightsEngine.cs:128-130`). They contribute to the persisted `gated` map via `GatedPatterns()`.
 
 ### Pattern keys (stable numeric values)
 
@@ -90,7 +90,7 @@ Orthogonal to `Confidence` (`InsightRecord.cs:49-54`):
 | `LifetimeData` | Record draws on prior sessions retained via the persistence layer (not yet wired). |
 | `NeedsPersistence` | Detector has a real claim it cannot substantiate without persistence. `FreeRemovalCandidateDetector` sets this. Renders with a "needs persistence" hedge until LiteDB lands. |
 
-The InsightsTab renders both badges side by side. A record can be statistically tight within a single session and still weaker than lifetime data accumulated across sessions; the two-badge design lets a reader argue with either dimension independently.
+The renderer (dashboard; the archived InsightsTab did the same) shows both badges side by side. A record can be statistically tight within a single session and still weaker than lifetime data accumulated across sessions; the two-badge design lets a reader argue with either dimension independently.
 
 ### `Audience` (Player / Modder / Both)
 
@@ -105,7 +105,7 @@ SessionMean, RollingFiveMinute, PreContext, ComparableContexts,
 SessionFirstHalf, PerModRollingMean, None
 ```
 
-The honesty contract requires every rendered insight to declare its baseline so a reader can argue with the comparison itself, not just the number. The renderer surfaces this in the InsightsTab and the JSON.
+The honesty contract requires every rendered insight to declare its baseline so a reader can argue with the comparison itself, not just the number. The renderer surfaces this on the dashboard and in the persisted record.
 
 ### Pattern-aware ranking
 
@@ -167,9 +167,9 @@ TopInto(destination, n, nowTick):
 
 ### Shared singleton
 
-`InsightsEngine.Shared` is a public static field plus `GetOrCreateShared()` (`InsightsEngine.cs:33-39`). Both the InsightsTab (`UI/Overlay/Tabs/InsightsTab.cs`) and `SessionLogWriter.InsightsBlock()` call `GetOrCreateShared()` to ensure they read from the same store.
+`InsightsEngine.Shared` is a public static field plus `GetOrCreateShared()` (`InsightsEngine.cs:33-39`). The dashboard insights surface and the persistence layer (`Data/Streams/InsightStream.cs`, written by `SessionRecorder`) both call `GetOrCreateShared()` to ensure they read from the same store. The archived in-game InsightsTab (under `UI/`) used the same singleton.
 
-`ProfilerSystem.OnWorldUnload` explicitly sets `InsightsEngine.Shared = null` (`Profiling/ProfilerSystem.cs:145`) so the next world starts with an empty store. Without this, records would leak across sessions and the JSON's per-session insights block would carry stale entries.
+`ProfilerSystem.OnWorldUnload` explicitly sets `InsightsEngine.Shared = null` so the next world starts with an empty store. Without this, records would leak across sessions and the persisted per-session insights block would carry stale entries.
 
 ### Gated map cached at construction
 
@@ -178,46 +178,44 @@ TopInto(destination, n, nowTick):
 ## Key Interfaces / Data Flow
 
 ```
-InsightsTab.Tick (1 Hz):
+ProfilerSystem.PostUpdateEverything (every 60 ticks, off-thread, gated on prior run):
     engine = InsightsEngine.GetOrCreateShared()
-    engine.Evaluate(collector, nowTick, sessionLengthTicks)
+    engine.Evaluate(collector, latestTick, historyDepth)
         for each detector in _detectors:
             if det.IsGated or !det.IsAvailable(collector): skip
             det.Evaluate(collector, nowTick, sessionLengthTicks, _scratch)
             for each rec in _scratch:
                 _store.Submit(rec, nowTick)
         _store.Tick(nowTick)   // TTL eviction
-    engine.Store.TopInto(_ranked, MaxOverlayRows, nowTick)
-    _rankedBodies populated parallel to _ranked
 
-InsightsTab.Draw (60 Hz):
-    iterate _ranked + _rankedBodies in lockstep
-    for each, render template (Confidence badge + Scope badge + body string)
+dashboard /api/insights + /api/cross-cutting read (InsightsStat etc):
+    engine.Store.TopInto(_ranked, MaxRows, nowTick)
+    bodies populated parallel to _ranked, rendered with Confidence + Scope badges
 
-SessionLogWriter.InsightsBlock():
+SessionRecorder insights persist (Data/Streams/InsightStream.cs):
     engine = InsightsEngine.GetOrCreateShared()
-    live[] = Store.AllLive() serialised
-    history[] = Store.History serialised
+    live[] = Store.AllLive() persisted to the `insights` collection
+    history[] = Store.History persisted
     gated = engine.GatedPatterns()
 ```
 
-The same engine instance is touched from two threads in practice — the main UI thread (InsightsTab) and the lifecycle thread (SessionLogWriter at Tick boundaries). Both paths read; only the UI thread's `Evaluate` writes. Today the contention surface is minimal because writes only happen during a tab evaluate that itself only runs while the tab is visible. If a background detector cadence ever lands, this needs revisiting.
+The same engine instance is touched from more than one thread in practice — the thread-pool `Evaluate` (scheduled from `PostUpdateEverything`) and the dashboard / recorder read paths. The read paths read; only `Evaluate` writes, and it is gated so it never overlaps itself (`_insightsEvalInflight`). The contention surface is small but real now that `Evaluate` runs off-thread rather than inline; the read paths use `AllLive()` / `TopInto` snapshots. If a second writer cadence ever lands, this needs revisiting.
 
 ## Implemented Outputs / Artifacts
 
 | Surface | Source |
 |---------|--------|
-| InsightsTab ranked card rows | `Store.TopInto` |
-| InsightsTab "gated detectors waiting on: …" line | `_gatedLabel` |
-| Session JSON `insights.live[]` | `Store.AllLive()` serialised |
-| Session JSON `insights.history[]` | `Store.History` serialised |
-| Session JSON `insights.gated{}` | `GatedPatterns()` |
+| Dashboard `/api/insights` ranked card rows (archived InsightsTab) | `Store.TopInto` |
+| Dashboard "gated detectors waiting on: …" line | `_gatedLabel` |
+| Persisted `insights.live[]` | `Store.AllLive()` via `InsightStream` |
+| Persisted `insights.history[]` | `Store.History` via `InsightStream` |
+| Persisted `insights.gated{}` | `GatedPatterns()` via `InsightStream` |
 
 ## Known Issues / Active Risks
 
-- **`PValueAdjusted` defaults to 1 for the in-scope detectors.** None of the four live detectors currently runs a hypothesis test; they emit records with `Evidence.PValueAdjusted = 1` and rely on the magnitude + repetition signal. As a consequence, no live detector's records reach Medium or High confidence today. Acceptable — the honesty contract is "untested observations stay at Low/Preliminary" — but future detectors that compute real p-values should be wired through the same evidence struct, not a separate path. Downstream impact: the InsightsTab today shows mostly Low-confidence rows; the colour palette must continue to make Low rows readable rather than de-emphasised.
-- **Gated detector emit is fully disabled.** `Evaluate` skips gated detectors entirely. The roster registration exists only so `GatedPatterns()` lists them in the JSON. A future code reader could misread the `Detectors/GatedDetectors.cs` file as implementing the pattern; it does not. The docstring on each gated detector (`Evaluate` body) says "registered for roster / gate visibility but currently emits zero records" — keep this wording when adding new gated detectors.
-- **`_topComparerNowTick` is shared scalar state.** If two callers ever invoke `TopInto` concurrently on the same store, the comparer reads whichever `nowTick` was written last. Today there is only one caller per session (the InsightsTab); the SessionLogWriter uses `AllLive()` which does not sort. Watch item.
+- **`PValueAdjusted` defaults to 1 for the in-scope detectors.** None of the four live detectors currently runs a hypothesis test; they emit records with `Evidence.PValueAdjusted = 1` and rely on the magnitude + repetition signal. As a consequence, no live detector's records reach Medium or High confidence today. Acceptable — the honesty contract is "untested observations stay at Low/Preliminary" — but future detectors that compute real p-values should be wired through the same evidence struct, not a separate path. Downstream impact: the dashboard insights surface today shows mostly Low-confidence rows; the colour palette must continue to make Low rows readable rather than de-emphasised.
+- **Gated detector emit is fully disabled.** `Evaluate` skips gated detectors entirely. The roster registration exists only so `GatedPatterns()` lists them in the persisted output. A future code reader could misread the `Data/Detectors/Insights/Detectors/GatedDetectors.cs` file as implementing the pattern; it does not. The docstring on each gated detector (`Evaluate` body) says "registered for roster / gate visibility but currently emits zero records" — keep this wording when adding new gated detectors.
+- **`_topComparerNowTick` is shared scalar state.** If two callers ever invoke `TopInto` concurrently on the same store, the comparer reads whichever `nowTick` was written last. Today the sorting `TopInto` caller is the dashboard read path; the `SessionRecorder` insights persist uses `AllLive()` which does not sort. Watch item.
 - **`StableKey` packs into 64 bits with 16-bit slots.** Collisions are mathematically possible if a single mod somehow had > 65k distinct hookIds (`InsightStore.cs:195-205`). Today the largest discovered hook counts are in the hundreds per mod, but if the per-`(mod, hookId)` space ever grows, the key shape needs widening.
 
 ## Partial / In Progress
@@ -227,7 +225,7 @@ The same engine instance is touched from two threads in practice — the main UI
 ## Planned / Missing / Likely Changes
 
 - **Six gated detectors await the `events` and `litedb` gates** (see roster table above). Each is queued; the `events` gate is closer to opening because `EventAggregator` already accumulates per-dimension bucket stats — only the transition stream is missing.
-- **Real p-value computations for in-scope detectors.** Today every record carries `PValueAdjusted = 1`. The plan in `notes/insights-engine-plan.md §6` covers this; not started.
+- **Real p-value computations for in-scope detectors.** Today every record carries `PValueAdjusted = 1`. The rationale is captured in `notes/decisions.md`; not started.
 - **Audience tuning per pattern.** Currently every pattern hard-codes `Audience.Player` or `Audience.Both`. The plan calls for audience-aware template strings; not implemented.
 
 ## Durable Notes / Discarded Approaches
@@ -244,11 +242,10 @@ Nothing. The subsystem is roughly five weeks old and its discarded approaches al
 
 ## Cross-references
 
-- `systems/overlay.md` — InsightsTab rendering, the 1 Hz refresh, `_ranked` + `_rankedBodies` cache.
-- `systems/session-logging.md` — schema v4 `insights` block.
+- `systems/web-dashboard.md` — the live insights surface (`/api/insights`, `/api/cross-cutting`); the in-game InsightsTab is archived under `UI/`.
+- `systems/persistence.md` — the persisted `insights` collection (`InsightStream` + `SessionRecorder`) and the lifetime-data layer that opens the gated detectors.
 - `systems/metric-collection.md` — what `det.Evaluate(collector, …)` reads.
 - `systems/spike-detection.md` — `PeakContributorToSpikeDetector` reads `SpikeDetector.Windows`.
-- `notes/insights-engine-plan.md` — the original design plan; sections shipped marked.
-- `notes/litedb-migration-plan.md` — the lifetime-data layer that opens the gated detectors.
+- `notes/decisions.md` — the original insights-engine design rationale (the per-feature plan note was folded in here).
 - `Tests/RankingScorerTests.cs`, `Tests/InsightStoreTests.cs` — pin the audit findings.
 - `plans/code-health-audit/insights-engine.md` — audit findings driving the current state.

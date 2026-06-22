@@ -1,98 +1,55 @@
 # Staleness Report
 
-Snapshot from the 2026-05-20 upkeep-context pass. Overwritten on each upkeep run.
+Snapshot from the 2026-06-22 upkeep-context pass (the v0.10 → v0.12 + dashboard-pivot reconciliation). Overwritten on each upkeep run.
 
-Files walked: 28 `.md` under `context/` at start of run; 12 of those moved via `git mv` into the new folder shape; new files created to fill coverage gaps.
+The prior context (written at the v0.10 snapshot) predated two structural shifts the code had already made: the v0.11 physical migration of every stream-shaped class out of `Profiling/` into `Data/`, and the v0.9 pivot from an in-game overlay to a browser dashboard. This run reconciled the docs to current code reality. Files walked: 43 `.md` files under `context/` (excluding this report). The 11 files under `plans/code-health-audit/` were NOT touched — a concurrent `code-health-audit` agent owns that path and `Tests/`.
 
-## Per-file verdicts (pre-run)
+## Per-file verdicts (this run)
 
-| File (pre-move) | Verdict | Evidence |
-|------|---------|----------|
-| `context/_Overview.md` | stale | Pre-implementation reconnaissance dated 2026-05-19 with six-agent feasibility framing. Described the codebase before ILHook landed, before the audit, before the test harness. Rewritten as the post-implementation entry point. |
-| `context/integration-map.md` | stale | Same vintage; talks about M0 spikes that the 2026-05-19 decisions log dropped. Component tier model mismatches reality where ILHook is the default backend. Moved to `integration/integration-map.md` and refreshed. |
-| `context/notes/decisions.md` | needs-updating | Only carried the 2026-05-19 session entry. Missing the 2026-05-20 decisions (ILHook default, HookCoverageVersion=3, EvidenceScope split, atomic writes, schema v4 insights block, pattern-aware ranking, PValueAdjusted promotion gate, dual-surface JSON share). Refreshed in place. |
-| `context/tmodloader-hook-surface.md` | needs-updating | Describes the hook surface accurately; lacked a "How we plug in" section. Moved to `tmodloader/hook-surface.md`; "How we plug in" section appended. |
-| `context/tmodloader-monomod-detours.md` | needs-updating | Called `MonoModHooks.Add/Modify` return type a `NEEDS DECOMPILER VERIFICATION` gap; reality: we now use `new ILHook(...)` directly because `MonoModHooks.Modify` returns void (confirmed at `Profiling/ILHookInterceptor.cs:36-41`). Moved to `tmodloader/monomod-detours.md`; "How `ILHookInterceptor` actually wires" section appended. |
-| `context/tmodloader-lifecycle-and-loop.md` | needs-updating | Save-path uncertainty marked `NEEDS DECOMPILER VERIFICATION`; reality: `SessionLogWriter.SessionDirectory()` resolves the path. Atomic-write hardening + try/catch self-disable not reflected. Moved to `tmodloader/lifecycle-and-loop.md`; "How we plug in" section appended. |
-| `context/tmodloader-mod-identity.md` | needs-updating | Enumeration gap marked unresolved; reality: `ModLoader.Mods` is enumerated directly in `HookInterceptor.Install` (line 296). Moved to `tmodloader/mod-identity.md`; resolution status appended. |
-| `context/tmodloader-ui-system.md` | needs-updating | UI now has the full tab system (`IOverlayTab`, `TabRegistry.Visible`, five tabs). The slice predated this; "How we plug in" section appended after the move. |
-| `context/tmodloader-engagement-surfaces.md` | needs-updating | `ContextTagger`, `BiomeRegistry`, `EventAggregator`, `SubworldProbe` now exist as a full subsystem. Moved to `tmodloader/engagement-surfaces.md`; "How we plug in" section appended. |
-| `context/ILHook-migration-plan.md` | preserved | Migration plan; the work shipped but the research record stays useful. Moved to `tmodloader/ilhook-migration-research.md` as a reference artefact. |
-| `context/notes/events-tab-plan.md` | preserved | Implemented; status header added. |
-| `context/notes/future-html-report.md` | up-to-date | Forward-looking; still relevant; no implementation has touched its scope. |
-| `context/notes/future-settings-design.md` | up-to-date | Forward-looking; still relevant. |
-| `context/notes/ilhook-migration-plan.md` | preserved | Implemented; status header added. |
-| `context/notes/insights-engine-plan.md` | preserved | Largely shipped (four detectors live, six gated). Status header added. |
-| `context/notes/litedb-migration-plan.md` | up-to-date | Forward-looking; not started; still relevant. |
-| `context/notes/overview-tab-plan.md` | preserved | Shipped; status header added. |
-| `context/notes/spikes-and-allocations-plan.md` | preserved | Shipped; status header added. |
-| `context/plans/code-health-audit/index.md` | preserved | Active audit log with full implementation receipt for the 2026-05-20 pass. All 16 certain findings and 6 potential issues classified done / deferred / acknowledged. Two findings explicitly deferred (SessionLogWriter split + schema snapshot test). |
-| `context/plans/code-health-audit/PASS-1-CHECKPOINT.md` | preserved | Pass-1 checkpoint of the audit; historical record of the candidate list before deep-dive. |
-| `context/plans/code-health-audit/PASS-2-SYSTEMS-AUDITED.md` | preserved | Pass-2 checkpoint; verdicts on modularisation candidates. |
-| `context/plans/code-health-audit/build-and-tests.md` | preserved | Audit deep-dive for build / test infrastructure. The test-harness finding is now shipped (`Tests/`). |
-| `context/plans/code-health-audit/hook-instrumentation.md` | preserved | Audit deep-dive for hook instrumentation. All findings shipped in round 1 (`77a99d2`). |
-| `context/plans/code-health-audit/insights-engine.md` | preserved | Audit deep-dive for insights engine. All findings shipped in round 2 (`aa914ce`). |
-| `context/plans/code-health-audit/obligation-evidence-map.md` | preserved | Audit obligation tracking; passed evidence-map lint. |
-| `context/plans/code-health-audit/overlay-ui.md` | preserved | Audit deep-dive for overlay UI. All findings shipped in round 2 (`aa914ce`). |
-| `context/plans/code-health-audit/persistence-session-logging.md` | preserved | Audit deep-dive for session logging. Atomic writes + self-disable shipped in round 1; the file's own modularisation finding + schema snapshot test are the two deferred items. |
-| `context/plans/code-health-audit/potential-issues.md` | preserved | Audit's potential-issue sweep. All 6 issues resolved across rounds 1 and 2 (see `index.md`'s implementation receipt). |
+| File | Verdict | Evidence / action |
+|------|---------|-------------------|
+| `_Overview.md` | needs-updating → fixed | "The four Project Invariants" corrected to five (added Invariant 5, no-mod-specific-code, per CLAUDE.md); folder map updated (added `perf-pass/`, `.context-lint.json`, `web-dashboard` system, corrected the notes set); reading order + source-tree pointer added; the three stacked dated blocks (changelog drift) replaced with a single "Current state" orientation that points at canonical homes. |
+| `architecture.md` | stale → rewritten | Repo tree showed only `Profiling/`+`UI/`; reality has four trees (`Data/` ~100, `Profiling/` ~86, `Web/` ~57, `UI/` ~33 archived). Listed `systems/session-logging.md` (does not exist; file is `persistence.md`); cited `Profiling/Insights/`, `Profiling/Events/` streams, `Profiling/SessionLogWriter.cs` (moved/deleted). Subsystem table 10 → 12 (added data-pipeline, persistence, web-dashboard; marked overlay archived). Dependency diagram, hot-path trace (now extends to the HTTP surface), state ownership, structural notes, coverage all rewritten to v0.12 reality. |
+| `notes.md` | stale → rewritten | Index listed 6 notes files that no longer exist (`litedb-migration-plan`, `ilhook-migration-plan`, `overview-tab-plan`, `events-tab-plan`, `insights-engine-plan`, `spikes-and-allocations-plan`); omitted the 4 that do (`philosophy`, `ui-overhaul-plan`, `future-unified-data-interface`, `modlist-pre-upgrade-2026-06-22`). Rebuilt to match the actual 8 files. |
+| `integration/integration-map.md` | needs-updating → fixed | Status model de-milestoned; per-component table fixed (F9 → "OpenDashboard" browser-open not overlay toggle; added Data-pipeline / Dashboard / persistence rows; deleted `session-logging.md` ref → `persistence.md`); hot-path chain diagram + Invariant-2/4 tables rewritten from `_sessionLog`/`SessionLogWriter` to `SessionRecorder` + the browser-read path. |
+| `_staleness-report.md` | this file | Overwritten. |
+| `systems/data-pipeline.md` | up-to-date | Verified against `PerformanceProfiler.RegisterDataPipeline` + the `Data/` source tree: F1/F2/F3 + 17 streams, folder layout, contracts, stages, lifecycle all match. No edit needed. |
+| `systems/persistence.md` | needs-updating → fixed | Boundaries/stream references were broadly accurate but the `Streams/` paths drifted (streams moved to `Data/Streams/`); three dead links to the deleted `notes/litedb-migration-plan.md` repointed to `notes/decisions.md` + this file. Historical "SessionLogWriter deleted in v0.3" mentions kept (correct). |
+| `systems/hook-instrumentation.md` | needs-updating → fixed | `HookCoverageView` repointed `Profiling/` → `Data/Stats/`; SessionLogWriter coverage-block ref → `SessionRecorder`; two drifted line citations corrected. Interceptor paths (genuinely still in `Profiling/`) confirmed correct. |
+| `systems/metric-collection.md` | needs-updating → fixed | `PerModAttribution`/`PerModSample`/`PerTickAttributionRing` repointed `Profiling/` → `Data/Aggregators/`; `SessionLogWriter.End()` refs → `SessionRecorder` via `KickOffSessionEndAsync`; `new MetricCollector(...)` signature updated; cross-ref `session-logging.md` → `persistence.md`. |
+| `systems/spike-detection.md` | needs-updating → fixed | `SpikeDetector`/`StallDetector` → `Data/Detectors/`, `PerTickAttributionRing` → `Data/Aggregators/`; JSON/SessionLogWriter refs → `SpikeStream` + `SessionRecorder`; SpikesTab reframed as archived overlay, dashboard `/api/spikes` + `/api/lag-clusters` noted; deleted plan-note ref → `decisions.md`. |
+| `systems/allocation-tracking.md` | needs-updating → fixed | `PerModAttribution` → `Data/Aggregators/` (ProbeStack confirmed still `Profiling/`); MEM/BOTH overlay pill reframed as archived; persisted output via `SessionRecorder`; cross-refs repointed. |
+| `systems/events-and-context.md` | needs-updating → fixed | File inventory split: `ContextTagger` → `Data/Collectors/`, `EventAggregator` → `Data/Aggregators/`; the support structs (EventContext, BiomeRegistry, BossSampler, etc.) confirmed still in `Profiling/Events/`. EventsTab reframed; deleted plan-note refs repointed. |
+| `systems/insights-engine.md` | needs-updating → fixed | Whole subsystem repointed `Profiling/Insights/` → `Data/Detectors/Insights/`; InsightsTab reframed; "schema v4 JSON" → LiteDB `insights` collection via `InsightStream` + `SessionRecorder`; `session-logging.md` → `persistence.md`. |
+| `systems/overlay.md` | needs-updating → fixed | Added an "archived" banner + maturity:archived; Scope reframed to past-tense and pointed at `web-dashboard.md`; dead cross-refs to four deleted plan notes replaced with `web-dashboard.md` + `ui-overhaul-plan.md` + `decisions.md`. The file is preserved as the design record for a future revival. |
+| `systems/web-dashboard.md` | created (coverage gap) | NEW canonical home for the `Web/` subsystem (the live player surface, previously undocumented). Raw-TCP loopback server, ~28 `/api/*` endpoints grouped by tab, partial-class asset bundles, 5-tab SPA, request-flow diagram, focus-pause workaround, Invariant alignment. Grounded in the actual `Web/*` source. |
+| `systems/mod-lifecycle.md` | stale → rewritten | The most-stale system doc. Code snippets + data-flow + Boundaries rewritten against live `PerformanceProfiler.cs` + `ProfilerSystem.cs`: Database + Dashboard singletons, `RegisterDataPipeline`, deferred world-load init, `SessionRecorder` (not SessionLogWriter), `DataRegistry` lifecycle, `PreSaveAndQuit` async session-end. The false "No PreSaveAndQuit handler" Known Issue inverted. OnEnterWorld text "overlay" → "dashboard"; keybind "ToggleOverlay" → "OpenDashboard". |
+| `systems/test-harness.md` | needs-updating → fixed | Fixture inventory corrected 4 → 11 (added Stall/StallClassifier/Time/Pools/BoolIndex + two Persistence fixtures); csproj snippet updated; flagged the real csproj-path-drift bug (Compile Include globs point at pre-v0.11 `Profiling/` paths). |
+| `notes/decisions.md` | up-to-date | Read in full; current through v0.12, newest-first. One dangling `litedb-migration-plan.md` mention softened to note the plan was deleted post-implementation. |
+| `notes/conventions.md` | needs-updating → fixed | §12 SessionLogWriter example → `DataRegistry`; added §15–§20 for the unified-pipeline conventions (numbers-live-in-Data, stream-name lookup, Snapshot+Stat+Calculator triad, snapshot immutability, frozen contracts, partial-class asset bundles). |
+| `notes/philosophy.md` | up-to-date | Read in full; five-invariant framing correct; durable posture; no code drift. Preserved. |
+| `notes/ui-overhaul-plan.md` | preserved | Historical design brief for the (now archived) overlay. Kept as the design record; indexed under "Historical records" in `notes.md`. |
+| `notes/future-unified-data-interface.md` | preserved | Already carries an "implemented in v0.10–v0.11" banner; the why-record for the pipeline. Preserved. |
+| `notes/future-html-report.md` | up-to-date | Forward-looking; not started; not re-read in full this run. |
+| `notes/future-settings-design.md` | up-to-date | Forward-looking; verified clean of dead links; not re-read in full. |
+| `notes/modlist-pre-upgrade-2026-06-22.md` | preserved | Uncommitted reference snapshot; PRESERVED untouched per the run's coordination constraint. |
+| `perf-pass/baseline.md` | preserved | v0.5→v0.6 performance-research record. Now indexed in the `_Overview.md` folder map (was previously missing from it) and aliased in `.context-lint.json`. |
+| `perf-pass/deferred.md` | preserved | Same. |
+| `perf-pass/verification.md` | preserved | Same. |
+| `tmodloader/hook-surface.md` | preserved (not deeply re-verified) | Per-API reference cited by fully-qualified member name, stable across the `Data/` move (it documents tModLoader's surface, not our file layout). Not re-verified line-by-line this run; no drift signal. |
+| `tmodloader/monomod-detours.md` | preserved (not deeply re-verified) | Same — MonoMod/ILHook detour API reference. |
+| `tmodloader/lifecycle-and-loop.md` | needs-updating → fixed | The "How we plug in" lifecycle tables + IO-failure section + path-resolution line were stale (SessionLogWriter-as-live, no deferred init, no Database/Dashboard/DataRegistry/PreSaveAndQuit, drifted line citations, dead `systems/session-logging.md` links). Rewrote the world-scope + mod-scope tables to current reality, repointed cross-refs to `persistence.md` + `web-dashboard.md`, dropped the brittle line numbers. The per-API reference content above it was preserved. |
+| `tmodloader/mod-identity.md` | preserved (not deeply re-verified) | Same — `MethodBase.DeclaringType.Assembly → Mod.Code` attribution reference. |
+| `tmodloader/engagement-surfaces.md` | preserved (not deeply re-verified) | Same — biome/boss/weather API-surface reference. |
+| `tmodloader/ui-system.md` | needs-updating → fixed | The "How we plug in" section described the overlay as the live surface and the F9 keybind as "ToggleOverlay → flip overlay visibility". Added an archived banner, reframed the live keybind as `"OpenDashboard"` → browser, and kept the overlay shell/paint detail as the historical revival record. The KeybindLoader / ModifyInterfaceLayers per-API reference content was preserved. |
+| `tmodloader/ilhook-migration-research.md` | preserved | Research artefact for the IL backend migration; shipped, kept as the record. |
+| `plans/` tree — owned by concurrent agent (not touched) | not touched | The `plans/` tree is owned by a concurrent `code-health-audit` agent that was actively adding, deleting, and modifying files during this run. Out of scope by coordination agreement; the audit agent owns the verdicts for that tree. The files present at the end of this run were: `plans/code-health-audit/PASS-1-CHECKPOINT.md`, `plans/code-health-audit/PASS-2-SYSTEMS-AUDITED.md`, `plans/code-health-audit/build-and-tests.md`, `plans/code-health-audit/cross-cutting.md`, `plans/code-health-audit/hook-install-ram.md`, `plans/code-health-audit/index.md`, `plans/code-health-audit/obligation-evidence-map.md`, `plans/code-health-audit/potential-issues.md`, `plans/install-ram-optimisation.md` — but this set is mid-flux; treat the audit agent's own records as authoritative for it. |
 
 ## Coverage gap report (subsystems lacking a canonical home pre-run)
 
-Each entry has been filled by a new `systems/*.md` file in this upkeep run.
+| Repository area | System name | File | Resolution |
+|-----------------|-------------|------|------------|
+| `Web/` (57 files: `DashboardHttpServer`, `DashboardRouter.*`, `Assets/Css|Js|IndexHtml`) | web-dashboard | `systems/web-dashboard.md` | CREATED this run. The actual v0.9+ player surface; was the single largest documentation gap. |
+| `context/perf-pass/` (doc folder, not a code system) | n/a | n/a | Not a code subsystem; it is a durable perf-research record. Resolved by adding it to the `_Overview.md` folder map (it was previously absent from the map). |
 
-| Repository area | New file | Why it deserves a file |
-|-----------------|----------|------------------------|
-| `Profiling/HookInterceptor.cs` + `ILHookInterceptor.cs` + `HookCategoryRouter.cs` + `HookCoverageView.cs` + `HookBackend.cs` + `ProbeStack.cs` | `systems/hook-instrumentation.md` | Two backends, shared router, shared coverage view, ~1700 lines. The audit dedicates a whole file to it. |
-| `Profiling/MetricCollector.cs` + `PerModAttribution.cs` + `PerModSample.cs` + `PerTickAttributionRing.cs` + `RingBuffer.cs` + `TickFrame.cs` | `systems/metric-collection.md` | Per-tick measurement core. |
-| `Profiling/SpikeDetector.cs` + ring buffers + per-tick attribution ring | `systems/spike-detection.md` | Audit + plan; cross-cuts overlay (SpikesTab). |
-| `ProbeStack.EnterCpuAlloc/LeaveCpuAlloc` + alloc columns | `systems/allocation-tracking.md` | Distinct subsystem with its own IL emission shape and UI surface. |
-| `Profiling/Insights/*` | `systems/insights-engine.md` | Largest single subsystem, with two surfaces. |
-| `Profiling/SessionLogWriter.cs` + `ProfilerSystem` write wrapping | `systems/session-logging.md` | High-severity audit area; v4 schema; atomic writes; self-disable. |
-| `UI/Overlay/*` + `UI/Overlay/Tabs/*` + `UI/ProfilerOverlay*.cs` | `systems/overlay.md` | The whole tab framework + five tab implementations. |
-| `Profiling/Events/*` | `systems/events-and-context.md` | A whole subsystem fed by engagement-surfaces and feeding EventsTab. |
-| `Tests/PerformanceProfiler.Tests.csproj` + three fixtures | `systems/test-harness.md` | Non-shipping subsystem with its own csproj and build-time isolation. |
-| `PerformanceProfiler.cs` + `ProfilerSystem.cs` lifecycle wiring | `systems/mod-lifecycle.md` | The orchestrator. |
-
-## Post-run file inventory
-
-```
-context/
-├── _Overview.md                              (rewritten)
-├── _staleness-report.md                      (this file)
-├── architecture.md                           (new)
-├── notes.md                                  (new)
-├── integration/
-│   └── integration-map.md                    (moved + refreshed)
-├── tmodloader/
-│   ├── hook-surface.md                       (moved + expanded)
-│   ├── monomod-detours.md                    (moved + expanded)
-│   ├── lifecycle-and-loop.md                 (moved + expanded)
-│   ├── ui-system.md                          (moved + expanded)
-│   ├── mod-identity.md                       (moved + status appended)
-│   ├── engagement-surfaces.md                (moved + expanded)
-│   └── ilhook-migration-research.md          (moved from root)
-├── systems/
-│   ├── hook-instrumentation.md               (new)
-│   ├── metric-collection.md                  (new)
-│   ├── spike-detection.md                    (new)
-│   ├── allocation-tracking.md                (new)
-│   ├── insights-engine.md                    (new)
-│   ├── session-logging.md                    (new)
-│   ├── overlay.md                            (new)
-│   ├── events-and-context.md                 (new)
-│   ├── test-harness.md                       (new)
-│   └── mod-lifecycle.md                      (new)
-├── notes/
-│   ├── decisions.md                          (refreshed)
-│   ├── conventions.md                        (new)
-│   ├── future-html-report.md                 (preserved)
-│   ├── future-settings-design.md             (preserved)
-│   ├── litedb-migration-plan.md              (preserved)
-│   ├── events-tab-plan.md                    (status header)
-│   ├── insights-engine-plan.md               (status header)
-│   ├── overview-tab-plan.md                  (status header)
-│   ├── spikes-and-allocations-plan.md        (status header)
-│   └── ilhook-migration-plan.md              (status header)
-└── plans/code-health-audit/                  (preserved)
-```
+After this run, every production source tree (`Data/`, `Profiling/`, `Web/`, `UI/`) has canonical `systems/*.md` coverage. No uncovered code subsystem remains. Source roots inspected to confirm: the top-level `Data/`, `Profiling/`, `Web/`, `UI/` trees plus the root entry-point file.

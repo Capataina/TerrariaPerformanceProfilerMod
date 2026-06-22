@@ -178,7 +178,7 @@ The 2026-05-19 analysis flagged the save-path resolution and the detour disposal
 
 ### Save path
 
-`SessionLogWriter.SessionDirectory()` resolves the per-mod data folder. The platform path fallback is the live route today (`Environment.SpecialFolder.ApplicationData` → `Terraria/tModLoader/PerformanceProfiler/sessions/`); the `Main.SavePath` reflection probe described in the 2026-05-19 analysis was not strictly required because the platform path is reachable without it.
+`ProfilerPaths.Root()` resolves the per-mod data folder under tModLoader's per-platform save dir (the LiteDB file, redo journal, and rotating backups live there). The `Main.SavePath` reflection probe described in the 2026-05-19 analysis was not strictly required because the platform path is reachable without it. (The deleted v0.2 JSON writer used `SessionLogWriter.SessionDirectory()`; that path is gone since v0.3.)
 
 A `-savedirectory` launch override would be missed by the platform-path fallback, but is acceptable for the Workshop release. If a player surfaces a complaint, the fix is the `Main.SavePath` reflection probe with the abort-clean guard described in the 2026-05-19 analysis (still valid).
 
@@ -190,32 +190,34 @@ Resolved by sidestepping `MonoModHooks.Modify`. See `monomod-detours.md`'s post-
 
 `ProfilerSystem : ModSystem` (`Profiling/ProfilerSystem.cs`) owns the world-scope half:
 
-| Hook | What we do | Reference |
-|------|-----------|-----------|
-| `PostSetupContent` | `HookInterceptor.Install` + `ILHookInterceptor.Install` (if active) + `BiomeRegistry.Populate` + `SubworldProbe.Initialise` | `cs:62-85` |
-| `OnWorldLoad` | new `MetricCollector(1800)` + try `SessionLogWriter.Create()` + new `ContextTagger` + new `EventAggregator` | `cs:92-114` |
-| `PreUpdateEntities` | `Collector?.BeginTick()` | `cs:155-158` |
-| `PostUpdateEverything` | `Collector.EndTick(...)` + divergence log + `_sessionLog?.Tick(collector)` with `SessionLogFailureException` catch + `_contextTagger.Snapshot(...)` + `Events.Accumulate(...)` | `cs:165-216` |
-| `OnWorldUnload` | `Collector?.FlushSpikes()` + try `_sessionLog.End(collector)` + dispose + null everything + `InsightsEngine.Shared = null` + `BossSampler.Clear()` + `SubworldProbe.Clear()` | `cs:117-149` |
+| Hook | What we do |
+|------|-----------|
+| `PostSetupContent` | `Time.Reset` + `LangNameCache.Populate` + `SelfHealth.MarkInstallStart` + `HookInterceptor.Install` + `ILHookInterceptor.Install` (if active) + `SelfHealth.MarkInstallEnd` + `BiomeRegistry.Populate` + `SubworldProbe.Initialise` + `ModRosterScanner.Scan` (F1) |
+| `OnWorldLoad` | sets `_deferredInitPending = true` and returns (the heavy construction is deferred to the first `PostUpdateEverything` to avoid a world-enter freeze) |
+| deferred init (first `PostUpdateEverything`) | new `MetricCollector(1800, SelfHealth)` + try-build `SessionRecorder` (LiteDB) + watchers (`ContextTransitionWatcher`, `WorldSnapshotter`, `PlayerDeathDetector`) + `ContextTagger` + `EventAggregator` + `SegmentDetector`/`SegmentStore` + `DataRegistry.Shared.InitialiseAll` + `Freeze` |
+| `PreUpdateEntities` | `Collector?.BeginTick()` |
+| `PostUpdateEverything` | `Collector.EndTick(...)` + divergence log + `_recorder?.OnTick(...)` (try/catch self-disable) + `_contextTagger.Snapshot` + `Events.Accumulate` + `SegmentDetector.OnTick` + drive `DataRegistry.PerTickCallbacks` + off-thread `InsightsEngine.Evaluate` (~every 60 ticks) |
+| `PreSaveAndQuit` | kicks off the async session-end aggregation so it overlaps vanilla's save+backup chain |
+| `OnWorldUnload` | idempotent session-end kickoff (if `PreSaveAndQuit` did not) + `SegmentDetector.CloseAllOnShutdown` + null everything + `InsightsEngine.Shared = null` + `BossSampler.Clear()` + `SubworldProbe.Clear()` + `DataRegistry.Shared.ResetAll()` |
 
 `PerformanceProfiler : Mod` (`PerformanceProfiler.cs`) owns the mod-scope half:
 
 | Hook | What we do |
 |------|-----------|
-| `Mod.Load` | `Logger.Info` (proof the mod loaded; agent surface) |
-| `Mod.Unload` | `ILHookInterceptor.Uninstall()` (explicit, before assembly unload — this is the load-bearing teardown the 2026-05-19 analysis named) |
+| `Mod.Load` | `RegisterDataPipeline()` + open the LiteDB `Database` (degrade to null on failure) + `LegacyJsonImporter.RunOnceIfNeeded` + bind the loopback `Dashboard` HTTP server (degrade to null on bind failure) + `Logger.Info` (agent surface) |
+| `Mod.Unload` | `ILHookInterceptor.Uninstall()` (explicit, before assembly unload — the load-bearing teardown) + `DataRegistry.Shared.DisposeAll()` + dispose `Dashboard` then `Database` (order matters: neither a stream nor the route handler may touch a half-disposed DB) |
 
 `ProfilerPlayer : ModPlayer` (same file) owns the gameplay-input half:
 
 | Hook | What we do |
 |------|-----------|
-| `OnEnterWorld` | `Main.NewText("Press F9 for the overlay")` — chat is cleared during the world-load transition, so this must NOT be in `OnWorldLoad` |
-| `ProcessTriggers` | poll `ProfilerOverlaySystem.ToggleKeybind.JustPressed` → `ProfilerOverlaySystem.ToggleVisibility()` |
+| `OnEnterWorld` | `Main.NewText("Press F9 for the dashboard (URL)")` — chat is cleared during the world-load transition, so this must NOT be in `OnWorldLoad` |
+| `ProcessTriggers` | poll `ProfilerOverlaySystem.DashboardKeybind.JustPressed` → launch the default browser at the loopback dashboard URL (`open`/`xdg-open`/shell). The keybind is registered as `"OpenDashboard"`. |
 
 ### IO failure self-disable
 
-The `try/catch (IOException, UnauthorizedAccessException, SecurityException)` wrapping at world-load (`SessionLogWriter.Create`), at world-unload (`SessionLogWriter.End`), and the `try/catch (SessionLogFailureException)` per-tick at `PostUpdateEverything` (`SessionLogWriter.Tick`) form the abort-clean envelope for the session log subsystem. A failure on any of these paths sets `_sessionLog = null` for the rest of the world; metric collection continues regardless. Invariant 4 satisfied. See `systems/session-logging.md` for the atomic-write design.
+The `try/catch (IOException, UnauthorizedAccessException, SecurityException)` wrapping around `SessionRecorder` construction (deferred world-load init) and the per-tick `try/catch` at `PostUpdateEverything` around `SessionRecorder.OnTick` form the abort-clean envelope for the persistence subsystem. A failure on any of these paths sets `_recorder = null` for the rest of the world; metric collection and the live dashboard continue regardless. Invariant 4 satisfied. The legacy JSON `SessionLogWriter` it replaced was deleted in v0.3. See `systems/persistence.md` for the LiteDB design and crash-safety stack.
 
 ### Canonical home
 
-`systems/mod-lifecycle.md` carries the implementation reality; `systems/session-logging.md` carries the persistence half.
+`systems/mod-lifecycle.md` carries the implementation reality; `systems/persistence.md` carries the persistence half; `systems/web-dashboard.md` carries the browser surface.

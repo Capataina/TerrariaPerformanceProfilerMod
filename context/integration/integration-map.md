@@ -2,17 +2,16 @@
 
 > Cross-component map: which of our subsystems plugs into which tModLoader API, and what depends on what inside the mod itself. The per-API surface lives in `../tmodloader/*.md`; the per-subsystem implementation reality lives in `../systems/*.md`. This file is the connective tissue between the two.
 
-## Status of the post-implementation pass
+## Status model
 
-As of 2026-05-20 every README milestone through M2 (Tree + Standard mode) is implemented. M3 (Persistence + retrospective) has its session-log half landed and atomic; the lifetime-data half is `notes/litedb-migration-plan.md`'s territory. M4 (Insights engine) is the four-live-six-gated state described in `systems/insights-engine.md`.
-
-The previous tier model (Tier 1 buildable today, Tier 2 needs game, Tier 3 metadata confirmation, Tier 4 spike) is no longer informative; the spike happened, the gaps are resolved. The current model is "what's live, what's gated, what's deferred":
+The mod is past its dashboard-first pivot (v0.9), its `Data/`-pipeline consolidation (v0.10–v0.11), and its v0.12 Timeline/Lag/Insights rework. Persistence is LiteDB-backed (the legacy JSON `SessionLogWriter` was deleted in v0.3). The status model is "what's live, what's gated, what's deferred":
 
 | Status | Items |
 |--------|-------|
-| **Live** | Hook instrumentation (both backends), metric collection, spike detection, allocation tracking, events-and-context, insights engine (4 detectors), overlay (5 tabs), session logging, test harness |
-| **Gated** | Six insight detectors (`events`-gated: ContextCorrelatedSpike, ContextConditionalCost, GcPauseCulprit, HookFrequencyTail; `litedb`-gated: SustainedCostShift, NewContributor) |
-| **Deferred** | `SessionLogWriter` split + schema snapshot test (audit deferral); player settings UI (sketched); LiteDB lifetime persistence; HTML report sibling; `PreSaveAndQuit` clean-close badge |
+| **Live** | Hook instrumentation (both backends, ILHook default), metric collection, spike + stall detection, allocation tracking, events-and-context + segment detection, the unified `Data/` pipeline (foundations F1/F2/F3 + 17 v0.12 tab streams), insights engine, LiteDB persistence (`SessionRecorder` + streams), the browser dashboard (loopback HTTP + 5-tab SPA), test harness |
+| **Gated** | Several insight detectors awaiting the per-tick context-transition stream (`ContextCorrelatedSpike`, `ContextConditionalCost`) and cross-session persistence (`SustainedCostShift`, `NewContributor`); see `systems/insights-engine.md` for the current gated roster |
+| **Deferred** | Player settings UI (sketched, `notes/future-settings-design.md`); post-session HTML report sibling (`notes/future-html-report.md`); cross-session lifetime aggregates; per-hook `CallCount`; multiplayer hook coverage (v2) |
+| **Archived** | The in-game overlay (`UI/`) — kept on disk for a Steam-Deck revival, not in the player path; see `systems/overlay.md` |
 
 ## Per-component integration
 
@@ -28,16 +27,18 @@ Each row names one of our subsystems, the tModLoader surface it plugs into, and 
 | World lifecycle | `ModSystem.OnWorldLoad` / `OnWorldUnload` | `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
 | Content set-up | `Mod.PostSetupContent` (install + populate + initialise) | `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
 | ILHook teardown | `Mod.Unload` (explicit, before assembly unload) | `systems/mod-lifecycle.md` (calls `ILHookInterceptor.Uninstall`) | `tmodloader/monomod-detours.md` |
-| F9 keybind | `KeybindLoader.RegisterKeybind(Mod, "ToggleOverlay", Keys.F9)`, `ModKeybind.JustPressed`, `ModPlayer.ProcessTriggers` | `systems/overlay.md` (mount) | `tmodloader/ui-system.md` |
-| Overlay mount | `ModSystem.ModifyInterfaceLayers` → `LegacyGameInterfaceLayer` | `systems/overlay.md` | `tmodloader/ui-system.md` |
-| UI update pump | `ModSystem.UpdateUI(GameTime)` → mod-owned `UserInterface.Update` | `systems/overlay.md` | `tmodloader/ui-system.md` |
-| Input suppression | `Player.mouseInterface = true` while hovering panel | `systems/overlay.md` | `tmodloader/ui-system.md` |
+| Data pipeline | `Mod.Load` → `RegisterDataPipeline`; `OnWorldLoad` → `DataRegistry.Shared.InitialiseAll` + `Freeze`; per-tick frozen callbacks; `OnWorldUnload` → `ResetAll`; `Mod.Unload` → `DisposeAll` | `systems/data-pipeline.md` | n/a (internal pipeline, not a tModLoader surface) |
+| Dashboard server | `PerformanceProfiler.Dashboard` = `DashboardHttpServer`, bound at `Mod.Load` on 127.0.0.1:27277 (port search to 27287), disposed at `Mod.Unload` | `systems/web-dashboard.md` | `tmodloader/ui-system.md` (keybind only) |
+| Browser-open keybind | `KeybindLoader.RegisterKeybind(Mod, "OpenDashboard", "F9")`, `ModKeybind.JustPressed`, `ModPlayer.ProcessTriggers` → launch default browser (`open`/`xdg-open`/shell) | `systems/web-dashboard.md` + `systems/mod-lifecycle.md` (poll) | `tmodloader/ui-system.md` |
+| Archived overlay mount | `ModSystem.ModifyInterfaceLayers` → `LegacyGameInterfaceLayer`, `UpdateUI`, `Player.mouseInterface = true` — present in `UI/` but not in the player path as of v0.9.0 | `systems/overlay.md` (archived) | `tmodloader/ui-system.md` |
 | Boss / event / biome context | `Player.Zone*` fields, `ModBiome.IsBiomeActive`, `NPC.boss`, `NPC.realLife`, `Main.bloodMoon` / `eclipse` / `pumpkinMoon` / `snowMoon` / `invasionType`, `Main.dayTime` | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
 | Modded biome enumeration | `BiomeRegistry.Populate()` over `ModContent.GetContent<ModBiome>()` plus reflection over `typeof(Player)`'s `Zone*` fields | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
 | Optional SubworldLibrary probe | reflection over `SubworldLibrary.SubworldSystem.Current` | `systems/events-and-context.md` | `tmodloader/engagement-surfaces.md` |
 | Frame stats | `Main.GameUpdateCount`, `Main.npc[]` / `projectile[]` / `dust[]` (count `.active`), `GC.GetAllocatedBytesForCurrentThread()`, `Stopwatch.GetTimestamp()` | `systems/metric-collection.md` | `tmodloader/engagement-surfaces.md` (entity arrays), `tmodloader/lifecycle-and-loop.md` (Main.GameUpdateCount) |
-| Session JSON path | `Environment.SpecialFolder.ApplicationData` → `Terraria/tModLoader/PerformanceProfiler/sessions/` (resolved via `SessionDirectory()`); `Main.SavePath` reflection probe is the preferred resolution where available | `systems/session-logging.md` | `tmodloader/lifecycle-and-loop.md` |
-| Agent surface | `Mod.Logger.Info` / `Warn` / `Error` writing to `client.log` | every subsystem at lifecycle boundaries | `tmodloader/monomod-detours.md` (also names Logger) |
+| Persistence path | `ProfilerPaths.Root()` under tModLoader's per-platform save dir → `profiler.litedb` + `profiler.events.log` + rotating `.bak-{1,2,3}` | `systems/persistence.md` | `tmodloader/lifecycle-and-loop.md` |
+| Session lifecycle | `Mod.Load` opens `ProfilerDatabase`; `OnWorldLoad` (deferred) builds `SessionRecorder` + upserts modlist; `PostUpdateEverything` → `SessionRecorder.OnTick`; `PreSaveAndQuit`/`OnWorldUnload` kicks off async session-end | `systems/persistence.md` + `systems/mod-lifecycle.md` | `tmodloader/lifecycle-and-loop.md` |
+| Player read surface | browser SPA polls `/api/*` on an HTTP worker thread → `DashboardRouter.Build*` → `DataRegistry.Shared.Lookup<TSnapshot>(name).CurrentSnapshot()` | `systems/web-dashboard.md` | n/a (loopback HTTP, not a tModLoader surface) |
+| Agent surface | `Mod.Logger.Info` / `Warn` / `Error` writing to `client.log`, plus the queryable LiteDB store | every subsystem at lifecycle boundaries | `tmodloader/monomod-detours.md` (also names Logger) |
 
 ## Hot-path dependency chain
 
@@ -80,17 +81,19 @@ ModSystem.PostUpdateEverything ── ProfilerSystem ──▶ Collector.EndTick
    │                                                    SpikeDetector.Observe(frame)
    │                                                    PerModAttribution.CloseTick
    │                                                    (Parallel mode: divergence delta)
-   │                                                  _sessionLog?.Tick(collector)
-   │                                                    timeline cadence: every 3600 ticks
-   │                                                    AtomicWrite → temp + File.Replace
-   │                                                    catch SessionLogFailureException → self-disable
+   │                                                  _recorder?.OnTick(latest, collector)
+   │                                                    TickDownsampler 1Hz/1min → DbWriteOp
+   │                                                    enqueue (queue-only, never blocks)
    │                                                  _contextTagger.Snapshot(tickIndex)
    │                                                  Events.Accumulate(tagger.Current, frameMs)
+   │                                                  SegmentDetector.OnTick(...)
+   │                                                  for cb in DataRegistry.PerTickCallbacks: cb(in ctx)
+   │                                                  (off-thread, ~60 ticks) InsightsEngine.Evaluate
    ▼
-Overlay (next frame's UpdateUI tick):
-   tab.Tick(collector)   // 1 Hz cadence inside each tab
-   tab.Draw(sb, area, collector)
-   Player.mouseInterface = true while hovering
+Browser SPA (separate HTTP worker thread, polling /api/* every 0.5–3s):
+   DashboardHttpServer.Accept → DashboardRouter.Route → BuildXxx
+   → DataRegistry.Shared.Lookup<TSnapshot>(name).CurrentSnapshot()
+   → HttpResponse.Json (immutable snapshot, race-free; no game-thread block)
 ```
 
 A broken link anywhere in that chain has a different failure mode:
@@ -102,7 +105,9 @@ A broken link anywhere in that chain has a different failure mode:
 | `MonoModHooks.Add` throws at install | counted via `InstallFailures`; not measured but also not crashed |
 | ILHook manipulator throws | per-method catch in `InstrumentTypeOverrides`; counted via `_failures`; rest of install continues |
 | `ILHookInterceptor.Install` outer catch fires | `Uninstall()` disposes everything; `Installed = false`; Logger.Warn |
-| Session log IO error | `SessionLogFailureException` → catch in `PostUpdateEverything` → `_sessionLog = null` for the rest of the world; metric collection continues |
+| Persistence IO error | `SessionRecorder.OnTick` throws → caught in `PostUpdateEverything` → `_recorder = null` for the rest of the world; metric collection + the live dashboard continue |
+| DB open fails at `Mod.Load` | `Database = null`; everything runs in-memory only; no cross-session persistence; dashboard still serves the live session |
+| Dashboard port bind fails | `Dashboard = null`; F9 is inert and chat shows the failure; the rest of the mod runs |
 | `Mod.Unload` skipped (tModLoader bug) | ILHook references our types after assembly unload → next-tick crash; no defence today beyond tModLoader correctness |
 | `ModLoader.Mods` empty or wrong | `Install` enumerates zero mods; nothing measured; coverage shows 0/0 |
 
@@ -124,9 +129,10 @@ A broken link anywhere in that chain has a different failure mode:
 | Per-detour entry/leave | `Stopwatch.GetTimestamp()` static reads; no `new Stopwatch()`; convention #5 |
 | Per-mod accumulators | Pre-allocated `T[]` indexed by ModId; no `List<T>`; convention #6 |
 | Per-tick logging | `Mod.Logger` only at lifecycle boundaries; never per tick; convention #4 |
-| Overlay tab refresh | 1 Hz Tick; truncation caches; convention #8 |
+| Per-tick pipeline callbacks | `DataRegistry.PerTickCallbacks` is a frozen immutable array driven by a for-loop; zero virtual dispatch; convention #15–16 |
+| Dashboard asset serving | CSS/JS/HTML bundles concatenated once and UTF-8-cached at type-init; no per-request rebuild; convention #20 |
+| Dashboard reads | HTTP worker thread pulls immutable snapshots via `Lookup<TSnapshot>(name).CurrentSnapshot()`; no game-thread block, no inline math; convention #15 |
 | Insight store `Top` | `TopInto` with reusable scratch buffers; allocation-free past warmup |
-| `_windowsView` | Cached at `SpikeDetector` construction; no per-read allocation |
 | Backend divergence log | `ConsumeDivergenceLogTrigger` consumed-and-reset; no per-tick spam |
 
 ### Invariant 4 (abort-clean) enforcement points
@@ -136,8 +142,9 @@ A broken link anywhere in that chain has a different failure mode:
 | `HookInterceptor.Install` outer catch | `Installed = false`; `Logger.Warn`; no partial instrumentation surfaced |
 | `ILHookInterceptor.Install` outer catch | Same plus `Uninstall()` to dispose any hooks that already landed |
 | Per-method ILHook manipulator failure | Caught in `InstrumentTypeOverrides`; `_failures++`; one sampled `Logger.Warn`; rest of install continues |
-| `SessionLogWriter.Create` IO failure | `_sessionLog = null` for the world; `Logger.Warn` once; metric collection continues |
-| `SessionLogWriter.Tick` IO failure | `SessionLogFailureException` → catch → `_sessionLog = null` for the rest of the world |
+| `ProfilerDatabase` open failure (`Mod.Load`) | `Database = null`; the mod runs in-memory only; the live dashboard still serves the current session |
+| `SessionRecorder.OnTick` IO failure | caught in `PostUpdateEverything` → `_recorder = null` for the world; metric collection + dashboard continue |
+| `DashboardHttpServer` bind failure | `Dashboard = null`; F9 inert; chat shows the failure; rest of the mod runs |
 | `SubworldProbe.Initialise` reflection failure | `Available = false`; `CurrentId()` returns sentinel; no crash |
 | `BiomeRegistry.Populate` reflection failure | `ModBiomeBindingOk = false`; `Logger.Info` reports the state |
 

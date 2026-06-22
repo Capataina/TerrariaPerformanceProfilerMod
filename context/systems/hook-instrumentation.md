@@ -8,11 +8,11 @@ Hook instrumentation is the load-bearing subsystem that turns every mod's per-ti
 
 ## Boundaries / Ownership
 
-Files: `Profiling/HookInterceptor.cs`, `Profiling/ILHookInterceptor.cs`, `Profiling/HookCategoryRouter.cs`, `Profiling/HookCoverageView.cs`, `Profiling/HookBackend.cs`, `Profiling/ProbeStack.cs`.
+Files: `Profiling/HookInterceptor.cs`, `Profiling/ILHookInterceptor.cs`, `Profiling/HookCategoryRouter.cs`, `Profiling/HookBackend.cs`, `Profiling/ProbeStack.cs`. The backend-aware coverage view moved into `Data/` in v0.11: `Data/Stats/HookCoverageView.cs`.
 
 Owns:
 
-- Discovering the loaded modlist via `ModLoader.Mods` and building `ProfiledMods` + `ProfiledModNames` + `ProfiledModVersions` (`HookInterceptor.cs:296-314`).
+- Discovering the loaded modlist via `ModLoader.Mods` and building `ProfiledMods` + `ProfiledModNames` + `ProfiledModVersions` (`HookInterceptor.cs:246-323`).
 - Resolving each content type to a category id via `HookCategoryRouter.ResolveCategory` (`HookCategoryRouter.cs:34-47`).
 - Wrapping every discovered hook override with timing instrumentation — either a `MonoModHooks.Add` delegate detour (delegate backend) or an `ILHook` IL injection (IL backend).
 - Tracking install outcomes per backend and surfacing them through `HookCoverageView`.
@@ -51,7 +51,7 @@ Does not own:
 
 Counted separately because the remediations differ: unsupported signatures get a new delegate pair added; install failures need investigation in the tModLoader/MonoMod runtime. The unsupported-signature histogram stays clean of install errors.
 
-`HookCoverageVersion = 3` (`HookInterceptor.cs:221`). Bumped any time accounting changes in a way that makes old session totals non-comparable. Folded into the `SessionLogWriter` identity hash so old reports prune automatically.
+`HookCoverageVersion = 3` (`HookInterceptor.cs:230`). Bumped any time accounting changes in a way that makes old session totals non-comparable. Folded into the persisted session's identity (via `SessionRecorder`) so old records prune automatically.
 
 ### Shared category router
 
@@ -65,15 +65,15 @@ Systems=0, Players=1, Npcs=2, Projectiles=3, Items=4, World=5, Buffs=6
 
 ### Backend-aware coverage view
 
-`HookCoverageView` (`HookCoverageView.cs`) decides which backend's counters are live. `UseILHookCounters = (HookBackend.Mode == HookBackendMode.ILHook)`; otherwise the delegate counters are returned.
+`HookCoverageView` (`Data/Stats/HookCoverageView.cs`) decides which backend's counters are live. `UseILHookCounters = (HookBackend.Mode == HookBackendMode.ILHook)`; otherwise the delegate counters are returned.
 
-Three consumers route through it:
+Consumers route through it:
 
-1. `OverlayPanel`'s PROFILER HEALTH strip.
-2. `TreeTab`'s per-mod coverage badge.
-3. `SessionLogWriter`'s `coverage` block.
+1. The archived overlay's PROFILER HEALTH strip / TreeTab coverage badge (under `UI/`, no longer instantiated since v0.9.0).
+2. The dashboard coverage surface (via the `Data/Stats/` self-health/coverage path).
+3. `SessionRecorder`'s persisted `coverage` block.
 
-This is the single fix for the audit-flagged "overlay says 100% / JSON says 0/X" divergence: the source of truth is one struct, not three independent reads.
+This is the single fix for the audit-flagged "100% on one surface / 0/X on another" divergence: the source of truth is one struct, not several independent reads.
 
 ### Delegate-path supported signatures
 
@@ -196,9 +196,9 @@ The hot path is one `Stopwatch.GetTimestamp()` static read at entry, one at leav
 
 | Surface | Source |
 |---------|--------|
-| Overlay PROFILER HEALTH strip | `HookCoverageView.MeasuredHooks() / TotalHooks()` |
-| TreeTab per-mod coverage badge | `HookCoverageView.MeasuredForMod(modId) / TotalForMod(modId)` |
-| Session JSON `coverage` block | `SessionLogWriter` reads through `HookCoverageView` |
+| Dashboard coverage strip (archived overlay PROFILER HEALTH) | `HookCoverageView.MeasuredHooks() / TotalHooks()` |
+| Per-mod coverage badge (dashboard / archived TreeTab) | `HookCoverageView.MeasuredForMod(modId) / TotalForMod(modId)` |
+| Persisted session `coverage` block | `SessionRecorder` reads through `HookCoverageView` (via `Data/Stats/`) |
 | `[backend-compare] delegate=… ilhook=… Δ=…` log line | `ProfilerSystem.PostUpdateEverything` after `collector.ConsumeDivergenceLogTrigger()` |
 | Install summary in `client.log` | `Mod.Logger.Info` at the end of each `Install` |
 | Per-detour cost feed | `PerModAttribution.Add(modId, categoryId, hookId, deltaTicks)` per dispatch |
@@ -212,7 +212,7 @@ The hot path is one `Stopwatch.GetTimestamp()` static read at entry, one at leav
 
 ## Partial / In Progress
 
-Nothing in this subsystem is in progress as of 2026-05-20. The audit's hook-instrumentation findings are all marked done or potential-issue-resolved in `plans/code-health-audit/index.md`. The deferred audit items (`SessionLogWriter` split + schema snapshot test) belong to `systems/session-logging.md`, not here.
+Nothing in this subsystem is in progress as of 2026-05-20. The audit's hook-instrumentation findings are all marked done or potential-issue-resolved in `plans/code-health-audit/index.md`. The deferred audit items (the persistence schema snapshot test) belong to `systems/persistence.md`, not here.
 
 ## Planned / Missing / Likely Changes
 

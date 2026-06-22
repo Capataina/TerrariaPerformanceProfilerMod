@@ -1,12 +1,15 @@
-# Overlay
+# Overlay (archived)
 
-*Maturity: comprehensive · Stability: unstable — tab content evolves with each new measurement subsystem; the framework itself is settled.*
+*Maturity: comprehensive · Stability: archived — kept on disk in `UI/` but not compiled into the player path as of v0.9.0. The live player surface is the browser dashboard (`systems/web-dashboard.md`).*
+
+> [!important] This subsystem is archived.
+> As of v0.9.0 the mod pivoted to a browser dashboard. The in-game overlay was archived: the code stays in `UI/` for a possible Steam-Deck / handheld revival, but it is no longer the player surface and F9 no longer toggles it. F9 now opens the default browser to the loopback dashboard (`systems/web-dashboard.md`). This file is preserved as the canonical record of the overlay's design so a future revival does not re-derive it. The rationale for the pivot is in `README.md` ("Why no in-game UI?") and `notes/decisions.md`.
 
 ## Scope / Purpose
 
-The overlay is the **player surface** for everything the profiler measures. F9 toggles it. A header strip drives shared chrome (NOW vs 30s-avg, LIVE vs PAUSED, the CPU/MEM/BOTH metric pill, PROFILER HEALTH coverage bar). Five concrete tabs hang off a single registry: Overview, Tree, Spikes, Events, Insights.
+The overlay was the in-game **player surface** for everything the profiler measures. F9 toggled it. A header strip drove shared chrome (NOW vs 30s-avg, LIVE vs PAUSED, the CPU/MEM/BOTH metric pill, PROFILER HEALTH coverage bar). Five concrete tabs hung off a single registry: Overview, Tree, Spikes, Events, Insights. The browser dashboard now carries this role with five SPA tabs (Summary, Timeline, Lag, Insights, Self).
 
-The overlay is **read-only** (Invariant 1) and **non-modal** (Invariant 3 — the player can dismiss with Esc mid-fight; no `IngameFancyUI` lockout).
+The overlay was **read-only** (Invariant 1) and **non-modal** (Invariant 3 — the player could dismiss with Esc mid-fight; no `IngameFancyUI` lockout).
 
 ## Boundaries / Ownership
 
@@ -207,5 +210,6 @@ Nothing in progress as of 2026-05-20. All audit overlay-ui findings are marked d
 - `systems/metric-collection.md` — what Overview, Tree, Spikes read.
 - `systems/events-and-context.md` — what EventsTab reads.
 - `systems/insights-engine.md` — what InsightsTab reads.
-- `notes/overview-tab-plan.md`, `notes/events-tab-plan.md`, `notes/spikes-and-allocations-plan.md`, `notes/insights-engine-plan.md` — design plans (all shipped).
+- `systems/web-dashboard.md` — the browser dashboard that superseded this overlay as the player surface.
+- `notes/ui-overhaul-plan.md` — the overlay's design brief (shipped, then archived in the dashboard pivot). The per-tab design plans were deleted once shipped; `notes/decisions.md` carries the durable record.
 - `plans/code-health-audit/overlay-ui.md` — audit findings driving the IsAvailable enforcement and truncation caches.

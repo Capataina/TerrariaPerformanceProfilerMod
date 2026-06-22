@@ -4,11 +4,11 @@
 
 ## Scope / Purpose
 
-Spike detection identifies frame-time anomalies (a 60ms+ outlier in a 16.7ms baseline) and attributes them to the mod most responsible. It runs against the same per-tick stream `MetricCollector` produces; output feeds the SpikesTab and the `spikes[]` block of the session JSON.
+Spike detection identifies frame-time anomalies (a 60ms+ outlier in a 16.7ms baseline) and attributes them to the mod most responsible. It runs against the same per-tick stream `MetricCollector` produces; output feeds the dashboard spike surface (`/api/spikes` + `/api/lag-clusters`) and the persisted `spikes` collection.
 
 ## Boundaries / Ownership
 
-Files: `Profiling/SpikeDetector.cs`, `Profiling/PerTickAttributionRing.cs`.
+Files: `Data/Detectors/SpikeDetector.cs`, `Data/Aggregators/PerTickAttributionRing.cs` (both moved out of `Profiling/` in v0.11).
 
 Owns:
 
@@ -20,8 +20,8 @@ Owns:
 Does not own:
 
 - The frame-time data stream — produced by `MetricCollector.EndTick`.
-- The session JSON spike block layout — that lives in `SessionLogWriter`.
-- The SpikesTab UI — see `systems/overlay.md`.
+- The persisted spike block layout — that lives in the persistence layer (`SessionRecorder` + `Data/Streams/SpikeStream.cs`); see `systems/persistence.md`.
+- The spike UI — the live surface is the browser dashboard (`systems/web-dashboard.md`); the in-game SpikesTab is archived under `UI/`.
 
 ## Current Implemented Reality
 
@@ -37,17 +37,17 @@ Each open window records:
 
 ### `PerTickAttributionRing`
 
-Separate 50-window ring (`Profiling/PerTickAttributionRing.cs`) retaining raw per-tick per-mod CPU samples. Used at spike close time to compute "which mod's per-tick cost diverged most from its rolling mean during this window?" — that's the peak-contributor attribution.
+Separate 50-window ring (`Data/Aggregators/PerTickAttributionRing.cs`) retaining raw per-tick per-mod CPU samples. Used at spike close time to compute "which mod's per-tick cost diverged most from its rolling mean during this window?" — that's the peak-contributor attribution.
 
-The 50-window cap means the SpikesTab shows the 50 most recent spikes; older windows are evicted.
+The 50-window cap means the spike surface shows the 50 most recent spikes; older windows are evicted.
 
 ### `Windows` exposure
 
-`SpikeDetector.Windows` is a cached `SpikeWindowsView` constructed once at `SpikeDetector` construction (`MetricCollector` initialisation). Before commit `77a99d2`, this property allocated a fresh view per read from the overlay/session-log path. The audit (`plans/code-health-audit/hook-instrumentation.md` finding "Cache the spike window view exposed to consumers") flagged it; the fix is the cached `_windowsView` field.
+`SpikeDetector.Windows` is a cached `SpikeWindowsView` constructed once at `SpikeDetector` construction (`MetricCollector` initialisation). Before commit `77a99d2`, this property allocated a fresh view per read from the consumer path (then the overlay + session log). The audit (`plans/code-health-audit/hook-instrumentation.md` finding "Cache the spike window view exposed to consumers") flagged it; the fix is the cached `_windowsView` field.
 
 ### `FlushSpikes`
 
-`SpikeDetector.Flush()` forces any open window to close, so an in-progress spike that coincided with world exit is captured. Called from `MetricCollector.FlushSpikes()` → `ProfilerSystem.OnWorldUnload` before the final session JSON write.
+`SpikeDetector.Flush()` forces any open window to close, so an in-progress spike that coincided with world exit is captured. Called from `MetricCollector.FlushSpikes()` → `ProfilerSystem.KickOffSessionEndAsync()` (run from `PreSaveAndQuit` or `OnWorldUnload`) before `SessionRecorder.End()`.
 
 Audit potential-issue #3: "Open spike windows may be missing from final session reports." Fixed in commit `77a99d2`.
 
@@ -62,11 +62,11 @@ MetricCollector.EndTick(frame):
         ↓ close window if below for N frames → push to Windows ring
 
 SpikeDetector.Windows → SpikeWindowsView (cached)
-    ↑ read by SpikesTab.Tick
-    ↑ read by SessionLogWriter.SpikesBlock
+    ↑ read by SpikesStat (dashboard /api/spikes)
+    ↑ read by SessionRecorder + SpikeStream (persisted spikes)
     ↑ read by PeakContributorToSpikeDetector (insights)
 
-OnWorldUnload:
+session end (PreSaveAndQuit or OnWorldUnload → KickOffSessionEndAsync):
     Collector.FlushSpikes() → SpikeDetector.Flush()
         force-close any open window → push to Windows
 ```
@@ -75,8 +75,8 @@ OnWorldUnload:
 
 | Surface | Source |
 |---------|--------|
-| SpikesTab spike rows | `SpikeDetector.Windows` |
-| Session JSON `spikes[]` block | `SpikeDetector.Windows` |
+| Dashboard `/api/spikes` rows (archived SpikesTab) | `SpikeDetector.Windows` |
+| Persisted `spikes` collection | `SpikeDetector.Windows` via `SessionRecorder` / `SpikeStream` |
 | `PeakContributorToSpike` insight | reads `SpikeDetector.Windows` |
 
 ## Known Issues / Active Risks
@@ -106,6 +106,7 @@ Nothing.
 
 - `systems/metric-collection.md` — the `TickFrame` stream the detector observes.
 - `systems/insights-engine.md` — `PeakContributorToSpikeDetector`.
-- `systems/overlay.md` — SpikesTab rendering.
-- `notes/spikes-and-allocations-plan.md` — design plan (shipped).
+- `systems/web-dashboard.md` — the live spike surface (`/api/spikes`, `/api/lag-clusters`); the in-game SpikesTab is archived under `UI/`.
+- `systems/persistence.md` — the `SpikeStream` + `SessionRecorder` path that persists windows.
+- `notes/decisions.md` — the spikes-and-allocations design rationale (the per-feature plan note was folded in here).
 - `plans/code-health-audit/hook-instrumentation.md` — `_windowsView` caching finding.

@@ -8,6 +8,8 @@ The maintained working memory for the Performance Profiler mod. A reader (engine
 
 This is **not** a milestone log, not a changelog, and not a research archive. Each topic has one canonical home; per-subsystem reality lives in `systems/*.md`, per-API plug-in detail lives in `tmodloader/*.md`, and the cross-component map lives in `integration/integration-map.md`.
 
+**Where to start in the source tree.** The mod has four production trees: `Data/` (the calculation pipeline — every number lives here), `Profiling/` (the measurement engine + DB infrastructure), `Web/` (the browser dashboard — the live player surface), and `UI/` (the archived in-game overlay, kept on disk but not in the player path). The root `PerformanceProfiler.cs` opens the LiteDB store and binds the dashboard server; `Profiling/ProfilerSystem.cs` drives the per-tick loop.
+
 ## Folder shape (rationale)
 
 ```
@@ -16,11 +18,13 @@ context/
 ├── architecture.md          Top-down structural map of the mod
 ├── notes.md                 Index of notes/
 ├── _staleness-report.md     Per-file verdicts from the last upkeep run
+├── .context-lint.json       Project-local lint aliases (see note below)
 │
 ├── systems/                 One file per stable subsystem (canonical reality)
-│   data-pipeline (v0.10), hook-instrumentation, metric-collection,
-│   spike-detection, allocation-tracking, insights-engine, persistence,
-│   overlay, events-and-context, test-harness, mod-lifecycle
+│   data-pipeline, hook-instrumentation, metric-collection,
+│   spike-detection, allocation-tracking, events-and-context,
+│   insights-engine, persistence, web-dashboard, overlay (archived),
+│   test-harness, mod-lifecycle
 │
 ├── tmodloader/              Per-API reference: what tModLoader exposes
 │                            AND how each of our subsystems plugs in
@@ -28,14 +32,20 @@ context/
 │   mod-identity, engagement-surfaces, ilhook-migration-research
 │
 ├── integration/             Cross-cutting maps
-│   integration-map.md       Per-component plug-in points + tier model
+│   integration-map.md       Per-component plug-in points + status model
 │
-├── notes/                   Topical inbox (decisions, conventions, future work)
-│   decisions, conventions, future-html-report, future-settings-design,
-│   litedb-migration-plan, plus annotated historical research plans
+├── notes/                   Topical inbox (decisions + conventions + posture + future work)
+│   decisions, conventions, philosophy, ui-overhaul-plan,
+│   future-unified-data-interface, future-html-report,
+│   future-settings-design, modlist-pre-upgrade-2026-06-22
 │
-└── plans/code-health-audit/ 2026-05-20 audit with full implementation receipt
+├── perf-pass/               v0.5→v0.6 performance-research record
+│   baseline, deferred, verification
+│
+└── plans/code-health-audit/ Code-health audit with full implementation receipt
 ```
+
+`.context-lint.json` aliases `_Overview.md` into the `architecture.md` lint slot (it is the entry-point file alongside the structural map) and treats `tmodloader/` + `integration/` as reference-style content. The project uses the markdown `architecture.md` form, not the HTML arch pipeline.
 
 **Why this shape.** The pre-implementation reconnaissance done in 2026-05-19 lived as a flat `tmodloader-*.md` set plus a single `integration-map.md`. After the 2026-05-20 implementation burst landed eleven distinct subsystems, that shape no longer scaled: there was no canonical home for "how does our insights engine actually work" and the per-API slices grew "how we plug in" sections piecemeal. The folder split separates three concerns:
 
@@ -47,13 +57,13 @@ When a new feature lands, the canonical home is the relevant `systems/*.md`. Whe
 
 ## Reading order for a new session
 
-1. **`README.md`** at the repo root — directional intent (six views, overhead budgets, milestones).
-2. **`context/architecture.md`** — top-down structural map.
-3. **`context/notes.md`** + **`context/notes/decisions.md`** — what was decided and why.
-4. The `systems/*.md` file matching the work area, plus the `tmodloader/*.md` slice it cites.
+1. **`README.md`** at the repo root — directional intent (the dashboard-first pivot, the six conceptual views, overhead budgets, roadmap).
+2. **`context/architecture.md`** — top-down structural map (the four production trees, the dependency direction, the data flow).
+3. **`context/notes.md`** + **`context/notes/decisions.md`** + **`context/notes/philosophy.md`** — what was decided, why, and the posture behind it.
+4. **`context/systems/data-pipeline.md`** — the calculation locus everything else reads through, then the `systems/*.md` file matching the work area + the `tmodloader/*.md` slice it cites.
 5. **`context/plans/code-health-audit/index.md`** if the work touches anything in the audit's implementation receipt.
 
-## The four Project Invariants (`README.md` and `CLAUDE.md`)
+## The five Project Invariants (`README.md` and `CLAUDE.md`)
 
 Inviolable. A change that breaks one is wrong regardless of how clean it looks.
 
@@ -61,41 +71,22 @@ Inviolable. A change that breaks one is wrong regardless of how clean it looks.
 2. **Overhead is a budget, not an aspiration.** Lite < 1%, Standard 2–4%, Deep 5–10%. The per-tick hot path is zero-allocation.
 3. **The honesty contract.** Descriptive, never normative. No mod is "core" or "removable". Every insight badges its data strength (`ThisSession` / `LifetimeData` / `NeedsPersistence`) and its confidence (`Preliminary` / `Low` / `Medium` / `High`) independently.
 4. **Abort-clean on host drift.** If a loader signature the Hook Interceptor depends on no longer matches, the mod disables instrumentation and reports it; it never proceeds against internals it cannot verify.
+5. **No mod-specific code.** Every detector, tracker, classifier, insight, and event listener operates on generic surfaces tModLoader / vanilla Terraria exposes (`SpawnSource`, `PlayerDeathReason`, the buff arrays, the equipment slots, biome bits) — never on a named mod's identifier, namespace, type, hook, or content id. Read the interaction shape, not the mod identity. The posture is in `notes/philosophy.md`.
 
-## What changed since the last upkeep (2026-05-19 → 2026-05-20)
+## Current state (build.txt 0.12)
 
-The 2026-05-19 folder was the pre-implementation reconnaissance done before the Hook Interceptor architecture landed. Between then and 2026-05-20, the implementation burst landed:
+The mod is past its dashboard-first pivot and its data-pipeline consolidation. The shape a reader should hold:
 
-- Both hook backends (delegate-pair `HookInterceptor` and IL `ILHookInterceptor`), the shared `HookCategoryRouter`, and the backend-aware `HookCoverageView`. Coverage tri-state install outcomes + `HookCoverageVersion = 3`.
-- The full overlay tab system (`IOverlayTab`, `TabRegistry`, five concrete tabs) with `IsAvailable` enforcement and 1 Hz truncation caches.
-- The insights engine (four live + six gated detectors, store with p-value-gated promotion, pattern-aware ranking, `EvidenceScope` enum, schema v4 JSON parity via `InsightsEngine.Shared`).
-- Spike detection, per-tick attribution ring, allocation tracking with IL-emitted CPU+alloc variants.
-- The events-and-context subsystem (`ContextTagger`, `BiomeRegistry`, `BossSampler`, `EventAggregator`, optional `SubworldProbe`).
-- Persistence hardening: atomic temp-file + `File.Replace` writes, narrowed prune pattern, `SessionLogFailureException` self-disable, `FlushSpikes` at world unload, ILHook outer-catch `Uninstall()`.
-- Non-shipping xUnit test harness, three fixtures, build-time isolation from the `.tmod` package.
+- **Dashboard-first.** The player surface is a browser dashboard served by a loopback HTTP server inside the mod (`Web/`); F9 opens the default browser. The in-game overlay (`UI/`) is archived on disk for a possible Steam-Deck revival, not compiled into the player path. Canonical: `systems/web-dashboard.md`, `systems/overlay.md`.
+- **The `Data/` pipeline is the calculation locus.** Every number the mod produces lives in a `Data/` stage (collector → aggregator → stat → detector → stream) and is looked up by stable name through `DataRegistry.Shared`. v0.11 physically moved every stream-shaped class out of `Profiling/` into `Data/`; the measurement engine, the DB layer, and the `Events/` support structs stayed in `Profiling/`. Routers and exporters format snapshots, they never derive numbers. `ProfilerSystem.Collector` is `internal`. Canonical: `systems/data-pipeline.md`.
+- **v0.12 tab rework.** Timeline / Lag / Insights are multi-panel dashboards built on 3 foundation streams (F1 `ModRosterScanner`, F2 `PerModUsageAggregator`, F3 `PerModCostTimeSeriesAggregator`) plus 17 tab streams, all behind the frozen `Data/Contracts/RolloutContracts.cs`. The dashboard ships five SPA tabs (Summary, Timeline, Lag, Insights, Self); the README's six conceptual views merge Now + Mods into Summary.
+- **Persistence is LiteDB.** The legacy JSON `SessionLogWriter` was deleted in v0.3; persistence is a single LiteDB file + NDJSON redo journal + rotating backups, driven by one writer thread the game thread never touches. `SessionRecorder` orchestrates the `Data/Streams/*` writers. Canonical: `systems/persistence.md`.
+- **Two hook backends, ILHook default.** `HookInterceptor` (delegate, ~71.6% signature-matched) and `ILHookInterceptor` (IL, ~100%, the default) coexist; `HookBackend.Mode` chooses. Canonical: `systems/hook-instrumentation.md`.
 
-The full 2026-05-20 code-health audit and its implementation receipt are in `plans/code-health-audit/index.md`.
-
-## 2026-05-21 — v0.12 tab rework: Timeline / Lag / Insights end-to-end
-
-Multi-wave rework taking the three secondary tabs from flat ledger sheets to multi-panel Palantir-style dashboards. **21 substantive additions** plus 3 foundations plus a creative-visualisation patch on each tab.
-
-- **Foundations** (`F1` `ModRosterScanner`, `F2` `PerModUsageAggregator`, `F3` `PerModCostTimeSeriesAggregator`) under `Data/Collectors/` and `Data/Aggregators/`. Every per-mod observation in the rework reads through one of these via the registry.
-- **Timeline** (T1–T7): per-segment mod-attribution waterfall, lifetime delta badges, context-transition overlay track, session activity heatstrip, per-mod biome/invasion/boss attendance, 30s pre-death replay strips, factual session chronicle.
-- **Lag** (L1–L7): fingerprint clustering, cause×context heatmap, GC pressure narrative, per-segment lag density, attribution-confidence visualisation, allocation→GC causality chain, lag rhythm/periodicity detection.
-- **Insights** (I1–I7): per-mod observatory cards composing roster + usage + cost, dormant content surface, per-mod attendance breakdown, loadout influence trace, cross-cutting signal aggregation, engagement-vs-cost scatter, mod interaction correlation matrix.
-- **Visualisation patch** layered creative visuals on top of the functional layer — narrative ribbons, sunburst attendance, lag galaxies, GC tide charts, allocation Sankeys, polar rhythm plots, DNA-strand mod cards, dust-shelf dormant rows, chord-diagram interaction matrix.
-
-Locked-snapshot-contracts pattern (`Data/Contracts/RolloutContracts.cs`) let downstream agents compile against types whose implementations didn't yet exist, enabling Waves 1/2/3 to overlap. 14 background agents total. Full data-layer doc in `systems/data-pipeline.md`; v0.12 entry in `notes/decisions.md`.
-
-## 2026-05-21 — v0.10 unified data pipeline + audit follow-up
-
-Two structural shifts landed:
-
-- **Unified `Data/` pipeline.** Every named, typed stream the mod produces now lives in `Data/` and is registered with `DataRegistry.Shared` at mod load. Consumers (the dashboard router, the future Mod.Call API, the future session-report exporter) read via `Lookup<TSnapshot>(name).CurrentSnapshot()` instead of reaching into named subsystems. Policy: *if it produces a number it lives in `Data/`; if it consumes a number it asks the registry.* `ProfilerSystem.Collector` is now `internal`. Canonical reality in `systems/data-pipeline.md`.
-- **Multi-agent code-health audit.** Five parallel subagents audited Data/, Profiling/ core, Persistence+Insights, Web/, UI/. The critical slice landed in two follow-up commits: Invariant 2/3 fixes (`SegmentDetector.ComputeBiomeComposite` memoisation, dashboard wording de-normativisation), data-race fixes (`DashboardRouter.BuildNow` migrated to pipeline snapshots, `DataRegistry.Register/DisposeAll` lock atomicity), correctness fixes (`BoolIndex.EnsureCapacity` infinite loop, `PlayerDeathDetector` short-cast truncation, `ContextTransitionWatcher` weather-flag identity, `TickDownsampler._max` eviction, `ModlistStream` replay-idempotency, insights detector confidence honesty). Full session record in `notes/decisions.md` under the 2026-05-21 entry; deferred-items list is at the bottom of that entry.
+The full decision history (what landed in each version and why, the v0.6 perf pass, the v0.10 audit, the v0.12 parallelised rework) is the canonical record in `notes/decisions.md`, newest first. The v0.5→v0.6 performance research lives in `perf-pass/`. The code-health audit's implementation receipt is in `plans/code-health-audit/index.md`.
 
 ## Notes for future sessions
 
 - The per-slice `tmodloader/*.md` docs cite tModLoader members by **fully-qualified name**, never line number — stable across tModLoader updates.
-- This folder was reorganised on 2026-05-20 as part of the post-implementation upkeep. The old flat `tmodloader-*.md` and `integration-map.md` files were moved via `git mv` so renames stay visible in the log. The "design pitch wording" correction (per-mod attribution comes from the profiler's own `MethodBase.DeclaringType.Assembly → Mod.Code` reflection, not from a tModLoader ownership table) was first surfaced in the 2026-05-19 recon and remains accurate.
+- The folder was reorganised on 2026-05-20 (flat `tmodloader-*.md` + `integration-map.md` moved via `git mv` so renames stay visible). The "design pitch wording" correction — per-mod attribution comes from the profiler's own `MethodBase.DeclaringType.Assembly → Mod.Code` reflection, not from a tModLoader ownership table — remains accurate.
+- Known source-comment drifts (not behaviour) to fix at the next code touch: three `PerformanceProfiler.cs` comments + the `Load()` log say "F10" while the keybind is F9 ("OpenDashboard"); the KpiStat/KpiCalculator doc-comments name `ProfilerSystem.Load` as the registration site while the live site is `PerformanceProfiler.RegisterDataPipeline`; the committed `Tests/*.csproj` `Compile Include` globs still point at pre-v0.11 `Profiling/` paths for files that moved to `Data/` (see `systems/test-harness.md`).

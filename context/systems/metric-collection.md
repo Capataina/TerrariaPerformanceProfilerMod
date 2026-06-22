@@ -6,11 +6,11 @@
 
 Metric collection is the per-tick frame engine. It opens a tick at `PreUpdateEntities`, accumulates per-mod CPU and allocation deltas through whichever backend(s) the hook-instrumentation subsystem has installed, and closes the tick at `PostUpdateEverything` by sealing a `TickFrame` into the ring buffer.
 
-This is the layer everything downstream reads from: the overlay tabs query `MetricCollector.History` and the per-mod accumulators; the spike detector consumes raw per-tick samples; the session log writer rolls up totals; the insights engine reads aggregated state.
+This is the layer everything downstream reads from: the dashboard stats query `MetricCollector.History` and the per-mod accumulators; the spike detector consumes raw per-tick samples; the `SessionRecorder` rolls up totals into LiteDB; the insights engine reads aggregated state.
 
 ## Boundaries / Ownership
 
-Files: `Profiling/MetricCollector.cs`, `PerModAttribution.cs`, `PerModSample.cs`, `PerTickAttributionRing.cs`, `RingBuffer.cs`, `TickFrame.cs`.
+Files: `Profiling/MetricCollector.cs`, `Profiling/RingBuffer.cs`, `Profiling/TickFrame.cs`. The per-mod accumulators moved into `Data/` in v0.11: `Data/Aggregators/PerModAttribution.cs`, `Data/Aggregators/PerModSample.cs`, `Data/Aggregators/PerTickAttributionRing.cs`.
 
 Owns:
 
@@ -41,7 +41,7 @@ Per-tick observation struct (`Profiling/TickFrame.cs`):
 
 ### `PerModAttribution`
 
-The wide accumulator. Conceptually a 3D `(modId, categoryId, hookId)` grid plus per-backend slots when Parallel mode runs. The shape is set at `PostSetupContent`:
+The wide accumulator (`Data/Aggregators/PerModAttribution.cs`). Conceptually a 3D `(modId, categoryId, hookId)` grid plus per-backend slots when Parallel mode runs. The shape is set at `PostSetupContent`:
 
 ```
 PerModAttribution.Configure(modCount, backendCount, allocTracking)
@@ -105,7 +105,7 @@ BackendDivergence = (BackendTotalMs1 - BackendTotalMs0) / max(BackendTotalMs0, 1
 
 ### `FlushSpikes`
 
-`MetricCollector.FlushSpikes()` delegates to `_spikeDetector.Flush()` (`MetricCollector.cs:239`). Called from `ProfilerSystem.OnWorldUnload` **before** the final session JSON write so an in-progress spike window lands in the report.
+`MetricCollector.FlushSpikes()` delegates to `_spikeDetector.Flush()` (`MetricCollector.cs:239`). Called from `ProfilerSystem.KickOffSessionEndAsync()` (run from `PreSaveAndQuit` or `OnWorldUnload`) **before** `SessionRecorder.End()` so an in-progress spike window lands in the persisted session.
 
 ### Ring buffer
 
@@ -119,7 +119,7 @@ BackendDivergence = (BackendTotalMs1 - BackendTotalMs0) / max(BackendTotalMs0, 1
 
 ### `PerTickAttributionRing`
 
-A separate 50-window ring (`Profiling/PerTickAttributionRing.cs`) that retains per-tick per-mod CPU samples for spike attribution. The 30-second `RingBuffer<TickFrame>` carries frame-level scalars only; the spike detector needs per-tick per-mod attribution to answer "which mod was responsible for that 60ms spike?" The 50-window ring is the answer.
+A separate 50-window ring (`Data/Aggregators/PerTickAttributionRing.cs`) that retains per-tick per-mod CPU samples for spike attribution. The 30-second `RingBuffer<TickFrame>` carries frame-level scalars only; the spike detector needs per-tick per-mod attribution to answer "which mod was responsible for that 60ms spike?" The 50-window ring is the answer.
 
 ## Key Interfaces / Data Flow
 
@@ -143,26 +143,28 @@ per tick:
        _spikeDetector.Observe(frame)
        PerModAttribution.CloseTick()
 
-readers (any tab, session log, insights detectors):
+readers (dashboard stats, SessionRecorder, insights detectors):
    collector.History → TickFrame[]
    collector.PerModSamples (cached aggregates)
    collector.SpikeDetector.Windows
    collector.BackendDivergence (Parallel mode only)
 
-OnWorldUnload:
-   collector.FlushSpikes()  // before final SessionLogWriter.End()
+session end (PreSaveAndQuit or OnWorldUnload → KickOffSessionEndAsync):
+   collector.FlushSpikes()  // before SessionRecorder.End()
 ```
 
 ## Implemented Outputs / Artifacts
 
+The overlay tabs named below (Overview/Tree/Spikes/Events) are part of the archived in-game overlay (v0.9.0); the live player surface is the browser dashboard (see `systems/web-dashboard.md`). The `Data/Stats/` adapters that feed the dashboard read this same layer.
+
 | Surface | Source |
 |---------|--------|
-| Overlay frame-time / GC / entity-count chrome lines | `MetricCollector.History.Newest` |
-| OverviewTab leaderboard rows | `MetricCollector` per-mod totals |
-| TreeTab per-`(mod, category, hookId)` rows | `PerModAttribution` |
-| SpikesTab windows + per-mod attribution | `SpikeDetector.Windows` + `PerTickAttributionRing` |
-| EventsTab dimension buckets | `EventAggregator` reading `TickFrame.Context` |
-| Session JSON `modSummary` block | per-mod totals |
+| Dashboard frame-time / GC / entity-count chrome | `MetricCollector.History.Newest` |
+| Leaderboard rows (archived OverviewTab / dashboard) | `MetricCollector` per-mod totals |
+| Per-`(mod, category, hookId)` rows (archived TreeTab / dashboard) | `PerModAttribution` |
+| Spike windows + per-mod attribution | `SpikeDetector.Windows` + `PerTickAttributionRing` |
+| Event dimension buckets | `EventAggregator` reading `TickFrame.Context` |
+| Persisted session `modSummary` block | per-mod totals via `SessionRecorder` |
 | InsightsEngine input | every detector's `Evaluate(collector, …)` reads through this layer |
 
 ## Known Issues / Active Risks
@@ -197,5 +199,6 @@ Nothing in progress. The subsystem is the load-bearing baseline that every audit
 - `systems/spike-detection.md` — consumes `TickFrame` stream and `PerTickAttributionRing`.
 - `systems/allocation-tracking.md` — the `EnterCpuAlloc`/`LeaveCpuAlloc` path that writes alloc columns.
 - `systems/events-and-context.md` — `ContextTagger.Snapshot` stamps `TickFrame.Context`.
+- `systems/persistence.md` — the `SessionRecorder` that rolls up per-mod totals into LiteDB.
 - `tmodloader/lifecycle-and-loop.md` — `PreUpdateEntities` / `PostUpdateEverything` as the tick boundaries.
 - `Tests/RingBufferTests.cs` — pins ring-buffer wrap-around.
