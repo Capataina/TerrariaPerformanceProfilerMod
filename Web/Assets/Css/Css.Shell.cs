@@ -77,6 +77,10 @@ internal static partial class DashboardAssets
 .live-dot.idle {
   background: var(--dim);
 }
+.live-dot.db {
+  background: var(--magenta);
+  box-shadow: 0 0 8px rgba(131, 103, 163, 0.55);
+}
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 8px rgba(79, 157, 106, 0.45); }
   50%      { box-shadow: 0 0 14px rgba(79, 157, 106, 0.85); }

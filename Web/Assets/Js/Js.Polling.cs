@@ -122,6 +122,12 @@ function updateConnection() {
   if (!ok) {
     dot.className = 'live-dot err';
     txt.textContent = 'connection lost · retrying';
+  } else if (lastNow && lastNow.source === 'db') {
+    // No live world; serving the last persisted session. Checked before the
+    // paused branch because the tick index is static in db mode and would
+    // otherwise read as 'game paused'.
+    dot.className = 'live-dot db';
+    txt.textContent = 'reading from db · ' + (lastNow.sessionLabel || 'last session');
   } else if (paused) {
     dot.className = 'live-dot paused';
     txt.textContent = 'game paused (window unfocused)';

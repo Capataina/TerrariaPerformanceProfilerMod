@@ -38,9 +38,57 @@ internal static partial class DashboardRouter
             .CurrentSnapshot() ?? Data.Collectors.FrameTimeSnapshot.Empty;
         if (!frameSnap.WorldLoaded || frameSnap.History == null || frameSnap.History.Count == 0)
         {
+            // No live world — fall back to the last persisted session so the
+            // Summary KPIs populate from history instead of going blank
+            // ("reading from db" mode). worldLoaded is reported true so the
+            // existing renderers + overlay treat it as showable; the source
+            // field carries the truth for the topbar. Live-only surfaces (frame
+            // trace, segments) still return their own empty state.
+            var last = DbReadModel.GetLastSession();
+            if (last != null)
+            {
+                var a = last.Archive;
+                double avgFps = a.AvgFrameMs > 0d ? Math.Min(60d, 1000d / a.AvgFrameMs) : 0d;
+                return JsonSerializer.Serialize(new
+                {
+                    worldLoaded = true,
+                    source = "db",
+                    sessionLabel = last.EndedUtc.ToLocalTime().ToString("MMM d · HH:mm"),
+                    sessionEndedUnixMs = new DateTimeOffset(last.EndedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+                    unixMs = Time.UnixMsNow(),
+                    tickIndex = a.TicksObserved,
+                    frameMs = a.AvgFrameMs,
+                    avg30sMs = a.AvgFrameMs,
+                    gcMs = 0d,
+                    npcCount = 0, projectileCount = 0, dustCount = 0,
+                    openSegmentCount = 0,
+                    historyDepth = 0,
+                    spikeCount = a.SpikeCount,
+                    stallCount = a.StallCount,
+                    tracksAllocations = false,
+                    allocBytesPerTick = 0d,
+                    installDeltaMb = 0d, processWorkingSetMb = 0d, bytesPerHookKb = 0d, hookCount = 0,
+                    severity = "Healthy", backend = "—",
+                    kpi = new
+                    {
+                        avgFps,
+                        worstFrameMs = a.MaxFrameMs,
+                        bestFrameMs = 0d,
+                        medianFrameMs = a.MedianFrameMs,
+                        lagSpikeCount = 0,
+                        totalLagMs = 0d,
+                        stallCount = a.StallCount,
+                        worstStallMs = 0d,
+                        avgStallMs = 0d,
+                        spikeCount = a.SpikeCount,
+                        sampleN = a.TicksObserved,
+                    },
+                }, JsonOpts);
+            }
             return JsonSerializer.Serialize(new
             {
                 worldLoaded = false,
+                source = "none",
                 unixMs = Time.UnixMsNow(),
             }, JsonOpts);
         }
@@ -87,6 +135,7 @@ internal static partial class DashboardRouter
         return JsonSerializer.Serialize(new
         {
             worldLoaded = true,
+            source = "live",
             unixMs = Time.UnixMsNow(),
             tickIndex = latest.TickIndex,
             frameMs = latest.FrameTimeMs,

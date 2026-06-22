@@ -40,6 +40,37 @@ internal static partial class DashboardRouter
 
         if (!cpuSnap.WorldLoaded || cpuSnap.SmoothedMsByCategory == null)
         {
+            // No live world — serve the last session's per-mod ranking from the
+            // persisted archive ("reading from db" mode). Per-category breakdown
+            // and live allocation aren't in the archive, so the cascading tree
+            // and alloc column stay empty; the headline ranking populates.
+            var last = DbReadModel.GetLastSession();
+            if (last != null && last.Archive.PerMod != null && last.Archive.PerMod.Count > 0)
+            {
+                var dbMods = new List<object>(last.Archive.PerMod.Count);
+                foreach (var pm in last.Archive.PerMod)
+                {
+                    dbMods.Add(new
+                    {
+                        id = pm.ModId,
+                        name = pm.Name,
+                        cpuMs = pm.AvgMs,
+                        avgCpuMs = pm.AvgMs,
+                        categories = Array.Empty<double>(),
+                        allocBytes = pm.TotalBytes,
+                        avgAllocBytes = pm.TotalBytes,
+                        categoryBytes = (double[]?)null,
+                    });
+                }
+                return JsonSerializer.Serialize(new
+                {
+                    worldLoaded = true,
+                    source = "db",
+                    tracksAllocations = false,
+                    categories = PerModAttribution.CategoryNames,
+                    mods = dbMods,
+                }, JsonOpts);
+            }
             return JsonSerializer.Serialize(new { worldLoaded = false, mods = Array.Empty<object>() }, JsonOpts);
         }
 
