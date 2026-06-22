@@ -14,6 +14,15 @@ namespace PerformanceProfiler.Web;
 
 internal static partial class DashboardAssets
 {
+    // Lag tab CSS — readable-vocabulary rebuild.
+    //
+    // The bespoke per-surface chart CSS (hex grid, galaxy circles + rings,
+    // beeswarm dots, gradient tide + wind arrows, inline sankey bands, polar
+    // rings/wedges/bars) is gone: every Lag surface now composes the shared
+    // components (.rheat / .dtable / .split-bar / .chip / .statline), whose
+    // styling lives in Css.Components. What remains here is tab-local layout
+    // and the few small wrappers the surfaces need (detail strip, top-mod
+    // cell, spike/stall cell, GC two-column grid, chain card, histogram row).
     private const string CssLag = @"
 /* =================================================== LAG TAB (dashboard) */
 .lag-shell {
@@ -46,12 +55,7 @@ internal static partial class DashboardAssets
   margin-left: 0.25em;
 }
 
-/* ----- Middle: heatmap + galaxy ----- */
-.lag-mid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.7rem;
-}
+/* ----- Shared panel chrome for every Lag surface ----- */
 .lag-heatmap, .lag-clusters,
 .lag-density, .lag-gc, .lag-causality, .lag-rhythm {
   background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
@@ -64,78 +68,30 @@ internal static partial class DashboardAssets
   text-transform: uppercase; letter-spacing: 0.08em;
   margin-bottom: 0.5rem;
 }
+.lag-caption, .lag-hint {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.lag-hint { margin-top: 0.4rem; margin-bottom: 0; }
+.lag-empty {
+  font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+  padding: 0.4rem 0;
+}
+.lag-table-wrap { max-height: 24rem; overflow-y: auto; }
+.lag-bar-legend { margin-top: 0.1rem; }
 
-/* ----- Hex-grid heatmap ----- */
-.lag-hexgrid {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.lag-hexgrid .hex-empty {
-  fill: var(--panel-2);
-  stroke: var(--border-soft);
-  stroke-width: 0.75;
-}
-.lag-hexgrid .hex-head {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.05em;
-}
-.lag-hexgrid .hex-row {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.05em;
-}
-.lag-hexgrid .hex-count {
-  font-family: var(--mono); font-size: 9px;
-  fill: var(--text-bright);
-  pointer-events: none;
-}
+/* ----- Cause × context heatmap (.rheat local sizing) ----- */
+.lag-rheat { align-content: start; }
 
-/* ----- Galaxy ----- */
-.lag-galaxy {
-  width: 100%; height: auto; display: block;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 3px;
-}
-.lag-galaxy .galaxy-band {
-  fill: rgba(255, 255, 255, 0.015);
-}
-.lag-galaxy .galaxy-axis {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
-.lag-galaxy .galaxy-axis-y {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  letter-spacing: 0.05em;
-}
-.lag-galaxy .galaxy-node {
-  opacity: 0.85;
-  stroke: rgba(0,0,0,0.4);
-  stroke-width: 0.6;
-  cursor: pointer;
-  transition: opacity 120ms ease, stroke-width 120ms ease;
-}
-.lag-galaxy .galaxy-node:hover {
-  opacity: 1;
-  stroke: var(--text-bright);
-  stroke-width: 1.2;
-}
-.lag-galaxy .galaxy-node.sel {
-  stroke: var(--text-bright);
-  stroke-width: 1.6;
-}
-.lag-galaxy .galaxy-ring {
-  fill: none;
-  stroke-width: 1.4;
-  opacity: 0.9;
-  pointer-events: none;
-}
-.galaxy-details {
-  margin-top: 0.4rem;
+/* ----- Fingerprint cluster table cells ----- */
+/* Top-mod cell: name + share over a thin split bar coloured by modColor. */
+.lag-topmod { display: flex; flex-direction: column; gap: 0.12rem; min-width: 9rem; }
+.lag-topmod .nm { font-size: 0.78rem; }
+.lag-topmod .sh { color: var(--muted); font-size: 0.68rem; }
+
+/* Selected-fingerprint detail strip. */
+.lag-detail {
+  margin-top: 0.5rem;
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-left: 3px solid var(--accent);
@@ -143,11 +99,11 @@ internal static partial class DashboardAssets
   padding: 0.45rem 0.65rem;
   display: flex; flex-direction: column; gap: 0.3rem;
 }
-.galaxy-details .gd-top {
+.lag-detail .ld-top {
   display: flex; gap: 0.5em; align-items: baseline; flex-wrap: wrap;
   font-family: var(--mono); font-size: 0.78rem; color: var(--text-bright);
 }
-.galaxy-details .gd-cause {
+.lag-detail .ld-cause {
   font-family: var(--ui); font-size: 0.62rem; font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--accent);
@@ -155,209 +111,81 @@ internal static partial class DashboardAssets
   background: var(--accent-soft);
   border-radius: 2px;
 }
-.galaxy-details .gd-fp { color: var(--text); }
-.galaxy-details .gd-sub { color: var(--muted); font-size: 0.72rem; }
-.galaxy-details .gd-stats {
+.lag-detail .ld-fp { color: var(--text); }
+.lag-detail .ld-sub { color: var(--muted); font-size: 0.72rem; }
+.lag-detail .ld-stats {
   display: flex; gap: 1em; flex-wrap: wrap;
   font-family: var(--mono); font-size: 0.74rem; color: var(--muted);
 }
-.galaxy-details .gd-stats b { color: var(--text-bright); font-weight: 600; }
-.galaxy-hint {
-  margin-top: 0.35rem;
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-}
+.lag-detail .ld-stats b { color: var(--text-bright); font-weight: 600; }
 
-/* ----- Per-segment lag swarm ----- */
-.lag-swarm {
-  width: 100%; height: auto; display: block;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 3px;
-}
-.lag-swarm .swarm-bg {
-  fill: rgba(255, 255, 255, 0.02);
-}
-.lag-swarm .swarm-bg.hot {
-  fill: rgba(214, 99, 86, 0.06);
-}
-.lag-swarm .swarm-label {
-  font-family: var(--mono); font-size: 10px;
-  fill: var(--text);
-}
-.lag-swarm .swarm-val {
-  font-family: var(--mono); font-size: 10px;
-  fill: var(--muted);
-}
-.lag-swarm .swarm-dot.spike {
-  fill: var(--spike);
-  opacity: 0.85;
-}
-.lag-swarm .swarm-dot.stall {
-  fill: var(--stall);
-  opacity: 0.95;
-}
-.swarm-legend {
-  margin-top: 0.35rem;
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  display: flex; gap: 1em; align-items: center;
-}
-.swarm-legend .dot {
-  display: inline-block;
-  width: 8px; height: 8px; border-radius: 50%;
-  margin-right: 0.3em; vertical-align: middle;
-}
-.swarm-legend .dot.spike { background: var(--spike); }
-.swarm-legend .dot.stall { background: var(--stall); }
-.lag-density-baseline {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  margin-bottom: 0.4rem;
-}
+/* ----- Per-segment density: spike/stall cell ----- */
+.lag-spikestall { display: flex; flex-direction: column; gap: 0.15rem; min-width: 8rem; }
+.lag-spikestall .cnt { font-family: var(--mono); font-size: 0.7rem; color: var(--muted); }
+.lag-spikestall .cnt .spk { color: var(--spike); }
+.lag-spikestall .cnt .stl { color: var(--stall); }
 
-/* ----- GC tide ----- */
+/* ----- GC pressure: stat block + heap chart ----- */
 .lag-gc-grid {
   display: grid;
-  grid-template-columns: 12rem 1fr;
-  gap: 0.7rem;
+  grid-template-columns: minmax(13rem, 16rem) 1fr;
+  gap: 0.8rem;
+  align-items: start;
 }
-.lag-gc-counters {
-  display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.6rem;
-  font-family: var(--mono); font-size: 0.76rem;
-  align-content: start;
-}
-.lag-gc-counters .k { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; }
-.lag-gc-counters .v { color: var(--text-bright); text-align: right; }
-.gc-tide {
-  width: 100%; height: auto; display: block;
+.lag-gc-stats { display: flex; flex-direction: column; }
+.lag-gc-chart {
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: 3px;
+  padding: 0.2rem;
 }
-.gc-tide .gc-baseline {
-  stroke: var(--border-soft);
-  stroke-width: 1;
-}
-.gc-tide .gc-break {
-  fill: var(--stall);
-  opacity: 0.85;
-}
-.gc-tide .gc-wind-l {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  letter-spacing: 0.05em;
-}
-.gc-tide .gc-wind-v {
-  font-family: var(--mono); font-size: 9px;
-  fill: var(--text);
-}
-.gc-tide .gc-axis {
-  font-family: var(--mono); font-size: 9px;
-  fill: var(--muted);
-}
+.gc-heap { width: 100%; height: auto; display: block; }
+.gc-heap .gc-baseline { stroke: var(--border-soft); stroke-width: 1; }
+.gc-heap .gc-area { fill: var(--accent-soft); stroke: none; }
+.gc-heap .gc-line { fill: none; stroke: var(--accent); stroke-width: 1.2; }
+.gc-heap .gc-peak { fill: var(--accent); }
+.gc-heap .gc-peak-l { font-family: var(--mono); font-size: 9px; fill: var(--text-bright); }
+.gc-heap .gc-axis { font-family: var(--mono); font-size: 9px; fill: var(--muted); }
 
-/* ----- Causality (Sankey cards) ----- */
+/* ----- Allocation → GC → freed chain cards ----- */
 .lag-causality-list {
-  display: flex; flex-direction: column; gap: 0.4rem;
-  max-height: 22rem; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  max-height: 24rem; overflow-y: auto;
 }
-.lag-chain-sankey {
+.lag-chain {
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-left: 3px solid var(--gc);
   border-radius: 3px;
-  padding: 0.3rem 0.4rem;
+  padding: 0.5rem 0.6rem;
+  display: flex; flex-direction: column; gap: 0.35rem;
 }
-.lag-chain-sankey svg {
-  width: 100%; height: auto; display: block;
+.lag-chain-stats {
+  display: flex; flex-wrap: wrap; gap: 0.25rem 1.1rem;
+  font-family: var(--mono); font-size: 0.74rem;
 }
-.lag-chain-sankey .sk-gc-bar {
-  fill: var(--gc);
-  opacity: 0.85;
-}
-.lag-chain-sankey .sk-freed-bar {
-  fill: #4f9d6a;
-  opacity: 0.85;
-}
-.lag-chain-sankey .sk-freed-flow {
-  fill: #4f9d6a;
-  opacity: 0.22;
-}
-.lag-chain-sankey .sk-gc-label {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
-.lag-chain-sankey .sk-side-l {
-  font-family: var(--mono); font-size: 10px;
-  fill: var(--text);
-}
-.lag-chain-sankey .sk-label-in {
-  font-family: var(--mono); font-size: 9px;
-  fill: rgba(0, 0, 0, 0.72);
-  pointer-events: none;
-}
+.lag-chain-stats .st { display: inline-flex; gap: 0.35rem; align-items: baseline; }
+.lag-chain-stats .k { color: var(--muted); font-size: 0.66rem;
+  text-transform: uppercase; letter-spacing: 0.05em; }
+.lag-chain-stats .v { color: var(--text-bright); }
 
-/* ----- Rhythm polar ----- */
-.lag-polar-shell {
+/* ----- Lag rhythm: horizontal histogram + cluster table ----- */
+.lag-rhythm-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
-  gap: 0.7rem;
-  align-items: center;
+  grid-template-columns: minmax(14rem, 20rem) 1fr;
+  gap: 0.8rem;
+  align-items: start;
 }
-.lag-polar {
-  width: 100%; max-width: 360px; height: auto; display: block;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: 3px;
-  margin: 0 auto;
-}
-.lag-polar .polar-ring {
-  fill: none;
-  stroke: var(--border-soft);
-  stroke-width: 0.6;
-  stroke-dasharray: 2 3;
-}
-.lag-polar .polar-core {
-  fill: rgba(255,255,255,0.025);
-  stroke: var(--border-soft);
-  stroke-width: 0.6;
-}
-.lag-polar .polar-tick {
-  font-family: var(--mono); font-size: 9px;
-  fill: var(--muted);
-}
-.lag-polar .polar-bar {
-  fill: var(--accent);
-  opacity: 0.78;
-}
-.lag-polar .polar-c1 {
-  font-family: var(--mono); font-size: 1.05rem;
-  fill: var(--text-bright);
-}
-.lag-polar .polar-c2 {
-  font-family: var(--ui); font-size: 9px;
-  fill: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.08em;
-}
-.lag-rhythm-clusters {
-  display: flex; flex-direction: column; gap: 0.3rem;
-}
-.lag-rhythm-cluster {
+.lag-hist { display: flex; flex-direction: column; gap: 0.2rem; }
+.lag-hist-row {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: 3.5rem 1fr 3rem;
   gap: 0.5rem; align-items: center;
-  font-family: var(--mono); font-size: 0.75rem;
+  font-family: var(--mono); font-size: 0.74rem;
 }
-.lag-rhythm-cluster .swatch {
-  width: 10px; height: 10px; border-radius: 2px;
-  display: inline-block;
-}
-.lag-rhythm-cluster .centre { color: var(--text-bright); }
-.lag-rhythm-cluster .note { color: var(--muted); font-size: 0.7rem; }
-.lag-rhythm-cluster .share { color: var(--muted); font-size: 0.7rem; }
-
-.lag-empty {
-  font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
-  padding: 0.4rem 0;
-}
+.lag-hist-row .lbl { color: var(--muted); text-align: right; }
+.lag-hist-row .bar { display: block; }
+.lag-hist-row .val { color: var(--text-bright); text-align: right;
+  font-variant-numeric: tabular-nums; }
 ";
 }

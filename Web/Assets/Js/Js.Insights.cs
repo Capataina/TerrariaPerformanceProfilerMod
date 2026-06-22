@@ -16,10 +16,13 @@ internal static partial class DashboardAssets
 {
     private const string JsInsights = @"
 // ====== INSIGHTS TAB ==================================================
-// The Insights tab is the per-mod observatory: KPI strip, mod card list
-// with a per-mod detail pane (I1+I3+I4), a dormant-content surface (I2),
-// a cross-cutting signal class strip (I5), an engagement vs cost scatter
-// (I6), and a mod-pair correlation matrix (I7).
+// The Insights tab is the per-mod observatory, rebuilt from the shared
+// readable vocabulary (split bars, perf-tinted sortable tables, chips,
+// stat lines, a rectangular heatmap) instead of bespoke metaphor charts.
+// Surfaces: KPI ring strip, dormant-content table (I2), mod card list
+// with a composition split bar + a tabular detail pane (I1+I3+I4), a
+// cross-cutting signal-class section list (I5), an engagement-vs-cost
+// table (I6), and a mod-pair correlation table + heatmap (I7).
 //
 // Invariant 3: every string is descriptive. No 'should remove', no
 // 'junk'; only measurements like 'X items used of Y in roster'.
@@ -30,13 +33,27 @@ let lastEngagementCost = null;
 let lastModInteraction = null;
 
 let selectedObservatoryModId = -1;
-let dormantOpen = false;
 
-// Client-side scatter drift history: modId -> [{u, c, t}, ...] last N samples.
-// Lets us draw a short trail behind each dot showing where the mod was at
-// recent polls. Pure visual memory — never read back into the API.
-const scatterHistory = new Map();
-const SCATTER_HISTORY_MAX = 20;  // ~60s at the 3s poll cadence
+// Sort state for the sortable tables. Each is {key, dir} where dir is
+// 1 (ascending) or -1 (descending). Defaults match the most useful
+// at-a-glance ordering for each surface.
+let dormantSort = { key: 'usageRatio', dir: 1 };       // least-engaged first
+let engagementSort = { key: 'cpuShare', dir: -1 };     // costliest first
+
+// Roster composition categories: [field, label, colour]. Shared by the
+// observatory list split bar and its legend so colour == meaning across
+// both. Colours come from the palette tokens, never invented.
+const ROSTER_CATS = [
+  ['items',       'items',       'var(--good)'],
+  ['npcs',        'npcs',        'var(--danger)'],
+  ['buffs',       'buffs',       'var(--amber)'],
+  ['projectiles', 'projectiles', 'var(--cyan)'],
+  ['mounts',      'mounts',      'var(--orange)'],
+  ['accessories', 'accessories', 'var(--accent)'],
+  ['biomes',      'biomes',      'var(--magenta)'],
+  ['invasions',   'invasions',   'var(--purple)'],
+  ['bosses',      'bosses',      'var(--text-bright)'],
+];
 
 async function pollInsightsData() {
   if (activeTab !== 'insights') return;
@@ -53,23 +70,6 @@ async function pollInsightsData() {
     lastCrossCutting = cc;
     lastEngagementCost = ec;
     lastModInteraction = mi;
-
-    // Append current scatter positions to the per-mod history ring.
-    if (ec && ec.worldLoaded && Array.isArray(ec.dots)) {
-      const now = Date.now();
-      const seen = new Set();
-      for (const d of ec.dots) {
-        seen.add(d.modId);
-        let h = scatterHistory.get(d.modId);
-        if (!h) { h = []; scatterHistory.set(d.modId, h); }
-        h.push({ u: d.usageShare, c: d.cpuShare, t: now });
-        if (h.length > SCATTER_HISTORY_MAX) h.splice(0, h.length - SCATTER_HISTORY_MAX);
-      }
-      // Drop history for mods no longer plotted.
-      for (const k of Array.from(scatterHistory.keys())) {
-        if (!seen.has(k)) scatterHistory.delete(k);
-      }
-    }
     renderInsights();
   } catch (e) { /* swallow — next tick will retry */ }
 }
@@ -85,10 +85,41 @@ function renderInsights() {
   renderModInteractionMatrix();
 }
 
+// Shared sortable-header builder for the readable .dtable surfaces.
+// cols: [{key, label, l (left-align bool), title}]. Clicking a header
+// sorts by that key (toggling direction); the active column shows the
+// direction arrow. onSort(key) is invoked after the state is updated.
+function sortableHead(cols, state, onSort, rootId) {
+  const ths = cols.map(c => {
+    const sorted = c.key === state.key;
+    const cls = (c.l ? 'l ' : '') + 'sortable' + (sorted ? ' sorted' : '');
+    const arrow = sorted ? (state.dir === 1 ? ' ▲' : ' ▼') : '';
+    const t = c.title ? ` title='${escapeHtml(c.title)}'` : '';
+    return `<th class='${cls}' data-key='${c.key}'${t}>${escapeHtml(c.label)}${arrow}</th>`;
+  }).join('');
+  // Defer binding until the table is in the DOM (caller sets innerHTML next).
+  setTimeout(() => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('th.sortable').forEach(th => {
+      if (th.dataset.bound) return;
+      th.dataset.bound = '1';
+      th.addEventListener('click', () => {
+        const k = th.dataset.key;
+        if (state.key === k) state.dir = -state.dir;
+        else { state.key = k; state.dir = -1; }
+        onSort();
+      });
+    });
+  }, 0);
+  return `<tr>${ths}</tr>`;
+}
+
 // ----- KPI strip ------------------------------------------------------
 // Four mini ring gauges. Each ring's arc-fill encodes the share of the
 // loaded modlist that falls in this bucket. Descriptive only — the gauge
-// shows the measured fraction; no thresholds, no judgement.
+// shows the measured fraction; no thresholds, no judgement. Acceptable
+// flair: small, standard, kept light-touch.
 function renderInsightsKpiStrip() {
   const root = document.getElementById('ins-kpi');
   if (!root) return;
@@ -99,16 +130,6 @@ function renderInsightsKpiStrip() {
   const loaded = dor.modsLoaded != null ? dor.modsLoaded : (active + dormant);
   const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
   const denom = Math.max(1, loaded);
-
-  // Roster total + usage total are richer signals than a literal count,
-  // but stay computable from the observatory cards we already have.
-  let rosterTotal = 0, usageTotal = 0;
-  const cards = (lastModObservatory && lastModObservatory.cards) || [];
-  for (const c of cards) {
-    const r = c.roster, u = c.usage;
-    rosterTotal += (r.items + r.npcs + r.buffs + r.projectiles + r.mounts + r.accessories + r.biomes + r.invasions + r.bosses);
-    usageTotal  += (u.itemsCreated + u.npcsSpawned + u.buffsApplied + u.invasionsFought + u.bossesFought);
-  }
 
   function ring(label, value, frac, sub, hue) {
     const R = 26, C = 2 * Math.PI * R;
@@ -139,13 +160,11 @@ function renderInsightsKpiStrip() {
   `;
 }
 
-// ----- I2 dormant strip ----------------------------------------------
-// ""Dust shelf"" — each dormant mod sits as a plaque on a wooden shelf,
-// with dust accumulated above it. Dust thickness is proportional to
-// (1 - usageRatio): pure measurement, not judgement. Stippled overlay
-// is generated via SVG noise (a fractal-noise turbulence filter masked
-// to a rectangle above each plaque). Hover surfaces the underlying
-// counts so the visual never replaces the numbers.
+// ----- I2 dormant surface --------------------------------------------
+// Sortable perf-tinted table. Each row is a mod with a usage split bar
+// (engaged green vs unused surface) carrying the % text, a used/roster
+// count, and the dominant unused category as a chip. The caption carries
+// the two headline totals. Pure measurement — no judgement on any row.
 function renderDormantSurface() {
   const root = document.getElementById('ins-dormant');
   if (!root) return;
@@ -154,71 +173,74 @@ function renderDormantSurface() {
     root.innerHTML = `<div class='dor-h'><span class='label'>dormant content</span><span>—</span></div>`;
     return;
   }
-  const entries = dor.entries || [];
+  const entries = (dor.entries || []).slice();
   const headSummary = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
 
-  let body = '';
   if (entries.length === 0) {
-    body = `<div class='dust-empty'>no dormant entries recorded this session</div>`;
-  } else {
-    const sorted = entries.slice().sort((a,b) => a.usageRatio - b.usageRatio);
-
-    // Layout: each plaque is ~110px wide, dust column above it. Wrap to
-    // multiple shelves so this stays readable for big modlists.
-    const plaqueW = 118, plaqueH = 36, dustMax = 44, gap = 8;
-    const perRow = Math.max(4, Math.floor((root.clientWidth || 640) / (plaqueW + gap)) || 8);
-    const rows = [];
-    for (let i = 0; i < sorted.length; i += perRow) rows.push(sorted.slice(i, i + perRow));
-
-    body = rows.map(row => {
-      const W = row.length * (plaqueW + gap) - gap;
-      const H = dustMax + plaqueH + 6;
-      const plaques = row.map((e, i) => {
-        const xL = i * (plaqueW + gap);
-        const dustH = (Math.max(0, Math.min(1, 1 - e.usageRatio)) * dustMax).toFixed(1);
-        const dustY = (dustMax - dustH).toFixed(1);
-        const pct = (e.usageRatio * 100).toFixed(1);
-        const title = `${e.modName} — ${fmtInt(e.usedCount)}/${fmtInt(e.rosterSize)} entries used · ${pct}% engaged · dominant unused: ${e.dominantUnusedCategory || '—'}`;
-        const label = escapeHtml(e.modName);
-        const short = label.length > 14 ? label.slice(0, 13) + '…' : label;
-        return `<g class='dust-plaque' transform='translate(${xL},0)'>
-          <title>${escapeHtml(title)}</title>
-          <rect class='dust' x='4' y='${dustY}' width='${plaqueW-8}' height='${dustH}'
-            fill='url(#dustPattern)' opacity='0.85'></rect>
-          <rect class='dust-edge' x='4' y='${dustY}' width='${plaqueW-8}' height='1'></rect>
-          <rect class='plaque' x='0' y='${dustMax+2}' width='${plaqueW}' height='${plaqueH}' rx='2'></rect>
-          <text class='pl-nm' x='${plaqueW/2}' y='${dustMax+2+16}' text-anchor='middle'>${escapeHtml(short)}</text>
-          <text class='pl-sub' x='${plaqueW/2}' y='${dustMax+2+28}' text-anchor='middle'>${pct}% engaged · ${fmtInt(e.usedCount)}/${fmtInt(e.rosterSize)}</text>
-        </g>`;
-      }).join('');
-      return `<svg class='dust-shelf' viewBox='0 0 ${W} ${H}' preserveAspectRatio='xMinYMid meet'>
-        <defs>
-          <pattern id='dustPattern' patternUnits='userSpaceOnUse' width='4' height='4'>
-            <rect width='4' height='4' fill='transparent'/>
-            <circle cx='1' cy='1' r='0.5' fill='#8a8170' opacity='0.6'/>
-            <circle cx='3' cy='2.5' r='0.4' fill='#a09684' opacity='0.45'/>
-            <circle cx='2' cy='3.5' r='0.3' fill='#6e6655' opacity='0.55'/>
-          </pattern>
-        </defs>
-        <line class='shelf-line' x1='0' y1='${dustMax+1.5}' x2='${W}' y2='${dustMax+1.5}'></line>
-        ${plaques}
-      </svg>`;
-    }).join('');
+    root.innerHTML = `
+      <div class='dor-h'><span class='label'>dormant content</span><span>${headSummary}</span></div>
+      <div class='dor-empty'>no dormant entries recorded this session</div>`;
+    return;
   }
 
-  root.classList.toggle('open', dormantOpen);
+  const getters = {
+    modName:    e => (e.modName || '').toLowerCase(),
+    usageRatio: e => e.usageRatio,
+    usedCount:  e => e.usedCount,
+    rosterSize: e => e.rosterSize,
+  };
+  const g = getters[dormantSort.key] || getters.usageRatio;
+  entries.sort((a, b) => {
+    const va = g(a), vb = g(b);
+    if (va < vb) return -1 * dormantSort.dir;
+    if (va > vb) return  1 * dormantSort.dir;
+    return 0;
+  });
+
+  const cols = [
+    { key: 'modName',    label: 'mod',              l: true },
+    { key: 'usageRatio', label: 'usage',            title: 'engaged share of this roster' },
+    { key: 'usedCount',  label: 'used / roster',    title: 'roster entries observed in use this session' },
+    { key: 'rosterSize', label: 'roster' },
+  ];
+  // The dominant-unused-category column is presentational only (not sorted).
+  const headRow = sortableHead(cols, dormantSort, renderDormantSurface, 'ins-dormant')
+    .replace('</tr>', `<th class='l'>dominant unused</th></tr>`);
+
+  const rows = entries.map(e => {
+    const ratio = Math.max(0, Math.min(1, e.usageRatio || 0));
+    const pct = (ratio * 100).toFixed(1);
+    const bar = splitBar([
+      { frac: ratio,     color: 'var(--good)',    label: 'engaged', value: fmtInt(e.usedCount) },
+      { frac: 1 - ratio, color: 'var(--surface)', label: 'unused',  value: fmtInt(Math.max(0, (e.rosterSize||0) - (e.usedCount||0))) },
+    ], { thin: true });
+    const cat = e.dominantUnusedCategory
+      ? `<span class='chip'>${escapeHtml(e.dominantUnusedCategory)}</span>`
+      : `<span class='dim'>—</span>`;
+    return `<tr title='${escapeHtml(e.modName + ' — ' + pct + '% engaged · ' + fmtInt(e.usedCount) + '/' + fmtInt(e.rosterSize) + ' entries used')}'>
+      <td class='l'>${escapeHtml(e.modName)}</td>
+      <td class='l'><div class='dor-usage'>${bar}<span class='dor-pct'>${pct}%</span></div></td>
+      <td>${fmtInt(e.usedCount)} / ${fmtInt(e.rosterSize)}</td>
+      <td>${fmtInt(e.rosterSize)}</td>
+      <td class='l'>${cat}</td>
+    </tr>`;
+  }).join('');
+
   root.innerHTML = `
-    <div class='dor-h' data-role='toggle'>
-      <span class='label'>${dormantOpen ? '▾' : '▸'} dormant content shelf</span>
-      <span>${headSummary}</span>
-    </div>
-    <div class='dor-body'>${body}</div>
-  `;
-  const head = root.querySelector('[data-role=toggle]');
-  if (head) head.addEventListener('click', () => { dormantOpen = !dormantOpen; renderDormantSurface(); });
+    <div class='dor-h'><span class='label'>dormant content</span><span>${headSummary}</span></div>
+    <div class='dor-scroll'>
+      <table class='dtable'>
+        <thead>${headRow}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ----- I1 observatory list -------------------------------------------
+// Ranked card list, ordered by cpu share. Each card carries the mod
+// name, a cost cellBar, readable usage micro-stats, and a roster
+// composition split bar (replacing the unreadable DNA strand) whose
+// legend appears in the detail pane. Click selects -> fills detail pane.
 function renderObservatoryList() {
   const root = document.getElementById('ins-obs-list');
   if (!root) return;
@@ -235,55 +257,32 @@ function renderObservatoryList() {
     selectedObservatoryModId = cards[0].modId;
   }
 
-  // DNA strand microvis: per-card horizontal strand of category ticks.
-  // Each tick is a category (items / npcs / buffs / projectiles / mounts /
-  // accessories / biomes / invasions / bosses), width proportional to that
-  // mod's count in that category divided by its roster total. One glance
-  // tells you the shape of the mod: mostly-NPCs, mostly-items, balanced,
-  // library-shaped (empty strand = no content registered).
-  const dnaCats = [
-    ['items',       'i', 'var(--good)'],
-    ['npcs',        'n', 'var(--danger)'],
-    ['buffs',       'b', 'var(--amber)'],
-    ['projectiles', 'p', 'var(--cyan)'],
-    ['mounts',      'm', 'var(--orange)'],
-    ['accessories', 'a', 'var(--accent)'],
-    ['biomes',      'B', 'var(--magenta)'],
-    ['invasions',   'v', 'var(--purple)'],
-    ['bosses',      's', 'var(--text-bright)'],
-  ];
-  function dnaStrand(roster) {
-    const counts = [
-      roster.items, roster.npcs, roster.buffs, roster.projectiles, roster.mounts,
-      roster.accessories, roster.biomes, roster.invasions, roster.bosses
-    ];
-    const tot = counts.reduce((a,b) => a+b, 0);
+  // Roster composition split bar: each segment is a category, fraction =
+  // that category's count / roster total. One labelled, readable bar
+  // replacing the 1-2px DNA strand. Empty roster -> a muted 'no content'.
+  function compositionBar(roster) {
+    const counts = ROSTER_CATS.map(([f]) => roster[f] || 0);
+    const tot = counts.reduce((a, b) => a + b, 0);
     if (tot === 0) {
-      return `<div class='dna empty' title='no content registered (library-shaped mod)'></div>`;
+      return `<div class='comp-empty' title='no content registered (library-shaped mod)'>no registered content</div>`;
     }
-    let cursor = 0;
-    const segs = counts.map((cnt, idx) => {
-      if (cnt === 0) return '';
-      const w = (cnt / tot) * 100;
-      const seg = `<span class='dna-tick' style='left:${cursor}%;width:${w}%;background:${dnaCats[idx][2]}'
-        title='${dnaCats[idx][0]}: ${fmtInt(cnt)} of ${fmtInt(tot)} (${(w).toFixed(1)}%)'></span>`;
-      cursor += w;
-      return seg;
-    }).join('');
-    return `<div class='dna' title='roster composition: ${fmtInt(tot)} registered entries'>${segs}</div>`;
+    const segs = ROSTER_CATS.map(([f, label, color], idx) => ({
+      frac: counts[idx] / tot, color, label, value: fmtInt(counts[idx]),
+    }));
+    return splitBar(segs, { thin: true });
   }
 
   root.innerHTML = cards.map((c, i) => {
     const sel = c.modId === selectedObservatoryModId ? 'selected' : '';
-    const barW = ((c.cpuSharePct / maxCpu) * 100).toFixed(1);
-    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs`;
+    const costFrac = c.cpuSharePct / maxCpu;
+    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage`;
     return `<div class='ins-obs-card ${sel}' data-mod='${c.modId}'>
       <span class='rank'>${i + 1}</span>
       <div class='body'>
         <div class='nm'>${escapeHtml(c.modName)}</div>
-        ${dnaStrand(c.roster)}
-        <div class='micro'>${micro} · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage share</div>
-        <div class='bar'><span style='width:${barW}%'></span></div>
+        <div class='comp'>${compositionBar(c.roster)}</div>
+        <div class='micro'>${micro}</div>
+        <div class='cost'>${cellBar(costFrac, 'var(--cpu)')}</div>
       </div>
       <span class='ms'>${fmtMs(c.smoothedMsThisTick)}<span class='u'>ms</span></span>
     </div>`;
@@ -299,6 +298,10 @@ function renderObservatoryList() {
 }
 
 // ----- I1 + I3 + I4 detail pane --------------------------------------
+// Restyled with the shared statline + dtable vocabulary. Leads with the
+// roster composition legend (the key to the list's split bars), then the
+// headline stats, the roster-vs-usage table, biome attendance, and top
+// loadout influence. Tabular and readable — no metaphor shapes.
 function renderObservatoryDetail() {
   const root = document.getElementById('ins-detail');
   if (!root) return;
@@ -316,7 +319,16 @@ function renderObservatoryDetail() {
   const r = card.roster, u = card.usage;
   const totalRoster = (r.items + r.npcs + r.buffs + r.projectiles + r.mounts + r.accessories + r.biomes + r.invasions + r.bosses);
 
-  // Roster table
+  // Composition legend: the key to the list split bars. Only categories
+  // present in this mod's roster are shown, each with its count.
+  const legendSegs = ROSTER_CATS
+    .map(([f, label, color]) => ({ frac: r[f] || 0, color, label, value: fmtInt(r[f] || 0) }))
+    .filter(s => s.frac > 0);
+  const legendHtml = legendSegs.length > 0
+    ? splitLegend(legendSegs)
+    : `<div style='color:var(--dim);font-size:0.78rem'>no content registered (library-shaped mod)</div>`;
+
+  // Roster vs usage table — perf-vocabulary dtable.
   const rosterRows = [
     ['items', r.items, u.itemsCreated],
     ['npcs', r.npcs, u.npcsSpawned],
@@ -328,32 +340,32 @@ function renderObservatoryDetail() {
     ['invasions', r.invasions, u.invasionsFought],
     ['bosses', r.bosses, u.bossesFought],
   ].map(([k, ros, used]) => {
-    const usedCell = used == null ? `<td class='muted'>—</td>` : `<td class='num'>${fmtInt(used)}</td>`;
-    return `<tr><td>${k}</td><td class='num'>${fmtInt(ros)}</td>${usedCell}</tr>`;
+    const usedCell = used == null ? `<td class='dim'>—</td>` : `<td>${fmtInt(used)}</td>`;
+    return `<tr><td class='l'>${k}</td><td>${fmtInt(ros)}</td>${usedCell}</tr>`;
   }).join('');
 
-  // I3 biome attendance
+  // I3 biome attendance.
   const biome = (card.biomeAttendance || []).slice(0, 12);
   const biomeHtml = biome.length === 0
     ? `<div style='color:var(--dim);font-size:0.78rem'>no biome attendance recorded</div>`
-    : `<table class='det-table'>
-        <thead><tr><th>biome</th><th class='num'>ticks</th><th class='num'>share</th></tr></thead>
+    : `<table class='dtable'>
+        <thead><tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr></thead>
         <tbody>${biome.map(b => `<tr>
-          <td>${escapeHtml(b.biomeName)}</td>
-          <td class='num'>${fmtInt(b.ticks)}</td>
-          <td class='num'>${b.sharePct.toFixed(1)}%</td>
+          <td class='l'>${escapeHtml(b.biomeName)}</td>
+          <td>${fmtInt(b.ticks)}</td>
+          <td>${b.sharePct.toFixed(1)}%</td>
         </tr>`).join('')}</tbody></table>`;
 
-  // I4 loadout influence
+  // I4 loadout influence.
   const li = (card.topLoadoutItems || []).slice(0, 10);
   const liHtml = li.length === 0
     ? `<div style='color:var(--dim);font-size:0.78rem'>no loadout influence recorded</div>`
-    : `<table class='det-table'>
-        <thead><tr><th>item</th><th>slot</th><th class='num'>ticks equipped</th></tr></thead>
+    : `<table class='dtable'>
+        <thead><tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr></thead>
         <tbody>${li.map(it => `<tr>
-          <td>${escapeHtml(it.itemName)}</td>
-          <td class='muted'>${escapeHtml(it.slotKind || '')}</td>
-          <td class='num'>${fmtInt(it.equippedTicks)}</td>
+          <td class='l'>${escapeHtml(it.itemName)}</td>
+          <td class='l muted'>${escapeHtml(it.slotKind || '')}</td>
+          <td>${fmtInt(it.equippedTicks)}</td>
         </tr>`).join('')}</tbody></table>`;
 
   root.innerHTML = `
@@ -361,16 +373,20 @@ function renderObservatoryDetail() {
       <div class='det-title'>${escapeHtml(card.modName)}</div>
       <div style='font-family:var(--mono);font-size:0.74rem;color:var(--muted)'>roster total ${fmtInt(totalRoster)} entries</div>
     </div>
-    <div class='det-stat-grid'>
-      <span class='lbl'>cpu share</span><span class='val'>${card.cpuSharePct.toFixed(2)}%</span>
-      <span class='lbl'>smoothed ms this tick</span><span class='val'>${fmtMs(card.smoothedMsThisTick)} ms</span>
-      <span class='lbl'>average ms</span><span class='val'>${fmtMs(card.averageMs)} ms</span>
-      <span class='lbl'>usage share</span><span class='val'>${card.usageSharePct.toFixed(2)}%</span>
+    <div>
+      <h4>roster composition</h4>
+      ${legendHtml}
+    </div>
+    <div class='det-stats'>
+      <div class='statline'><span class='k'>cpu share</span><span class='v'>${card.cpuSharePct.toFixed(2)}%</span></div>
+      <div class='statline'><span class='k'>smoothed ms this tick</span><span class='v'>${fmtMs(card.smoothedMsThisTick)} ms</span></div>
+      <div class='statline'><span class='k'>average ms</span><span class='v'>${fmtMs(card.averageMs)} ms</span></div>
+      <div class='statline'><span class='k'>usage share</span><span class='v'>${card.usageSharePct.toFixed(2)}%</span></div>
     </div>
     <div>
       <h4>roster vs usage</h4>
-      <table class='det-table'>
-        <thead><tr><th>category</th><th class='num'>roster</th><th class='num'>used / counted</th></tr></thead>
+      <table class='dtable'>
+        <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
         <tbody>${rosterRows}</tbody>
       </table>
     </div>
@@ -386,14 +402,10 @@ function renderObservatoryDetail() {
 }
 
 // ----- I5 cross-cutting ----------------------------------------------
-// Constellation: signal-class nodes anchored on a vertical spine, mod
-// nodes scattered to the sides, edges drawn for each (signal × mod)
-// appearance pair. Edge stroke-width encodes appearance count. Mods
-// that show up across multiple signal classes naturally cluster on the
-// spine — visually telegraphs ""co-appearing mods"".
-//
-// Layout is deterministic (hash-based pseudo-random) so the same modlist
-// always renders to the same constellation. No physics, no async layout.
+// Grouped ranked tables: one labelled section per signal class, each a
+// ranked .dtable of leader mods (mod name + appearances + a cellBar
+// scaled to the section's max appearances). Replaces the constellation
+// spine/stars with a readable, scannable list. Descriptive only.
 function renderCrossCutting() {
   const root = document.getElementById('ins-cross');
   if (!root) return;
@@ -403,220 +415,120 @@ function renderCrossCutting() {
       <div class='cc-empty'>no cross-cutting signals recorded yet</div>`;
     return;
   }
-
-  // Collect unique mods + per-mod (signal -> count).
   const groups = cc.groups.filter(g => g.leaders && g.leaders.length > 0);
   if (groups.length === 0) {
     root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>
       <div class='cc-empty'>signals recorded but no leaders yet</div>`;
     return;
   }
-  const modMap = new Map();  // modId -> { name, total, links: [{sigIdx, count}] }
-  groups.forEach((g, gi) => {
-    (g.leaders || []).forEach(l => {
-      let m = modMap.get(l.modId);
-      if (!m) { m = { id: l.modId, name: l.modName, total: 0, links: [] }; modMap.set(l.modId, m); }
-      m.total += l.appearances;
-      m.links.push({ sigIdx: gi, count: l.appearances });
-    });
-  });
-  const mods = Array.from(modMap.values()).sort((a,b) => b.total - a.total);
 
-  // Hash-based deterministic positioning: same name -> same offset.
-  function hash(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return Math.abs(h); }
+  // Count distinct mods across all classes for the header summary.
+  const distinct = new Set();
+  groups.forEach(g => (g.leaders || []).forEach(l => distinct.add(l.modId)));
 
-  const W = 720, H = Math.max(260, 50 + groups.length * 56);
-  const spineX = W * 0.40;
-  const spinePadT = 40, spinePadB = 20;
-  const spineH = H - spinePadT - spinePadB;
-  const stepY = groups.length > 1 ? spineH / (groups.length - 1) : 0;
-
-  // Signal node positions on the spine.
-  const sigPos = groups.map((g, i) => ({
-    x: spineX,
-    y: spinePadT + i * stepY,
-    label: g.signalClass,
-  }));
-
-  // Mod positions: alternating sides, slot by total-appearance rank.
-  // Big mods near the spine, small mods further out (more ""stars"" outside).
-  const maxTot = Math.max(1, mods[0]?.total || 1);
-  const modPos = mods.map((m, i) => {
-    const side = (i % 2 === 0) ? 1 : -1;
-    const seed = hash(m.name + ':' + m.id);
-    const rankFrac = i / Math.max(1, mods.length - 1);
-    // Radial distance grows with rank (less-prolific mods sit further out).
-    const dist = 80 + rankFrac * 230 + (seed % 28);
-    const x = spineX + side * dist;
-    // y is jittered around the centroid of the signal classes the mod links to.
-    const linkYs = m.links.map(l => sigPos[l.sigIdx].y);
-    const centroidY = linkYs.reduce((a,b) => a+b, 0) / linkYs.length;
-    const yJit = ((seed >> 4) % 60) - 30;
-    const y = Math.max(spinePadT - 10, Math.min(H - spinePadB + 10, centroidY + yJit));
-    const r = 2.5 + 4.5 * (m.total / maxTot);
-    return { mod: m, x, y, r };
-  });
-
-  // Edges: thickness scales with appearance count.
-  const maxLink = Math.max(1, ...mods.flatMap(m => m.links.map(l => l.count)));
-  const edges = modPos.flatMap(mp => mp.mod.links.map(l => {
-    const s = sigPos[l.sigIdx];
-    const w = 0.4 + 1.8 * (l.count / maxLink);
-    const op = 0.25 + 0.55 * (l.count / maxLink);
-    return `<line class='cc-edge' x1='${s.x}' y1='${s.y}' x2='${mp.x.toFixed(1)}' y2='${mp.y.toFixed(1)}'
-      stroke-width='${w.toFixed(2)}' stroke-opacity='${op.toFixed(2)}'></line>`;
-  })).join('');
-
-  // Spine line.
-  const spine = `<line class='cc-spine' x1='${spineX}' y1='${spinePadT-8}' x2='${spineX}' y2='${H-spinePadB+8}'></line>`;
-
-  // Signal nodes — labelled on the left of the spine.
-  const sigSvg = sigPos.map(s => `
-    <g class='cc-sig'>
-      <circle cx='${s.x}' cy='${s.y}' r='6'></circle>
-      <text class='cc-sig-lbl' x='${s.x - 12}' y='${s.y + 3}' text-anchor='end'>${escapeHtml(s.label)}</text>
-    </g>`).join('');
-
-  // Mod stars.
-  const modSvg = modPos.map(mp => `
-    <g class='cc-star'>
-      <title>${escapeHtml(mp.mod.name)} — ${fmtInt(mp.mod.total)} appearances across ${mp.mod.links.length} signal classes</title>
-      <circle cx='${mp.x.toFixed(1)}' cy='${mp.y.toFixed(1)}' r='${mp.r.toFixed(1)}'></circle>
-      ${mp.r >= 4.5 ? `<text class='cc-star-lbl' x='${(mp.x + (mp.x>spineX?mp.r+3:-mp.r-3)).toFixed(1)}' y='${(mp.y+3).toFixed(1)}'
-        text-anchor='${mp.x>spineX?'start':'end'}'>${escapeHtml(mp.mod.name)}</text>` : ''}
-    </g>`).join('');
+  const sections = groups.map(g => {
+    const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
+    const maxApp = Math.max(1, leaders[0]?.appearances || 1);
+    const rows = leaders.map((l, i) => `<tr title='${escapeHtml(l.modName + ' — ' + fmtInt(l.appearances) + ' appearances in ' + g.signalClass)}'>
+      <td class='dim'>${i + 1}</td>
+      <td class='l'>${escapeHtml(l.modName)}</td>
+      <td>${fmtInt(l.appearances)}</td>
+      <td class='l cc-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
+    </tr>`).join('');
+    return `<div class='cc-section'>
+      <div class='cc-cls'>${escapeHtml(g.signalClass)} <span class='cc-cnt'>${fmtInt(leaders.length)} mods</span></div>
+      <table class='dtable'>
+        <thead><tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
 
   root.innerHTML = `
-    <div class='cc-h'>cross-cutting signals — ${groups.length} classes · ${mods.length} mods</div>
-    <svg class='cc-constellation' viewBox='0 0 ${W} ${H}' preserveAspectRatio='xMidYMid meet'>
-      ${edges}
-      ${spine}
-      ${sigSvg}
-      ${modSvg}
-    </svg>
+    <div class='cc-h'>cross-cutting signals — ${groups.length} classes · ${distinct.size} mods</div>
+    <div class='cc-sections'>${sections}</div>
   `;
 }
 
-// ----- I6 engagement vs cost scatter ---------------------------------
+// ----- I6 engagement vs cost -----------------------------------------
+// Sortable perf-tinted table. Columns: mod, usage share, cpu share,
+// roster size, and a 'tilt' chip describing where the mod sits in the
+// usage-vs-cost ratio. cost-heavy (cpu materially above usage) -> .bad;
+// usage-heavy (usage materially above cpu) -> .good; otherwise balanced.
+// The tilt is a measurement of the share ratio, not a verdict.
 function renderEngagementScatter() {
   const root = document.getElementById('ins-scatter');
   if (!root) return;
   const ec = lastEngagementCost;
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     root.innerHTML = `<div class='sc-h'>engagement vs cost</div>
-      <div style='color:var(--dim);font-size:0.82rem;padding:0.4rem 0'>no engagement vs cost dots yet</div>`;
+      <div class='sc-empty'>no engagement vs cost data yet</div>`;
     return;
   }
 
-  const W = 720, H = 320;
-  const padL = 50, padR = 16, padT = 16, padB = 36;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-  // Both axes are 0..1 shares. Use linear; clamp.
-  function x(v) { return padL + Math.max(0, Math.min(1, v)) * plotW; }
-  function y(v) { return padT + (1 - Math.max(0, Math.min(1, v))) * plotH; }
-
-  const maxRoster = Math.max(1, ...ec.dots.map(d => d.rosterSize || 1));
-  function r(rosterSize) {
-    const t = Math.sqrt((rosterSize || 1) / maxRoster);
-    return 2.5 + t * 7.5;
+  // Tilt classification from the usage-vs-cost share ratio.
+  // Returns {cls, label} where cls maps to a chip variant.
+  function tilt(d) {
+    const sum = (d.usageShare || 0) + (d.cpuShare || 0);
+    if (sum < 1e-6) return { cls: '', label: 'idle' };
+    const t = ((d.cpuShare || 0) - (d.usageShare || 0)) / sum;  // -1 pure usage .. +1 pure cost
+    if (t > 0.15)  return { cls: 'bad',  label: 'cost-heavy' };
+    if (t < -0.15) return { cls: 'good', label: 'usage-heavy' };
+    return { cls: 'cool', label: 'balanced' };
   }
 
-  // Grid + quadrant lines at 0.5
-  const gridTicks = [0, 0.25, 0.5, 0.75, 1];
-  const gridX = gridTicks.map(t =>
-    `<line class='${t === 0.5 ? 'axis' : 'gridline'}' x1='${x(t)}' y1='${padT}' x2='${x(t)}' y2='${padT+plotH}' />`
-  ).join('');
-  const gridY = gridTicks.map(t =>
-    `<line class='${t === 0.5 ? 'axis' : 'gridline'}' x1='${padL}' y1='${y(t)}' x2='${padL+plotW}' y2='${y(t)}' />`
-  ).join('');
+  const dots = ec.dots.slice();
+  const getters = {
+    modName:    d => (d.modName || '').toLowerCase(),
+    usageShare: d => d.usageShare,
+    cpuShare:   d => d.cpuShare,
+    rosterSize: d => d.rosterSize,
+  };
+  const g = getters[engagementSort.key] || getters.cpuShare;
+  dots.sort((a, b) => {
+    const va = g(a), vb = g(b);
+    if (va < vb) return -1 * engagementSort.dir;
+    if (va > vb) return  1 * engagementSort.dir;
+    return 0;
+  });
 
-  const tickX = gridTicks.map(t =>
-    `<text class='tick-label' x='${x(t)}' y='${padT+plotH+14}' text-anchor='middle'>${(t*100).toFixed(0)}%</text>`
-  ).join('');
-  const tickY = gridTicks.map(t =>
-    `<text class='tick-label' x='${padL-6}' y='${y(t)+3}' text-anchor='end'>${(t*100).toFixed(0)}%</text>`
-  ).join('');
+  const cols = [
+    { key: 'modName',    label: 'mod',          l: true },
+    { key: 'usageShare', label: 'usage share',  title: 'share of all engagement attributed to this mod' },
+    { key: 'cpuShare',   label: 'cpu share',    title: 'share of all measured cpu attributed to this mod' },
+    { key: 'rosterSize', label: 'roster' },
+  ];
+  const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
+    .replace('</tr>', `<th class='l'>tilt</th></tr>`);
 
-  const quadrantLabels = `
-    <text class='quadrant-label' x='${x(0.75)}' y='${y(0.95)}' text-anchor='middle'>high cost · high engagement</text>
-    <text class='quadrant-label' x='${x(0.25)}' y='${y(0.95)}' text-anchor='middle'>high cost · low engagement</text>
-    <text class='quadrant-label' x='${x(0.75)}' y='${y(0.05)+8}' text-anchor='middle'>low cost · high engagement</text>
-    <text class='quadrant-label' x='${x(0.25)}' y='${y(0.05)+8}' text-anchor='middle'>low cost · low engagement</text>
-  `;
-
-  // Dots — sort descending by rosterSize so big dots sit behind.
-  // Each dot gets a drift trail: a fading polyline through the last few
-  // history points. Trail tells you whether the mod is drifting toward
-  // higher cost, higher engagement, both, or neither, during the session.
-  //
-  // Dot fill encodes ""temperament"" via a usage-vs-cost ratio: cost-heavy
-  // dots tilt toward warm (the --danger token), usage-heavy toward cool
-  // (--accent), balanced sit near neutral. This is descriptive — a tilt
-  // is a measurement of where the mod sits in the share ratio, not a
-  // verdict on its quality.
-  function temperament(d) {
-    const sum = d.usageShare + d.cpuShare;
-    if (sum < 1e-6) return 'var(--muted)';
-    const tilt = (d.cpuShare - d.usageShare) / sum;   // -1 = pure usage, +1 = pure cost
-    if (tilt > 0.25)  return 'var(--danger)';
-    if (tilt > 0.05)  return 'var(--orange)';
-    if (tilt < -0.25) return 'var(--accent)';
-    if (tilt < -0.05) return 'var(--cyan)';
-    return 'var(--good)';
-  }
-
-  const dots = ec.dots.slice().sort((a,b) => (b.rosterSize||0) - (a.rosterSize||0));
-  const trailSvg = dots.map(d => {
-    const h = scatterHistory.get(d.modId);
-    if (!h || h.length < 2) return '';
-    // Polyline through history with fading opacity (older = dimmer).
-    // Built as a series of segments so we can vary opacity along it.
-    const segs = [];
-    for (let i = 1; i < h.length; i++) {
-      const p0 = h[i-1], p1 = h[i];
-      const op = (i / h.length) * 0.55;
-      segs.push(`<line class='dot-trail' x1='${x(p0.u).toFixed(1)}' y1='${y(p0.c).toFixed(1)}'
-        x2='${x(p1.u).toFixed(1)}' y2='${y(p1.c).toFixed(1)}'
-        stroke-opacity='${op.toFixed(2)}'></line>`);
-    }
-    return segs.join('');
-  }).join('');
-
-  const dotsSvg = dots.map(d => {
-    const cx = x(d.usageShare), cy = y(d.cpuShare), rad = r(d.rosterSize);
-    const fill = temperament(d);
-    return `<circle class='dot' cx='${cx.toFixed(1)}' cy='${cy.toFixed(1)}' r='${rad.toFixed(1)}'
-      style='fill:${fill}'>
-      <title>${escapeHtml(d.modName)} — usage ${(d.usageShare*100).toFixed(1)}% · cpu ${(d.cpuShare*100).toFixed(1)}% · roster ${fmtInt(d.rosterSize)}</title>
-    </circle>`;
-  }).join('');
-
-  // Label only the top-cpu 6 dots to avoid clutter.
-  const labelled = ec.dots.slice().sort((a,b) => b.cpuShare - a.cpuShare).slice(0, 6);
-  const labelSvg = labelled.map(d => {
-    const cx = x(d.usageShare), cy = y(d.cpuShare);
-    return `<text class='dot-label' x='${(cx+r(d.rosterSize)+2).toFixed(1)}' y='${(cy+3).toFixed(1)}'>${escapeHtml(d.modName)}</text>`;
+  const rows = dots.map(d => {
+    const tl = tilt(d);
+    const chipCls = tl.cls ? ` ${tl.cls}` : '';
+    return `<tr title='${escapeHtml(d.modName + ' — usage ' + ((d.usageShare||0)*100).toFixed(1) + '% · cpu ' + ((d.cpuShare||0)*100).toFixed(1) + '% · roster ' + fmtInt(d.rosterSize))}'>
+      <td class='l'>${escapeHtml(d.modName)}</td>
+      <td>${((d.usageShare||0)*100).toFixed(1)}%</td>
+      <td>${((d.cpuShare||0)*100).toFixed(1)}%</td>
+      <td>${fmtInt(d.rosterSize)}</td>
+      <td class='l'><span class='chip${chipCls}'>${tl.label}</span></td>
+    </tr>`;
   }).join('');
 
   root.innerHTML = `
-    <div class='sc-h'>engagement vs cost — ${ec.dots.length} mods plotted</div>
-    <svg viewBox='0 0 ${W} ${H}' preserveAspectRatio='xMidYMid meet'>
-      ${gridY}${gridX}
-      <line class='axis' x1='${padL}' y1='${padT+plotH}' x2='${padL+plotW}' y2='${padT+plotH}' />
-      <line class='axis' x1='${padL}' y1='${padT}' x2='${padL}' y2='${padT+plotH}' />
-      ${tickX}${tickY}
-      <text class='axis-label' x='${padL+plotW/2}' y='${H-6}' text-anchor='middle'>usage share →</text>
-      <text class='axis-label' transform='rotate(-90 14 ${padT+plotH/2})' x='14' y='${padT+plotH/2}' text-anchor='middle'>cpu share →</text>
-      ${quadrantLabels}
-      ${trailSvg}
-      ${dotsSvg}
-      ${labelSvg}
-    </svg>
-  `;
+    <div class='sc-h'>engagement vs cost — ${ec.dots.length} mods</div>
+    <div class='sc-scroll'>
+      <table class='dtable'>
+        <thead>${headRow}</thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ----- I7 mod interaction matrix -------------------------------------
+// Leads with a readable top-pairs table (the primary signal), then keeps
+// the full Pearson matrix as a secondary .rheat grid. Both carry the
+// +/- semantic colouring: positive r tints green, negative tints red,
+// magnitude drives intensity. Replaces the bespoke grid with the shared
+// rheat vocabulary.
 function renderModInteractionMatrix() {
   const root = document.getElementById('ins-matrix');
   if (!root) return;
@@ -636,65 +548,82 @@ function renderModInteractionMatrix() {
     return;
   }
 
-  function cellColor(r) {
-    if (!isFinite(r)) return 'var(--panel)';
+  // Correlation -> cell background. Positive green, negative red, |r| drives
+  // intensity. Kept distinct from heatFill() because that helper is
+  // single-hue (accent) and cannot encode sign.
+  function corrColor(r) {
+    if (!isFinite(r)) return 'var(--surface)';
     const a = Math.min(1, Math.abs(r));
-    if (r >= 0) return `rgba(110, 192, 126, ${0.08 + a * 0.85})`;   // green positive
-    return        `rgba(202, 100, 100, ${0.08 + a * 0.85})`;        // red negative
+    if (r >= 0) return `rgba(79,157,106,${(0.06 + a * 0.7).toFixed(3)})`;   // --good family, positive
+    return        `rgba(185,78,88,${(0.06 + a * 0.7).toFixed(3)})`;          // --danger family, negative
+  }
+  function corrText(r) {
+    if (!isFinite(r)) return 'var(--dim)';
+    return Math.abs(r) > 0.45 ? 'var(--text-bright)' : 'var(--muted)';
   }
 
-  // Build grid: 1 column for row-labels + N data columns; first row is column labels.
-  const labelColW = 120;
-  const cellW = 16;
+  let html = `<div class='mx-h'>mod-pair cost correlation — ${N} mods (Pearson r)</div>`;
+
+  // --- Primary: top coupled pairs table ---
+  if (mi.topCoupled && mi.topCoupled.length > 0) {
+    const pairs = mi.topCoupled.slice(0, 12);
+    const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
+    const rows = pairs.map((p, i) => {
+      const r = p.pearson || 0;
+      const sign = r >= 0 ? 'pos' : 'neg';
+      return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
+        <td class='dim'>${i + 1}</td>
+        <td class='l'>${escapeHtml(p.modNameA)}</td>
+        <td class='l'>${escapeHtml(p.modNameB)}</td>
+        <td class='r-${sign}'>${r.toFixed(3)}</td>
+        <td class='l mx-cell'>${cellBar(Math.abs(r) / maxAbs, r >= 0 ? 'var(--good)' : 'var(--danger)')}</td>
+        <td>${fmtInt(p.samplesUsed)}</td>
+      </tr>`;
+    }).join('');
+    html += `<div class='mx-pairs'>
+      <table class='dtable'>
+        <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // --- Secondary: full correlation heatmap (rheat) ---
+  const labelColW = 130, cellW = 30;
   const styleGrid = `grid-template-columns: ${labelColW}px repeat(${N}, ${cellW}px);`;
-
-  let html = `<div class='mx-h'>mod-pair cost correlation — ${N}×${N} (Pearson r)</div>`;
-  html += `<div class='mx-grid' style='${styleGrid}'>`;
-
-  // Header row: empty corner + column labels (vertical).
-  html += `<div class='lbl-row'></div>`;
+  let grid = `<div class='rheat mx-rheat' style='${styleGrid}'>`;
+  grid += `<div class='rh-corner'></div>`;
   for (let j = 0; j < N; j++) {
-    html += `<div class='lbl-col'>${escapeHtml(names[j] || ('mod:' + ids[j]))}</div>`;
+    grid += `<div class='rh-col'>${escapeHtml(names[j] || ('mod:' + ids[j]))}</div>`;
   }
-
-  // Data rows.
   for (let i = 0; i < N; i++) {
-    html += `<div class='lbl-row'>${escapeHtml(names[i] || ('mod:' + ids[i]))}</div>`;
+    grid += `<div class='rh-row' title='${escapeHtml(names[i] || ('mod:' + ids[i]))}'>${escapeHtml(names[i] || ('mod:' + ids[i]))}</div>`;
     for (let j = 0; j < N; j++) {
       const r = matrix[i * N + j];
-      const color = cellColor(r);
       const isfin = isFinite(r);
+      const bg = corrColor(r);
+      const fg = corrText(r);
+      const zero = (!isfin || Math.abs(r) < 1e-9) ? ' zero' : '';
+      const txt = isfin ? (i === j ? '·' : r.toFixed(2).replace('0.', '.').replace('-0.', '-.')) : '';
       const title = isfin
         ? `${escapeHtml(names[i] || '?')} × ${escapeHtml(names[j] || '?')} — r = ${r.toFixed(3)}`
         : 'no samples';
-      html += `<div class='cell' style='background:${color}' title=""${title}""></div>`;
+      grid += `<div class='rh-cell${zero}' style='background:${bg};color:${fg}' title='${escapeHtml(title)}'>${txt}</div>`;
     }
   }
-  html += `</div>`;
+  grid += `</div>`;
 
-  // Legend
+  html += `<div class='mx-grid-h'>full correlation matrix</div>
+    <div class='mx-scroll'>${grid}</div>`;
+
+  // Legend for the sign/magnitude colouring.
   html += `<div class='mx-legend'>
-    <span class='swatch' style='background:rgba(202,100,100,0.75)'></span><span>−1</span>
-    <span class='swatch' style='background:rgba(202,100,100,0.25)'></span><span>−0.3</span>
-    <span class='swatch' style='background:var(--panel)'></span><span>0</span>
-    <span class='swatch' style='background:rgba(110,192,126,0.25)'></span><span>+0.3</span>
-    <span class='swatch' style='background:rgba(110,192,126,0.75)'></span><span>+1</span>
+    <span class='swatch' style='background:rgba(185,78,88,0.7)'></span><span>−1</span>
+    <span class='swatch' style='background:rgba(185,78,88,0.25)'></span><span>−0.3</span>
+    <span class='swatch' style='background:var(--surface)'></span><span>0</span>
+    <span class='swatch' style='background:rgba(79,157,106,0.25)'></span><span>+0.3</span>
+    <span class='swatch' style='background:rgba(79,157,106,0.7)'></span><span>+1</span>
   </div>`;
-
-  // Top coupled pairs (descriptive list).
-  if (mi.topCoupled && mi.topCoupled.length > 0) {
-    const pairs = mi.topCoupled.slice(0, 6).map(p =>
-      `<div style='font-family:var(--mono);font-size:0.76rem;color:var(--muted);padding:0.15rem 0'>
-        <span style='color:var(--text)'>${escapeHtml(p.modNameA)}</span>
-        × <span style='color:var(--text)'>${escapeHtml(p.modNameB)}</span>
-        — r = ${p.pearson.toFixed(3)} (n=${fmtInt(p.samplesUsed)})
-      </div>`
-    ).join('');
-    html += `<div style='margin-top:0.5rem'>
-      <div style='font-family:var(--mono);font-size:0.7rem;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.2rem'>top coupled pairs</div>
-      ${pairs}
-    </div>`;
-  }
 
   root.innerHTML = html;
 }

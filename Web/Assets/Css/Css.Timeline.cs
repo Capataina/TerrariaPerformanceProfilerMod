@@ -14,88 +14,109 @@ namespace PerformanceProfiler.Web;
 
 internal static partial class DashboardAssets
 {
-    // Timeline tab styles — Wave 3 functional layer.
+    // Timeline tab styles — readable-vocabulary layer.
     //
-    // The goal here is structural correctness, not visual flourish. Bars
-    // are plain blocks. The heat strip is plain cells. The transition
-    // track is plain diamonds. Wave 4 lays creative work on top of this
-    // foundation; we want every data field reachable first.
+    // Quiet, disciplined shapes only: a per-minute bar strip, time-placed
+    // chips, time-scaled swimlane bars with splitBar waterfalls, a split-bar
+    // + dtable attendance roll-up, death cards with labelled event chips,
+    // and a chronicle block list. No metaphor glyphs, no waveform, no
+    // treemap, no film-strip texture. The shared component vocabulary
+    // (.split-bar, .dtable, .chip, perf tints, .statline) carries the load.
     private const string CssTimeline = @"
 /* =================================================== TIMELINE TAB */
 .tl-shell {
   display: flex; flex-direction: column;
   gap: 0.55rem;
   padding: 0.55rem 0.9rem 1rem;
-  --tl-row-h: 26px;
   --tl-lane-h: 36px;
-  --tl-heat-h: 28px;
-  --tl-tx-h: 26px;
 }
 
-/* ---- T4 heatstrip — SVG seismograph waveform ----------------------- */
+/* ---- Family filter bar -------------------------------------------- */
+.tl-filterbar {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.tl-filterbar .tl-filter-btn {
+  font-family: var(--mono); font-size: 0.72rem;
+  padding: 0.18rem 0.6rem;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.tl-filterbar .tl-filter-btn:hover { color: var(--text); border-color: var(--accent-soft); }
+.tl-filterbar .tl-filter-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+/* ---- T4 heatstrip — per-minute vertical bar strip ----------------- */
 .tl-heatstrip {
   height: 60px;
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
   overflow: hidden;
-  padding: 0;
+  padding: 4px 6px;
 }
-.tl-heatstrip .tl-seismo {
-  display: block;
+.tl-heatstrip .hs-strip {
+  display: flex; align-items: flex-end;
+  gap: 1px;
   width: 100%; height: 100%;
 }
-.tl-heatstrip .axis-mid {
-  stroke: var(--border-soft);
-  stroke-width: 1;
-  stroke-dasharray: 2 3;
+.tl-heatstrip .hs-col {
+  flex: 1 1 0; min-width: 1px;
+  height: 100%;
+  position: relative;
+  display: flex; align-items: flex-end; justify-content: center;
+  cursor: default;
 }
-.tl-heatstrip .tape {
-  fill: var(--accent);
-  fill-opacity: 0.22;
+.tl-heatstrip .hs-bar {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+  border-radius: 1px 1px 0 0;
+  background: currentColor;
+  opacity: 0.85;
 }
-.tl-heatstrip .edge {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+.tl-heatstrip .hs-col:hover .hs-bar { opacity: 1; }
+.tl-heatstrip .hs-mark {
+  position: absolute; left: 50%; bottom: 0;
+  transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%;
 }
-.tl-heatstrip .peak {
-  fill: var(--orange);
-  stroke: var(--orange);
-  stroke-width: 0.5;
-}
-.tl-heatstrip .spike-dot { fill: var(--orange); fill-opacity: 0.85; }
-.tl-heatstrip .stall-dot { fill: var(--danger); fill-opacity: 0.85; }
-.tl-heatstrip .hot { fill: transparent; pointer-events: all; cursor: default; }
+.tl-heatstrip .hs-mark.spike { background: var(--orange); }
+.tl-heatstrip .hs-mark.stall { background: var(--danger); }
 
-/* ---- T3 transition track — per-kind glyphs ------------------------- */
+/* ---- T3 transition track — time-placed labelled chips ------------- */
 .tl-transitions {
   position: relative;
-  height: var(--tl-tx-h);
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
-  overflow: hidden;
+  padding: 0.3rem 0.5rem;
+  min-height: 2rem;
 }
-.tl-transitions .tl-tx-svg {
-  display: block;
-  width: 100%; height: 100%;
+.tl-transitions .tx-track {
+  position: relative;
+  min-height: 1.4rem;
 }
 .tl-transitions .tx-rail {
-  stroke: var(--border-soft);
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 0; border-top: 1px dashed var(--border-soft);
+  pointer-events: none;
 }
-.tl-transitions .gx { stroke-width: 1; vector-effect: non-scaling-stroke; }
-.tl-transitions .gx.weather   { fill: var(--amber);  stroke: var(--amber); }
-.tl-transitions .gx.biome     { fill: var(--good);   stroke: var(--good); fill-opacity: 0.75; }
-.tl-transitions .gx.hardmode  { fill: var(--danger); stroke: var(--danger); }
-.tl-transitions .gx.invasion  { fill: var(--orange); stroke: var(--orange); fill-opacity: 0.85; }
-.tl-transitions .gx.subworld .ring.outer { fill: none; stroke: var(--purple); stroke-width: 1.2; }
-.tl-transitions .gx.subworld .ring.inner { fill: var(--purple); stroke: none; fill-opacity: 0.7; }
-.tl-transitions .gx.generic   { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.tl-transitions .tx-chip {
+  position: absolute; top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+}
+.tl-transitions .tx-chip .tx-kind {
+  color: var(--muted);
+  text-transform: lowercase;
+  margin-right: 0.2em;
+}
 
 /* ---- T1+T2 swimlanes ----------------------------------------------- */
 .tl-gantt {
@@ -106,6 +127,7 @@ internal static partial class DashboardAssets
   padding: 4px;
   background: var(--panel-2);
 }
+.tl-laneRow { display: block; }
 .tl-lane {
   position: relative;
   height: var(--tl-lane-h);
@@ -143,12 +165,14 @@ internal static partial class DashboardAssets
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: 0.7rem; line-height: 1.2;
 }
-.tl-segment .waterfall {
+.tl-segment .tl-waterfall {
   position: absolute; left: 0; right: 0; bottom: 0;
-  height: 5px; display: flex;
+}
+.tl-segment .tl-waterfall .split-bar {
+  border-radius: 0;
+  height: 5px;
   background: rgba(0,0,0,0.25);
 }
-.tl-segment .waterfall span { display: block; height: 100%; }
 .tl-segment .badge {
   position: absolute; right: 3px; bottom: 5px;
   font-family: var(--mono); font-size: 0.62rem;
@@ -183,15 +207,6 @@ internal static partial class DashboardAssets
   letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted);
   font-weight: 500;
 }
-.tl-detail .det-row {
-  display: grid; grid-template-columns: 8.5em 1fr;
-  gap: 0.4em;
-  padding: 0.12rem 0;
-  border-bottom: 1px dashed var(--border-soft);
-}
-.tl-detail .det-row:last-child { border-bottom: 0; }
-.tl-detail .det-row .k { color: var(--muted); }
-.tl-detail .det-row .v { color: var(--text-bright); }
 .tl-detail .det-mods {
   margin-top: 0.5rem;
   display: flex; flex-direction: column; gap: 2px;
@@ -204,53 +219,24 @@ internal static partial class DashboardAssets
 .tl-detail .det-mods .name {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.tl-detail .det-mods .bar {
-  height: 6px; background: var(--accent-soft);
-  border: 1px solid var(--accent-line); border-radius: 1px;
-  position: relative;
-}
-.tl-detail .det-mods .bar > span {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  background: var(--accent);
-}
 .tl-detail .det-mods .ms { text-align: right; color: var(--accent); }
 
-/* ---- T5 attendance — nested treemap -------------------------------- */
+/* ---- T5 attendance — split bar + table ----------------------------- */
 .tl-attendance .tm-totals {
-  display: flex; gap: 1rem; flex-wrap: wrap;
-  margin-bottom: 0.4rem;
-  font-size: 0.78rem; color: var(--muted);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 1rem;
+  margin-bottom: 0.5rem;
 }
-.tl-attendance .tm-totals .v { color: var(--text-bright); }
-.tl-attendance .tl-treemap {
-  display: block;
-  width: 100%;
-  height: calc(100% - 2.2rem);
-  min-height: 140px;
+.tl-attendance .tm-totals .statline { display: flex; }
+.tl-attendance .tm-bar { margin-bottom: 0.6rem; }
+.tl-attendance .tm-table { margin-top: 0.2rem; }
+.tl-attendance .tm-table td.l .dot {
+  display: inline-block; width: 0.55rem; height: 0.55rem;
+  border-radius: 1px; margin-right: 0.4em; vertical-align: middle;
 }
-.tl-attendance .tm-cell rect { transition: fill-opacity 0.12s ease; }
-.tl-attendance .tm-cell:hover rect { fill-opacity: 0.82; }
-.tl-attendance .tm-lbl {
-  font-family: var(--mono); font-size: 11px;
-  fill: var(--text-bright);
-  pointer-events: none;
-}
-.tl-attendance .tm-sub {
-  font-family: var(--mono); font-size: 10px;
-  fill: var(--text);
-  fill-opacity: 0.78;
-  pointer-events: none;
-}
-.tl-attendance .tm-vanilla-rect {
-  fill: var(--panel);
-  stroke: var(--border-soft);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-}
-.tl-attendance .tm-vanilla .tm-lbl { fill: var(--muted); }
-.tl-attendance .tm-vanilla .tm-sub { fill: var(--muted); }
 
-/* ---- T6 death strips ------------------------------------------------- */
+/* ---- T6 death cards ------------------------------------------------- */
 .tl-deaths {
   display: flex; flex-direction: column; gap: 0.4rem;
 }
@@ -265,105 +251,48 @@ internal static partial class DashboardAssets
   display: flex; flex-wrap: wrap; gap: 0.5rem 1rem;
   font-family: var(--mono); font-size: 0.78rem;
   color: var(--text);
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.4rem;
 }
 .tl-deaths .tl-death .head .k { color: var(--muted); margin-right: 0.3em; }
-.tl-deaths .tl-death .tl-death-svg {
-  display: block;
-  width: 100%;
-  height: 32px;
-  background: var(--panel);
-  border: 1px solid var(--border-soft);
-  border-radius: 2px;
+.tl-deaths .tl-death .ev-row {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
 }
-.tl-deaths .tl-death .ax-rail {
-  stroke: var(--border-soft);
-  stroke-width: 1;
+.tl-deaths .tl-death .ev-chip .ev-off {
+  color: var(--muted);
+  font-size: 0.66rem;
+  margin-right: 0.1em;
 }
-.tl-deaths .tl-death .ax-tick {
-  stroke: var(--border);
-  stroke-width: 1;
+.tl-deaths .tl-death .ev-chip .ev-mod {
+  color: var(--muted);
+  font-size: 0.66rem;
+  margin-left: 0.25em;
+  opacity: 0.85;
 }
-.tl-deaths .tl-death .ax-lbl {
-  font-family: var(--mono); font-size: 7px;
-  fill: var(--muted);
-}
-.tl-deaths .tl-death .ev { vector-effect: non-scaling-stroke; }
-.tl-deaths .tl-death .ic-death rect { fill: var(--text-bright); stroke: none; }
-.tl-deaths .tl-death .ic-death .hole { fill: var(--panel); }
-.tl-deaths .tl-death .ic-death .jaw  { fill: var(--text-bright); }
-.tl-deaths .tl-death .ic-damage line {
-  stroke: var(--danger); stroke-width: 1.4; stroke-linecap: round;
-}
-.tl-deaths .tl-death .ic-spawn { fill: var(--amber); stroke: var(--amber); stroke-width: 0.5; }
-.tl-deaths .tl-death .ic-item .cap    { fill: var(--cyan); }
-.tl-deaths .tl-death .ic-item .bottle { fill: var(--cyan); fill-opacity: 0.55; stroke: var(--cyan); stroke-width: 0.8; }
-.tl-deaths .tl-death .ic-buff-on  line,
-.tl-deaths .tl-death .ic-buff-on  polyline { stroke: var(--good);  stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.tl-deaths .tl-death .ic-buff-off line,
-.tl-deaths .tl-death .ic-buff-off polyline { stroke: var(--muted); stroke-width: 1.3; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.tl-deaths .tl-death .ic-generic { fill: var(--accent); }
 
-/* ---- T7 chronicle — horizontal narrative film-strip ribbon --------- */
+/* ---- T7 chronicle — chronological blocks --------------------------- */
 .tl-chronicle {
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
   padding: 0.45rem 0.5rem;
-  overflow-x: auto;
-  overflow-y: hidden;
+  max-height: 320px;
+  overflow-y: auto;
 }
-.tl-chronicle .cr-ribbon {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0;
-  min-height: 92px;
+.tl-chronicle .cr-list {
+  display: flex; flex-direction: column;
+  gap: 2px;
 }
 .tl-chronicle .cr-block {
-  flex: 0 0 auto;
-  width: 12rem;
-  padding: 0.4rem 0.55rem;
+  padding: 0.35rem 0.55rem;
   border-left: 3px solid var(--accent);
   background: var(--panel);
-  display: flex; flex-direction: column;
-  gap: 0.15rem;
-  font-family: var(--mono); font-size: 0.72rem;
+  font-family: var(--mono); font-size: 0.74rem;
   color: var(--text);
-  position: relative;
-  overflow: hidden;
 }
-.tl-chronicle .cr-block::after {
-  /* sprocket-hole row — film-strip texture along the bottom edge */
-  content: '';
-  position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 5px;
-  background-image: radial-gradient(circle at 4px 50%, var(--panel-2) 1.5px, transparent 1.6px);
-  background-size: 9px 5px;
-  background-repeat: repeat-x;
-  opacity: 0.7;
+.tl-chronicle .cr-meta {
+  display: flex; gap: 0.6rem; align-items: baseline;
+  margin-bottom: 0.1rem;
 }
-.tl-chronicle .cr-sep {
-  flex: 0 0 6px;
-  background:
-    linear-gradient(to bottom,
-      var(--panel-2) 0 6px,
-      transparent 6px calc(100% - 6px),
-      var(--panel-2) calc(100% - 6px) 100%);
-  background-color: var(--panel);
-  position: relative;
-}
-.tl-chronicle .cr-sep::before,
-.tl-chronicle .cr-sep::after {
-  content: ''; position: absolute;
-  left: 1px; right: 1px;
-  height: 3px;
-  background: var(--border-soft);
-}
-.tl-chronicle .cr-sep::before { top: 1px; }
-.tl-chronicle .cr-sep::after  { bottom: 1px; }
-
 .tl-chronicle .cr-time {
   color: var(--muted);
   font-size: 0.66rem;
@@ -371,18 +300,14 @@ internal static partial class DashboardAssets
 }
 .tl-chronicle .cr-kind {
   color: var(--accent);
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: lowercase;
   letter-spacing: 0.04em;
 }
 .tl-chronicle .cr-text {
   color: var(--text-bright);
   font-size: 0.74rem;
-  line-height: 1.25;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
+  line-height: 1.3;
 }
 .tl-chronicle .cr-block[data-kind='death']      { border-left-color: var(--danger); }
 .tl-chronicle .cr-block[data-kind='death']      .cr-kind { color: var(--danger); }
@@ -408,6 +333,7 @@ internal static partial class DashboardAssets
 
 @media (max-width: 900px) {
   .tl-bottom { grid-template-columns: 1fr; }
+  .tl-attendance .tm-totals { grid-template-columns: 1fr; }
 }
 ";
 }

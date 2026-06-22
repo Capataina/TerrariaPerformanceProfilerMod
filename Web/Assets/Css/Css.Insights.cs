@@ -16,12 +16,16 @@ internal static partial class DashboardAssets
 {
     private const string CssInsights = @"
 /* =================================================== INSIGHTS */
+/* Insights surfaces are built from the shared readable vocabulary
+   (.split-bar, .dtable, .chip, .statline, .rheat, .cellbar). The rules
+   below are layout + per-surface framing only; the components carry
+   their own styling from Css.Components.cs. */
 .ins-shell {
   display: flex; flex-direction: column; gap: 0.6rem;
   padding: 0.6rem 0.9rem 1rem;
 }
 
-/* KPI strip — mini ring gauges -------------------------------------- */
+/* KPI strip — mini ring gauges (kept; acceptable flair) ------------- */
 .ins-kpi {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem;
 }
@@ -61,7 +65,14 @@ internal static partial class DashboardAssets
   min-width: 0;
 }
 
-/* I2 dormant strip --------------------------------------------------- */
+/* Shared per-surface section header. */
+.ins-dormant .dor-h .label,
+.ins-cross .cc-h, .ins-scatter .sc-h, .ins-matrix .mx-h {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+
+/* I2 dormant surface — sortable table -------------------------------- */
 .ins-dormant {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
@@ -71,44 +82,14 @@ internal static partial class DashboardAssets
 .ins-dormant .dor-h {
   display: flex; justify-content: space-between; align-items: baseline;
   font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
-  cursor: pointer;
+  margin-bottom: 0.3rem;
 }
-.ins-dormant .dor-h .label { color: var(--text); letter-spacing: 0.05em; text-transform: uppercase; }
-.ins-dormant .dor-body { margin-top: 0.45rem; display: none; }
-.ins-dormant.open .dor-body { display: block; }
-.ins-dormant .dor-row {
-  display: grid; grid-template-columns: minmax(0,1fr) 90px 110px 90px;
-  gap: 0.5rem; padding: 0.2rem 0;
-  font-family: var(--mono); font-size: 0.78rem; color: var(--text);
-  border-top: 1px dashed var(--border-soft);
-}
-.ins-dormant .dor-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ins-dormant .dor-row .v { color: var(--muted); text-align: right; }
-
-/* I2 dust-shelf visualisation --------------------------------------- */
-.ins-dormant .dust-shelf {
-  display: block; width: 100%; height: auto;
-  margin: 0.4rem 0 0.6rem;
-}
-.ins-dormant .dust-shelf .shelf-line {
-  stroke: var(--border); stroke-width: 1.5;
-}
-.ins-dormant .dust-shelf .plaque {
-  fill: var(--surface); stroke: var(--border); stroke-width: 0.75;
-}
-.ins-dormant .dust-shelf .dust-edge {
-  fill: #8a8170; opacity: 0.5;
-}
-.ins-dormant .dust-shelf .pl-nm {
-  fill: var(--text); font-family: var(--mono); font-size: 10px;
-}
-.ins-dormant .dust-shelf .pl-sub {
-  fill: var(--muted); font-family: var(--mono); font-size: 8.5px;
-}
-.ins-dormant .dust-shelf .dust-plaque:hover .plaque {
-  stroke: var(--accent); stroke-width: 1;
-}
-.ins-dormant .dust-empty {
+.ins-dormant .dor-h .label { color: var(--text); }
+.ins-dormant .dor-scroll { max-height: 220px; overflow-y: auto; }
+.ins-dormant .dor-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
+.ins-dormant .dor-usage .split-bar { flex: 1; }
+.ins-dormant .dor-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
+.ins-dormant .dor-empty {
   color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0; text-align: center;
 }
 
@@ -140,36 +121,17 @@ internal static partial class DashboardAssets
   font-family: var(--ui); font-size: 0.88rem; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.ins-obs-card .body .comp { margin-top: 0.28rem; }
+.ins-obs-card .body .comp-empty {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--dim);
+  font-style: italic; padding: 0.1rem 0;
+}
 .ins-obs-card .body .micro {
   font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ins-obs-card .body .bar {
-  height: 4px; background: var(--border-soft); border-radius: 2px; margin-top: 0.3rem;
-  overflow: hidden;
-}
-.ins-obs-card .body .bar > span { display: block; height: 100%; background: var(--good); }
-/* DNA strand microvis ----------------------------------------------- */
-.ins-obs-card .body .dna {
-  position: relative;
-  height: 5px;
-  margin-top: 0.28rem;
-  background: var(--border-soft);
-  border-radius: 1px;
-  overflow: hidden;
-}
-.ins-obs-card .body .dna.empty {
-  background: repeating-linear-gradient(45deg,
-    var(--border-soft) 0 3px,
-    transparent 3px 6px);
-  opacity: 0.6;
-}
-.ins-obs-card .body .dna .dna-tick {
-  position: absolute;
-  top: 0; bottom: 0;
-  border-right: 1px solid var(--panel);
-}
-.ins-obs-card .body .dna .dna-tick:last-child { border-right: none; }
+.ins-obs-card .body .cost { margin-top: 0.3rem; }
 .ins-obs-card .ms {
   font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
 }
@@ -190,155 +152,81 @@ internal static partial class DashboardAssets
   color: var(--dim); font-size: 0.85rem; padding: 1.5rem 0.5rem; text-align: center;
 }
 .ins-detail h4 {
-  margin: 0; font-family: var(--mono); font-size: 0.72rem;
+  margin: 0 0 0.3rem; font-family: var(--mono); font-size: 0.72rem;
   color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
 }
 .ins-detail .det-title {
   font-family: var(--ui); font-size: 1.05rem; color: var(--text);
   margin-bottom: 0.1rem;
 }
-.ins-detail .det-stat-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.35rem 0.6rem;
-  font-family: var(--mono); font-size: 0.78rem;
-}
-.ins-detail .det-stat-grid .lbl { color: var(--muted); }
-.ins-detail .det-stat-grid .val { color: var(--text); text-align: right; }
-.ins-detail table.det-table {
-  width: 100%; border-collapse: collapse;
-  font-family: var(--mono); font-size: 0.76rem;
-}
-.ins-detail table.det-table td, .ins-detail table.det-table th {
-  padding: 0.18rem 0.3rem; text-align: left; border-top: 1px dashed var(--border-soft);
-}
-.ins-detail table.det-table th { color: var(--muted); font-weight: normal; }
-.ins-detail table.det-table td.num { text-align: right; color: var(--text); }
-.ins-detail table.det-table td.muted { color: var(--dim); }
+.ins-detail .det-stats { display: flex; flex-direction: column; }
 
-/* I5 cross-cutting --------------------------------------------------- */
+/* I5 cross-cutting — grouped section list ---------------------------- */
 .ins-cross {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 0.55rem 0.8rem;
-  display: flex; flex-direction: column; gap: 0.35rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
 }
-.ins-cross .cc-h {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-  letter-spacing: 0.08em; text-transform: uppercase;
-  margin-bottom: 0.15rem;
+.ins-cross .cc-h { margin-bottom: 0.15rem; }
+.ins-cross .cc-sections {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.6rem 0.9rem;
 }
-.ins-cross .cc-row {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 0.6rem;
-  padding: 0.3rem 0;
-  border-top: 1px dashed var(--border-soft);
-  align-items: baseline;
+.ins-cross .cc-section {
+  border: 1px solid var(--border-soft); border-radius: 4px;
+  background: var(--panel); padding: 0.4rem 0.55rem;
 }
-.ins-cross .cc-row .cls {
+.ins-cross .cc-cls {
   font-family: var(--mono); font-size: 0.82rem; color: var(--text);
+  margin-bottom: 0.3rem;
 }
-.ins-cross .cc-row .leaders {
-  font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
-  display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem;
-}
-.ins-cross .cc-row .leaders .ldr .nm { color: var(--text); }
-.ins-cross .cc-row .leaders .ldr .cnt { color: var(--dim); margin-left: 0.25rem; }
+.ins-cross .cc-cls .cc-cnt { color: var(--dim); font-size: 0.72rem; margin-left: 0.4rem; }
+.ins-cross .cc-cell { width: 6rem; }
 .ins-cross .cc-empty {
   color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
 }
 
-/* I5 constellation -------------------------------------------------- */
-.ins-cross .cc-constellation {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-top: 0.3rem;
-}
-.ins-cross .cc-constellation .cc-spine {
-  stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3;
-}
-.ins-cross .cc-constellation .cc-edge {
-  stroke: var(--accent);
-  fill: none;
-}
-.ins-cross .cc-constellation .cc-sig circle {
-  fill: var(--panel-2); stroke: var(--accent); stroke-width: 1.5;
-}
-.ins-cross .cc-constellation .cc-sig-lbl {
-  fill: var(--text); font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: 0.04em;
-}
-.ins-cross .cc-constellation .cc-star circle {
-  fill: var(--text-bright); fill-opacity: 0.85;
-  stroke: var(--accent-line); stroke-width: 0.5;
-}
-.ins-cross .cc-constellation .cc-star:hover circle {
-  fill: var(--accent); fill-opacity: 1;
-}
-.ins-cross .cc-constellation .cc-star-lbl {
-  fill: var(--muted); font-family: var(--mono); font-size: 9px;
-  pointer-events: none;
-}
-
-/* I6 scatter --------------------------------------------------------- */
+/* I6 engagement vs cost — sortable table ----------------------------- */
 .ins-scatter {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 0.55rem 0.8rem;
 }
-.ins-scatter .sc-h {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.4rem;
-}
-.ins-scatter svg { width: 100%; height: 320px; display: block; }
-.ins-scatter .axis { stroke: var(--border); stroke-width: 1; }
-.ins-scatter .gridline { stroke: var(--border-soft); stroke-width: 1; stroke-dasharray: 3 3; }
-.ins-scatter .axis-label, .ins-scatter .tick-label {
-  fill: var(--muted); font-family: var(--mono); font-size: 10px;
-}
-.ins-scatter .quadrant-label {
-  fill: var(--dim); font-family: var(--mono); font-size: 10px;
-  letter-spacing: 0.06em; text-transform: uppercase;
-}
-.ins-scatter .dot { fill-opacity: 0.7; stroke: var(--text); stroke-opacity: 0.4; stroke-width: 0.6; }
-.ins-scatter .dot-label { fill: var(--muted); font-family: var(--mono); font-size: 9px; pointer-events: none; }
-.ins-scatter .dot-trail {
-  stroke: var(--accent); stroke-width: 1.2; stroke-linecap: round;
-  fill: none; pointer-events: none;
+.ins-scatter .sc-h { margin-bottom: 0.4rem; }
+.ins-scatter .sc-scroll { max-height: 360px; overflow-y: auto; }
+.ins-scatter .sc-empty {
+  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
 }
 
-/* I7 matrix ---------------------------------------------------------- */
+/* I7 matrix — top-pairs table + correlation heatmap ------------------ */
 .ins-matrix {
   background: var(--panel-2);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 0.55rem 0.8rem;
-  overflow-x: auto;
 }
-.ins-matrix .mx-h {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-  letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.4rem;
-}
-.ins-matrix .mx-grid {
-  display: grid; gap: 1px;
-}
-.ins-matrix .mx-grid .cell {
-  width: 16px; height: 16px;
-  background: var(--panel);
-  cursor: default;
-}
-.ins-matrix .mx-grid .lbl-row {
+.ins-matrix .mx-h { margin-bottom: 0.4rem; }
+.ins-matrix .mx-pairs { margin-bottom: 0.7rem; }
+.ins-matrix .mx-cell { width: 6rem; }
+/* Signed correlation values: green positive, red negative. */
+.ins-matrix .r-pos { color: var(--good); }
+.ins-matrix .r-neg { color: var(--danger); }
+.ins-matrix .mx-grid-h {
   font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  height: 16px; line-height: 16px; padding-right: 0.4rem; text-align: right;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.3rem;
 }
-.ins-matrix .mx-grid .lbl-col {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  height: 60px; writing-mode: vertical-rl; transform: rotate(180deg);
-  overflow: hidden; text-overflow: ellipsis;
+.ins-matrix .mx-scroll { overflow-x: auto; }
+.ins-matrix .mx-rheat .rh-col {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  max-height: 70px; overflow: hidden; text-overflow: ellipsis;
 }
+.ins-matrix .mx-rheat .rh-row {
+  max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+}
+.ins-matrix .mx-rheat .rh-cell { min-width: 30px; min-height: 1.6rem; font-size: 0.68rem; }
 .ins-matrix .mx-empty {
   color: var(--dim); font-size: 0.82rem; padding: 0.6rem 0; text-align: center;
 }

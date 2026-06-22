@@ -64,13 +64,14 @@ function openModCard(modId) {
     </div>
 
     <div class='mc-section'>
-      <h3>modelled · cost without this mod's contribution</h3>
+      <h3>frame impact · marginal contribution</h3>
       <div class='mc-callout'>
-        subtracting this mod's measured CPU from the total gives a modelled frame of
-        roughly <strong>${fmtMs(withoutAvg)} ms</strong>
-        (vs <strong>${fmtMs(totalAvg)} ms</strong> now). corresponding fps: <strong>${fpsWithoutAvg.toFixed(0)}</strong>
-        (vs <strong>${fpsAvg.toFixed(0)}</strong>).
-        <br/><span class='muted'>caveat: this is an upper bound — sibling mods may reduce their own work when this mod's content isn't present, so the real-world delta is usually smaller. the figure is descriptive of measured cost, not a recommendation.</span>
+        this mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame
+        (<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). at your current frame time that is the
+        difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and
+        <strong>${fpsAvg.toFixed(0)} fps</strong> on average,
+        and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.
+        <br/><span class='muted'>caveat: a marginal upper bound. sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. this describes measured cost, not a recommendation.</span>
       </div>
     </div>
 
