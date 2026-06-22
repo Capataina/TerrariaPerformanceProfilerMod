@@ -91,6 +91,11 @@ BOOT_TAB = r"""
     var s = document.createElement('style'); s.textContent = %s; document.head.appendChild(s);
     var fn = 'render' + t.charAt(0).toUpperCase() + t.slice(1);
     try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {}
+    // Auto-select the first clickable item so detail panes / drawers populate.
+    try {
+      var c = document.querySelector('.tab-pane.active .mem-slice, .tab-pane.active .dtable tr.clickable, .tab-pane.active .modrow, .tab-pane.active [data-mod]');
+      if (c) c.click();
+    } catch (e) {}
     document.title = 'PREVIEW READY';
   }
   setTimeout(pump, 300);
