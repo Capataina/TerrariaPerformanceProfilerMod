@@ -81,7 +81,7 @@ internal static partial class DashboardRouter
                         worstFrameMs = a.MaxFrameMs,
                         bestFrameMs = 0d,
                         medianFrameMs = a.MedianFrameMs,
-                        lagSpikeCount = 0,
+                        lagSpikeCount = a.SpikeCount,
                         totalLagMs = 0d,
                         stallCount = a.StallCount,
                         worstStallMs = 0d,

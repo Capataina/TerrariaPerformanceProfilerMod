@@ -107,6 +107,12 @@ public sealed class ProfilerSelfHealth
     // block reading severity=Healthy at a 527 MB install delta.
     private bool _hasEverRefreshed;
 
+    // Wall-clock throttle shared by the tick-driven and dashboard-driven refresh
+    // paths, so process metrics stay live at the menu (no ticks) without
+    // double-sampling during play.
+    private DateTime _lastSampleUtc = DateTime.MinValue;
+    private static readonly TimeSpan WallRefreshInterval = TimeSpan.FromSeconds(1d);
+
     /// <summary>Captured at install start; the heap baseline we measure against.</summary>
     public long ManagedHeapAtInstallStartBytes { get; private set; }
 
@@ -208,7 +214,26 @@ public sealed class ProfilerSelfHealth
         if (_hasEverRefreshed && currentTickIndex - _lastRefreshTickIndex < RefreshIntervalTicks) return;
         _hasEverRefreshed = true;
         _lastRefreshTickIndex = currentTickIndex;
+        SampleProcessState();
+    }
 
+    /// <summary>
+    /// Wall-clock refresh of live process state, throttled to ~1 Hz, callable
+    /// when no world is live (no ticks) — e.g. from the dashboard's self-health
+    /// snapshot read at the menu, so working-set / managed-heap don't read zero
+    /// just because the tick loop isn't running. Shares <see cref="_lastSampleUtc"/>
+    /// with the tick path so the two never double-sample: during play the tick
+    /// refresh keeps it fresh and this no-ops; at the menu this is the only sampler.
+    /// </summary>
+    public void RefreshIfStale()
+    {
+        if (!IsInstalled) return;
+        if (DateTime.UtcNow - _lastSampleUtc < WallRefreshInterval) return;
+        SampleProcessState();
+    }
+
+    private void SampleProcessState()
+    {
         try
         {
             _self.Refresh();
@@ -227,6 +252,7 @@ public sealed class ProfilerSelfHealth
             // The fraction-of-process number remains as an informational
             // secondary on the Self tab; it's no longer the budget signal.
             Severity = ClassifySeverity(BytesPerHook);
+            _lastSampleUtc = DateTime.UtcNow;
         }
         catch
         {
@@ -241,6 +267,7 @@ public sealed class ProfilerSelfHealth
     {
         _lastRefreshTickIndex = 0L;
         _hasEverRefreshed = false;
+        _lastSampleUtc = DateTime.MinValue;
         ManagedHeapAtInstallStartBytes = 0L;
         ManagedHeapAtInstallEndBytes = 0L;
         InstalledHookCount = 0;

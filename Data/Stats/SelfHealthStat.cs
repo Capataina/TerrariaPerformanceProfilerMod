@@ -90,6 +90,10 @@ public sealed class SelfHealthStat : IDataStat<SelfHealthSnapshot>
         // static lazy, the snapshot stays well-defined.
         ProfilerSelfHealth? h = c?.SelfHealth ?? ProfilerSystem.SelfHealth;
         if (h == null) return SelfHealthSnapshot.Empty;
+        // Wall-clock refresh so the live process metrics (working set, managed
+        // heap) populate even at the menu, where the tick-driven Refresh never
+        // fires; throttled to ~1 Hz internally.
+        h.RefreshIfStale();
         return SelfHealthSnapshot.From(h);
     }
 

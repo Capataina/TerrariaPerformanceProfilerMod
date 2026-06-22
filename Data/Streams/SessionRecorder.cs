@@ -53,6 +53,9 @@ public sealed class SessionRecorder
     private int _stallCursor;
     private long _ticksObserved;
     private double _maxFrameSeen;
+    // Frames before this many ticks are world-load JIT + asset-bind, not gameplay;
+    // excluded from the archive's worst-frame so a load screen never headlines it.
+    private const long ArchiveMaxWarmupTicks = 180; // ~3 s at 60 fps
     private double _gcSeen;
 
     /// <summary>
@@ -135,7 +138,16 @@ public sealed class SessionRecorder
     public void OnTick(TickFrame frame, MetricCollector collector)
     {
         _ticksObserved++;
-        if (frame.FrameTimeMs > _maxFrameSeen) _maxFrameSeen = frame.FrameTimeMs;
+        // Worst REAL gameplay frame for the archive: skip the world-load warmup
+        // window and any pause/suspend gap (>= the stall detector's suspend
+        // ceiling), so the Summary "worst frame" stops headlining a load-screen
+        // or alt-tab artifact.
+        if (_ticksObserved >= ArchiveMaxWarmupTicks
+            && frame.FrameTimeMs < StallDetector.SuspendCeilingMs
+            && frame.FrameTimeMs > _maxFrameSeen)
+        {
+            _maxFrameSeen = frame.FrameTimeMs;
+        }
         _gcSeen += frame.GcTimeMs;
 
         _downsampler.OnTickCommitted(frame, collector, _db.Writer, _sessionId);
