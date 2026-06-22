@@ -87,6 +87,15 @@ public static class ILHookInterceptor
     // does not auto-track these the way MonoModHooks.Add tracks On-hooks.
     private static readonly List<ILHook> _installedHooks = new List<ILHook>();
 
+    // v0.13: after install, dispose the per-hook retained MonoMod ILContext
+    // (the manipulated method body) to reclaim ~half the per-hook Cecil graph.
+    // Default on; set false to A/B-compare or disable. See TrimRetainedScaffolding.
+    public static bool TrimScaffolding = true;
+    private static int _trimmedContexts;
+
+    /// <summary>Count of retained ILContext bodies disposed by the post-install trim.</summary>
+    public static int TrimmedContexts => _trimmedContexts;
+
     private static int _failures;
     private static bool _sampleFailureLogged;
     private static int _measuredOverrides;
@@ -171,6 +180,8 @@ public static class ILHookInterceptor
                 $"ILHookInterceptor: {_installedHooks.Count} IL timing detours installed across {profiledMods.Count} mods; " +
                 $"{_closedGenericHooks} via closed-generic inheritance pass; " +
                 $"{_skippedOverrides} overrides skipped (no-body / dynamic / unsupported); {_failures} manipulator failures.");
+
+            TrimRetainedScaffolding(self);
         }
         catch (Exception ex)
         {
@@ -222,6 +233,126 @@ public static class ILHookInterceptor
         _closedGenericHooks = 0;
         _measuredHookCounts = Array.Empty<int>();
         _totalHookCounts = Array.Empty<int>();
+    }
+
+    /// <summary>
+    /// Reclaim the per-hook Cecil scaffolding MonoMod retains for the hook's
+    /// applied lifetime. For each installed ILHook, disposes its
+    /// <c>ILHookEntry.LastContext</c> (the read-only ILContext wrapping the
+    /// manipulated method body) and nulls it.
+    ///
+    /// <para><b>Why this is behaviour-neutral for our usage.</b> The live hook
+    /// runs off the JIT-compiled method, not this Cecil graph. If a hook is ever
+    /// added to or removed from the same method later, MonoMod rebuilds the chain
+    /// from <c>ManagedDetourState.SourceCloneIl</c> (which we deliberately leave
+    /// intact) and re-runs our manipulator, not from LastContext. Disposing
+    /// LastContext is the exact operation <c>ILHookEntry.Remove()</c> performs on
+    /// teardown; here we do it while the hook stays applied.</para>
+    ///
+    /// <para><b>Invariant 4.</b> Reflects into MonoMod 25.3.2 internals
+    /// (DetourManager.ManagedDetourState / ILHookEntry). Every field lookup is
+    /// checked; if the shape does not match (a MonoMod update), the pass is a
+    /// no-op and every hook stays live, and any exception is caught - a trim
+    /// failure can never disturb the already-installed hooks. Only entries whose
+    /// Hook is one of OURS are touched, so a method another mod also hooks is
+    /// never affected.</para>
+    /// </summary>
+    private static void TrimRetainedScaffolding(Mod self)
+    {
+        if (!TrimScaffolding)
+        {
+            return;
+        }
+
+        _trimmedContexts = 0;
+        try
+        {
+            FieldInfo? stateField = typeof(ILHook).GetField("state", BindingFlags.NonPublic | BindingFlags.Instance);
+            FieldInfo? hookField = typeof(ILHook).GetField("hook", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (stateField == null || hookField == null)
+            {
+                self.Logger.Info("Scaffolding trim skipped: MonoMod ILHook (state/hook) shape not recognised; hooks left untouched.");
+                return;
+            }
+
+            FieldInfo? noConfigField = null;
+            FieldInfo? entryHookField = null;
+            FieldInfo? lastCtxField = null;
+            FieldInfo? curCtxField = null;
+
+            foreach (ILHook h in _installedHooks)
+            {
+                object? state = stateField.GetValue(h);
+                object? hook = hookField.GetValue(h);
+                if (state == null || hook == null)
+                {
+                    continue;
+                }
+
+                noConfigField ??= state.GetType().GetField("noConfigIlhooks", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (noConfigField == null)
+                {
+                    self.Logger.Info("Scaffolding trim skipped: ManagedDetourState.noConfigIlhooks not found; hooks left untouched.");
+                    return;
+                }
+
+                if (noConfigField.GetValue(state) is not System.Collections.IEnumerable entries)
+                {
+                    continue;
+                }
+
+                foreach (object? entry in entries)
+                {
+                    if (entry == null)
+                    {
+                        continue;
+                    }
+
+                    if (entryHookField == null)
+                    {
+                        Type et = entry.GetType();
+                        entryHookField = et.GetField("Hook", BindingFlags.Public | BindingFlags.Instance);
+                        lastCtxField = et.GetField("LastContext", BindingFlags.Public | BindingFlags.Instance);
+                        curCtxField = et.GetField("CurrentContext", BindingFlags.Public | BindingFlags.Instance);
+                        if (entryHookField == null || lastCtxField == null || curCtxField == null)
+                        {
+                            self.Logger.Info("Scaffolding trim skipped: ILHookEntry shape not recognised; hooks left untouched.");
+                            return;
+                        }
+                    }
+
+                    // Only our own entry on this method; never another mod's hook.
+                    if (!ReferenceEquals(entryHookField.GetValue(entry), hook))
+                    {
+                        continue;
+                    }
+
+                    object? last = lastCtxField!.GetValue(entry);
+                    object? cur = curCtxField!.GetValue(entry);
+                    // Only when settled: the final apply leaves Current == Last.
+                    if (last == null || !ReferenceEquals(last, cur))
+                    {
+                        break;
+                    }
+
+                    (last as IDisposable)?.Dispose();
+                    lastCtxField.SetValue(entry, null);
+                    curCtxField.SetValue(entry, null);
+                    _trimmedContexts++;
+                    break;
+                }
+            }
+
+            self.Logger.Info(
+                $"Scaffolding trim: disposed {_trimmedContexts} retained ILContext bodies across {_installedHooks.Count} hooks " +
+                $"(SourceCloneIl kept for re-chain safety).");
+        }
+        catch (Exception ex)
+        {
+            // Abort-clean (Invariant 4): the installed hooks are already live; a
+            // trim failure must never disturb them. Reclaim nothing, keep going.
+            self.Logger.Warn($"Scaffolding trim aborted ({ex.GetType().Name}: {ex.Message}); all hooks remain live, no memory reclaimed.");
+        }
     }
 
     private static void InstallForMod(int modId, Mod mod, Mod self)

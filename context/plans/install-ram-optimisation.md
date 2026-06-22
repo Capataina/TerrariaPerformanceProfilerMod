@@ -321,7 +321,7 @@ structural RAM cut (see below). Committed in logical groups.
 | F3: README cost model | **done** | ~36 KB/hook → measured ~50-60 KB; multi-GB at scale |
 | F7: conventions #13 | **done** | AggressiveInlining reality recorded |
 | F8: phantom `_TempAllocBench` | **done** | dangling doc reference dropped |
-| 2: trim retained `LastContext` | **DEFERRED** | reflection into MonoMod internals (Invariant 4); needs in-game RAM verification |
+| 2: trim retained `LastContext` | **DONE (validated in-game)** | profiler 3.7 → 1.0 GB (tML attribution); self-health 3,550 → 1,867 MB (58 → 30 KB/hook); 62,203 coverage intact; disposed 62,203 contexts; clean load + play, no abort/crash |
 | 3: own the emission | not started | larger rewrite; fallback if Step 2 proves fragile |
 
 **The harness repair was deeper than the audit's "fix 7 paths."** The v0.11 move
