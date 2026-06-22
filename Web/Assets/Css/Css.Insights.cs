@@ -96,9 +96,6 @@ internal static partial class DashboardAssets
 .ins-dormant .dor-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
 .ins-dormant .dor-usage .split-bar { flex: 1; }
 .ins-dormant .dor-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
-.ins-dormant .dor-empty {
-  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0; text-align: center;
-}
 
 /* I1 observatory card list ------------------------------------------ */
 /* The .ins-obs-list wrapper is the stable element; the inner .obs-scroll
@@ -139,17 +136,16 @@ internal static partial class DashboardAssets
   font-family: var(--ui); font-size: 0.88rem; color: var(--text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ins-obs-card .body .comp { margin-top: 0.28rem; }
-.ins-obs-card .body .comp-empty {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--dim);
-  font-style: italic; padding: 0.1rem 0;
-}
 .ins-obs-card .body .micro {
   font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
   margin-top: 0.2rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ins-obs-card .body .cost { margin-top: 0.3rem; }
+/* Roster composition is a secondary signal: rendered last and quieted (the
+   bar is full-width regardless of mod size, so it must not lead). Lower
+   opacity drops its visual weight below the cpu/cost signals above it. */
+.ins-obs-card .body .comp { margin-top: 0.28rem; opacity: 0.55; }
 .ins-obs-card .ms {
   font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
 }
@@ -173,9 +169,6 @@ internal static partial class DashboardAssets
   overflow-y: auto;
   min-height: 0;
   display: flex; flex-direction: column; gap: 0.6rem;
-}
-.ins-detail .empty {
-  color: var(--dim); font-size: 0.85rem; padding: 1.5rem 0.5rem; text-align: center;
 }
 .ins-detail h4 {
   margin: 0 0 0.3rem; font-family: var(--mono); font-size: 0.72rem;
@@ -224,9 +217,6 @@ internal static partial class DashboardAssets
 }
 .ins-cross .cc-cls .cc-cnt { color: var(--dim); font-size: 0.72rem; margin-left: 0.4rem; }
 .ins-cross .cc-cell { width: 6rem; }
-.ins-cross .cc-empty {
-  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
-}
 
 /* I6 engagement vs cost — sortable table ----------------------------- */
 .ins-scatter {
@@ -237,9 +227,6 @@ internal static partial class DashboardAssets
 }
 .ins-scatter .sc-h { margin-bottom: 0.4rem; }
 .ins-scatter .sc-scroll { max-height: 360px; overflow-y: auto; }
-.ins-scatter .sc-empty {
-  color: var(--dim); font-size: 0.82rem; padding: 0.4rem 0;
-}
 
 /* I7 mod-pair correlation — top-coupled-pairs table ------------------ */
 /* The full NxN Pearson grid was cut (dead space, twice misunderstood). Only
@@ -261,8 +248,5 @@ internal static partial class DashboardAssets
 /* Signed correlation values: green positive, red negative. */
 .ins-matrix .r-pos { color: var(--good); }
 .ins-matrix .r-neg { color: var(--danger); }
-.ins-matrix .mx-empty {
-  color: var(--dim); font-size: 0.82rem; padding: 0.6rem 0; text-align: center;
-}
 ";
 }

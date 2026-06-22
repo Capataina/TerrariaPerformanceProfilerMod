@@ -202,7 +202,7 @@ function renderDormantSurface() {
   head.innerHTML = `<span class='label'>dormant content</span><span>${headSummary}</span>`;
 
   if (entries.length === 0) {
-    setHTML(scroll, `<div class='dor-empty'>no dormant entries recorded this session</div>`);
+    setHTML(scroll, emptyState('no dormant entries recorded this session'));
     return;
   }
 
@@ -274,7 +274,7 @@ function renderObservatoryList() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, `<div style='padding:1.5rem;color:var(--dim);text-align:center;font-size:0.85rem'>no per-mod observatory data yet</div>`);
+    setHTML(scroll, emptyState('no per-mod observatory data yet'));
     return;
   }
   const cards = obs.cards.slice().sort((a, b) => b.cpuSharePct - a.cpuSharePct);
@@ -286,8 +286,11 @@ function renderObservatoryList() {
   }
 
   // Roster composition split bar: each segment is a category, fraction =
-  // that category's count / roster total. One labelled, readable bar
-  // replacing the 1-2px DNA strand. Empty roster -> a muted 'no content'.
+  // that category's count / roster total. Rendered as a secondary signal
+  // (thin + quieted via .comp) so it shows the roster mix without competing
+  // with the card's primary cpu/cost signals — every card's bar is full
+  // width regardless of mod size, so it must not lead. Empty roster ->
+  // a muted 'no content'.
   function compositionBar(roster) {
     const counts = ROSTER_CATS.map(([f]) => roster[f] || 0);
     const tot = counts.reduce((a, b) => a + b, 0);
@@ -308,9 +311,9 @@ function renderObservatoryList() {
       <span class='rank'>${i + 1}</span>
       <div class='body'>
         <div class='nm'>${escapeHtml(c.modName)}</div>
-        <div class='comp'>${compositionBar(c.roster)}</div>
         <div class='micro'>${micro}</div>
         <div class='cost'>${cellBar(costFrac, 'var(--cpu)')}</div>
+        <div class='comp'>${compositionBar(c.roster)}</div>
       </div>
       <span class='ms'>${fmtMs(c.smoothedMsThisTick)}<span class='u'>ms</span></span>
     </div>`;
@@ -344,17 +347,17 @@ function renderObservatoryDetail() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, `<div class='empty'>select a mod from the list to see its observatory detail</div>`);
+    setHTML(scroll, emptyState('select a mod from the list to see its observatory detail'));
     return;
   }
   const card = obs.cards.find(c => c.modId === selectedObservatoryModId) || obs.cards[0];
   if (!card) {
-    setHTML(scroll, `<div class='empty'>no card selected</div>`);
+    setHTML(scroll, emptyState('no card selected'));
     return;
   }
 
   const r = card.roster, u = card.usage;
-  const totalRoster = (r.items + r.npcs + r.buffs + r.projectiles + r.mounts + r.accessories + r.biomes + r.invasions + r.bosses);
+  const totalRoster = ROSTER_CATS.reduce((sum, [f]) => sum + (r[f] || 0), 0);
 
   // Composition legend: the key to the list split bars. Only categories
   // present in this mod's roster are shown, each with its count.
@@ -363,7 +366,7 @@ function renderObservatoryDetail() {
     .filter(s => s.frac > 0);
   const legendHtml = legendSegs.length > 0
     ? splitLegend(legendSegs)
-    : `<div style='color:var(--dim);font-size:0.78rem'>no content registered (library-shaped mod)</div>`;
+    : `<div class='comp-empty'>no content registered (library-shaped mod)</div>`;
 
   // Roster vs usage table — perf-vocabulary dtable.
   const rosterRows = [
@@ -384,25 +387,25 @@ function renderObservatoryDetail() {
   // I3 biome attendance.
   const biome = (card.biomeAttendance || []).slice(0, 12);
   const biomeHtml = biome.length === 0
-    ? `<div style='color:var(--dim);font-size:0.78rem'>no biome attendance recorded</div>`
+    ? emptyState('no biome attendance recorded')
     : `<table class='dtable'>
         <thead><tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr></thead>
         <tbody>${biome.map(b => `<tr>
           <td class='l'>${escapeHtml(b.biomeName)}</td>
-          <td>${fmtInt(b.ticks)}</td>
-          <td>${b.sharePct.toFixed(1)}%</td>
+          <td>${dash(b.ticks, fmtInt)}</td>
+          <td>${dash(b.sharePct, v => v.toFixed(1) + '%')}</td>
         </tr>`).join('')}</tbody></table>`;
 
   // I4 loadout influence.
   const li = (card.topLoadoutItems || []).slice(0, 10);
   const liHtml = li.length === 0
-    ? `<div style='color:var(--dim);font-size:0.78rem'>no loadout influence recorded</div>`
+    ? emptyState('no loadout influence recorded')
     : `<table class='dtable'>
         <thead><tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr></thead>
         <tbody>${li.map(it => `<tr>
           <td class='l'>${escapeHtml(it.itemName)}</td>
           <td class='l muted'>${escapeHtml(it.slotKind || '')}</td>
-          <td>${fmtInt(it.equippedTicks)}</td>
+          <td>${dash(it.equippedTicks, fmtInt)}</td>
         </tr>`).join('')}</tbody></table>`;
 
   setHTML(scroll, `
@@ -415,10 +418,10 @@ function renderObservatoryDetail() {
       ${legendHtml}
     </div>
     <div class='det-stats'>
-      <div class='statline'><span class='k'>cpu share</span><span class='v'>${card.cpuSharePct.toFixed(2)}%</span></div>
-      <div class='statline'><span class='k'>smoothed ms this tick</span><span class='v'>${fmtMs(card.smoothedMsThisTick)} ms</span></div>
-      <div class='statline'><span class='k'>average ms</span><span class='v'>${fmtMs(card.averageMs)} ms</span></div>
-      <div class='statline'><span class='k'>usage share</span><span class='v'>${card.usageSharePct.toFixed(2)}%</span></div>
+      <div class='statline'><span class='k'>cpu share</span><span class='v'>${dash(card.cpuSharePct, v => v.toFixed(2) + '%')}</span></div>
+      <div class='statline'><span class='k'>smoothed ms this tick</span><span class='v'>${dash(card.smoothedMsThisTick, v => fmtMs(v) + ' ms')}</span></div>
+      <div class='statline'><span class='k'>average ms</span><span class='v'>${dash(card.averageMs, v => fmtMs(v) + ' ms')}</span></div>
+      <div class='statline'><span class='k'>usage share</span><span class='v'>${dash(card.usageSharePct, v => v.toFixed(2) + '%')}</span></div>
     </div>
     <div>
       <h4>roster vs usage</h4>
@@ -448,14 +451,14 @@ function renderCrossCutting() {
   if (!root) return;
   const cc = lastCrossCutting;
   if (!cc || !cc.worldLoaded || !cc.groups || cc.groups.length === 0) {
-    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>
-      <div class='cc-empty'>no cross-cutting signals recorded yet</div>`;
+    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>` +
+      emptyState('no cross-cutting signals recorded yet');
     return;
   }
   const groups = cc.groups.filter(g => g.leaders && g.leaders.length > 0);
   if (groups.length === 0) {
-    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>
-      <div class='cc-empty'>signals recorded but no leaders yet</div>`;
+    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>` +
+      emptyState('signals recorded but no leaders yet');
     return;
   }
 
@@ -501,7 +504,7 @@ function renderEngagementScatter() {
   const ec = lastEngagementCost;
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     head.innerHTML = `engagement vs cost`;
-    setHTML(scroll, `<div class='sc-empty'>no engagement vs cost data yet</div>`);
+    setHTML(scroll, emptyState('no engagement vs cost data yet'));
     return;
   }
 
@@ -574,13 +577,13 @@ function renderModInteractionMatrix() {
   const mi = lastModInteraction;
   if (!mi || !mi.worldLoaded || !mi.modIds || mi.modIds.length === 0) {
     head.innerHTML = `mod-pair cost correlation`;
-    setHTML(scroll, `<div class='mx-empty'>no mod interaction data yet (needs ≥2 active mods over time)</div>`);
+    setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)'));
     return;
   }
   const N = mi.modIds.length;
   if (N < 2 || !mi.topCoupled || mi.topCoupled.length === 0) {
     head.innerHTML = `mod-pair cost correlation — ${N} mods`;
-    setHTML(scroll, `<div class='mx-empty'>no coupled pairs ranked yet</div>`);
+    setHTML(scroll, emptyState('no coupled pairs ranked yet'));
     return;
   }
 

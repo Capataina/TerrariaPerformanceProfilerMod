@@ -26,7 +26,7 @@ function renderHeatmap() {
   }
   const buckets = lastHeatmap.buckets;
   if (buckets.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no minutes recorded yet</div>';
+    root.innerHTML = emptyState('no minutes recorded yet');
     sub.textContent = '0 minutes';
     return;
   }
@@ -63,14 +63,38 @@ function renderFrameChart() {
   const svg = document.getElementById('frame-chart');
   const sub = document.getElementById('chart-sub');
   const title = document.getElementById('chart-title');
+  const axis = document.getElementById('chart-axis');
+  const empty = document.getElementById('chart-empty');
+  const dbMode = lastNow && lastNow.source === 'db';
+  const showFps = frameChartMode === 'fps';
   if (!lastFrames || !lastFrames.worldLoaded || !lastFrames.frameMs || lastFrames.frameMs.length === 0) {
-    svg.innerHTML = ''; sub.textContent = '—'; return;
+    // No live trace. In db mode that's expected (the live per-tick trace
+    // isn't persisted), so we relabel to a last-session framing and show a
+    // note inside the panel instead of a blank chart. Outside db mode this
+    // is the genuine 'no data yet' case.
+    svg.innerHTML = '';
+    title.textContent = dbMode
+      ? (showFps ? 'fps · last session' : 'frame time · last session')
+      : (showFps ? 'fps · last 30s' : 'frame time · last 30s');
+    if (dbMode && empty) {
+      empty.innerHTML = emptyState(""live trace isn't stored — showing last session summary"");
+      empty.classList.remove('hidden');
+      if (axis) axis.classList.add('hidden');
+      sub.textContent = lastNow.sessionLabel || 'last session';
+    } else {
+      if (empty) empty.classList.add('hidden');
+      if (axis) axis.classList.remove('hidden');
+      sub.textContent = '—';
+    }
+    return;
   }
+  // Live trace present — restore the live chrome.
+  if (empty) empty.classList.add('hidden');
+  if (axis) axis.classList.remove('hidden');
   const ms = lastFrames.frameMs;
   const n = ms.length;
 
   // Map series + axis depending on toggle.
-  const showFps = frameChartMode === 'fps';
   title.textContent = showFps ? 'fps · last 30s' : 'frame time · last 30s';
   const series = showFps ? ms.map(v => v > 0 ? Math.min(120, 1000 / Math.max(0.5, v)) : 0) : ms;
   const sortedMs = ms.slice().sort((a, b) => a - b);
@@ -202,12 +226,36 @@ function donutSlice(from, to, color) {
 }
 
 function renderTrendSparklines() {
+  const title = document.getElementById('trends-title');
+  const rows = document.getElementById('trend-rows');
+  const empty = document.getElementById('trends-empty');
+  const dbMode = lastNow && lastNow.source === 'db';
   if (!lastFrames || !lastFrames.frameMs || lastFrames.frameMs.length === 0) {
     document.getElementById('spark-frame').innerHTML = '';
     document.getElementById('spark-alloc').innerHTML = '';
     document.getElementById('spark-spike').innerHTML = '';
+    // In db mode the per-series live trace isn't stored, so the labelled rows
+    // would sit empty (looks unfinished). Hide them and show one note instead,
+    // and relabel the panel to its last-session framing. Outside db mode the
+    // rows simply stay blank as the genuine no-data state.
+    if (dbMode) {
+      if (title) title.textContent = 'session trend · last session';
+      if (rows) rows.classList.add('hidden');
+      if (empty) {
+        empty.innerHTML = emptyState(""live trace isn't stored — showing last session summary"");
+        empty.classList.remove('hidden');
+      }
+    } else {
+      if (title) title.textContent = 'session trend · last 30s';
+      if (rows) rows.classList.remove('hidden');
+      if (empty) empty.classList.add('hidden');
+    }
     return;
   }
+  // Live trace present — restore the rows + live framing.
+  if (title) title.textContent = 'session trend · last 30s';
+  if (rows) rows.classList.remove('hidden');
+  if (empty) empty.classList.add('hidden');
   drawSpark('spark-frame', lastFrames.frameMs, '#4a9eff');
   // alloc: derive a rough proxy from gc time (no per-tick alloc series). Substitute zero series otherwise.
   drawSpark('spark-alloc', lastFrames.gcMs || [], '#c39ad8');
@@ -248,7 +296,7 @@ function renderNowPlaying() {
   const root = document.getElementById('nowlist');
   const sub = document.getElementById('now-sub');
   if (!lastSegments || !lastSegments.open || lastSegments.open.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">no open segments — wander into a biome, fight a boss, wait for weather</div>';
+    root.innerHTML = emptyState('no open segments — wander into a biome, fight a boss, wait for weather');
     sub.textContent = '0 open';
     return;
   }
@@ -281,7 +329,7 @@ function renderNowEvents() {
   // across segments + spikes (which had no access to stalls and
   // got stall+segment interleaving wrong).
   if (!lastEvents || !lastEvents.events || lastEvents.events.length === 0) {
-    root.innerHTML = '<div class=""empty-line"">nothing yet — events appear as segments close + spikes fire</div>';
+    root.innerHTML = emptyState('nothing yet — events appear as segments close + spikes fire');
     return;
   }
   root.innerHTML = lastEvents.events.map(e =>

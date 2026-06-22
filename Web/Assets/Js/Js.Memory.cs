@@ -17,10 +17,13 @@ function memStat(k, v) {
   return `<div class='mem-stat'><span class='k'>${escapeHtml(k)}</span><span class='v'>${escapeHtml(String(v))}</span></div>`;
 }
 
-// tML code/textures/sounds/managed breakdown as a thin split bar (table cell).
+// tML code/textures/sounds/managed split as a SECONDARY hint (thin bar). Kept
+// quiet by design: the full composition lives in the breakdown drawer on click,
+// so the table only needs a glance of the proportions, never the headline. The
+// RAM-magnitude cellbar leads the row; this trails it.
 function memBreakdownBar(m) {
   const t = m.tmlTotal || 0;
-  if (t <= 0) return `<span class='dim'>—</span>`;
+  if (t <= 0) return dash(null);
   return splitBar([
     { frac: m.tmlCode/t,     color: 'var(--cpu)',   label: 'code',     value: fmtBytes(m.tmlCode) },
     { frac: m.tmlTextures/t, color: 'var(--spike)', label: 'textures', value: fmtBytes(m.tmlTextures) },
@@ -42,8 +45,8 @@ function renderMemory() {
     stripEl.innerHTML = '';
     legendEl.innerHTML = '';
     sumEl.innerHTML = '';
-    tableEl.innerHTML = `<div class='empty-line'>no data yet</div>`;
-    drawerEl.innerHTML = `<div class='empty-line'>select a mod for its breakdown</div>`;
+    tableEl.innerHTML = emptyState('no data yet');
+    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
     return;
   }
 
@@ -55,14 +58,15 @@ function renderMemory() {
     b.classList.toggle('active', b.dataset.basis === memBasis);
   });
 
-  // Summary band.
+  // Summary band. dash() guards each metric so an absent/zero figure reads as
+  // '—' rather than leaving the stat label dangling with nothing after it.
   const parts = [];
-  parts.push(memStat('process RSS', fmtBytes(mem.processRssBytes)));
-  if (mem.tmlAvailable) parts.push(memStat('mods · tML est', fmtBytes(mem.tmlTotalBytes)));
+  parts.push(memStat('process RSS', dash(mem.processRssBytes, fmtBytes)));
+  if (mem.tmlAvailable) parts.push(memStat('mods · tML est', dash(mem.tmlTotalBytes, fmtBytes)));
   if (mem.scaffoldAvailable) {
-    parts.push(memStat('profiler scaffolding', fmtBytes(mem.scaffoldBytes)));
-    parts.push(memStat('per hook', (mem.bytesPerHook/1024).toFixed(0) + ' KB'));
-    parts.push(memStat('hooks', fmtInt(mem.installedHookCount)));
+    parts.push(memStat('profiler scaffolding', dash(mem.scaffoldBytes, fmtBytes)));
+    parts.push(memStat('per hook', dash(mem.bytesPerHook, v => (v/1024).toFixed(0) + ' KB')));
+    parts.push(memStat('hooks', dash(mem.installedHookCount, fmtInt)));
   }
   sumEl.innerHTML = parts.join('');
 
@@ -71,8 +75,8 @@ function renderMemory() {
   if (rows.length === 0) {
     stripEl.innerHTML = '';
     legendEl.innerHTML = '';
-    tableEl.innerHTML = `<div class='empty-line'>${memBasis === 'overhead' ? 'profiler not installed yet' : 'no per-mod memory estimate yet'}</div>`;
-    drawerEl.innerHTML = `<div class='empty-line'>select a mod for its breakdown</div>`;
+    tableEl.innerHTML = emptyState(memBasis === 'overhead' ? 'profiler not installed yet' : 'no per-mod memory estimate yet');
+    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
     return;
   }
   const total = rows.reduce((s, r) => s + r.v, 0) || 1;
@@ -98,21 +102,27 @@ function renderMemory() {
   }
   legendEl.innerHTML = lh;
 
-  // Table — same order as the strip.
+  // Table — same order as the strip. The RAM/scaffold column LEADS: a wide
+  // magnitude bar (share of the visible total) sits beside its figure as one
+  // unit, so scanning the column tracks size. The footprint composition is a
+  // SECONDARY hint — a thin, narrow split confined to its own slim column; the
+  // full breakdown is one click away in the drawer.
   let th = `<table class='dtable'><thead><tr>`
-    + `<th class='l'>mod</th><th>${memBasis === 'overhead' ? 'scaffold' : 'RAM'}</th>`
-    + `<th class='l'>footprint · code / tex / snd / managed</th><th>hooks</th><th>alloc/s</th>`
+    + `<th class='l'>mod</th><th class='mem-val-h'>${memBasis === 'overhead' ? 'scaffold' : 'RAM'}</th>`
+    + `<th class='l mem-bd-h'>footprint</th><th>hooks</th><th>alloc/s</th>`
     + `</tr></thead><tbody>`;
   for (const r of rows) {
     const m = r.m;
     const sel = memSelected === m.id ? ' sel' : '';
     th += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
-      + `<td class='mem-val'><span class='n'>${fmtBytes(r.v)}</span>`
-        + cellBar(r.v / total, modColor(m.id)) + `</td>`
-      + `<td class='l'>${memBreakdownBar(m)}</td>`
+      + `<td class='mem-val'><div class='mem-val-row'>`
+        + `<span class='n'>${fmtBytes(r.v)}</span>`
+        + cellBar(r.v / total, modColor(m.id))
+        + `</div></td>`
+      + `<td class='l mem-bd'>${memBreakdownBar(m)}</td>`
       + `<td class='muted'>${fmtInt(m.hookCount)}</td>`
-      + `<td class='muted'>${mem.tracksAllocations ? fmtBytes(m.allocBytes) : '—'}</td>`
+      + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
       + `</tr>`;
   }
   th += `</tbody></table>`;
@@ -135,11 +145,11 @@ function renderMemoryDrawer() {
   const mem = lastMemory;
   if (!drawerEl) return;
   if (memSelected == null || !mem) {
-    drawerEl.innerHTML = `<div class='empty-line'>select a mod slice or row for its breakdown</div>`;
+    drawerEl.innerHTML = emptyState('select a mod slice or row for its breakdown');
     return;
   }
   const m = mem.mods.find(x => x.id === memSelected);
-  if (!m) { drawerEl.innerHTML = `<div class='empty-line'>select a mod for its breakdown</div>`; return; }
+  if (!m) { drawerEl.innerHTML = emptyState('select a mod for its breakdown'); return; }
 
   let h = `<div class='mem-drawer-head'><span class='mem-drawer-name'>${escapeHtml(m.name)}</span>`;
   if (m.tmlTotal > 0) h += `<span class='mem-drawer-total'>${fmtBytes(m.tmlTotal)}</span>`;
@@ -157,7 +167,7 @@ function renderMemoryDrawer() {
       + splitBar(segs, { tall: true }) + splitLegend(segs) + `</div>`;
   } else {
     h += `<div class='mem-sect'><div class='mem-sect-h'>mod footprint</div>`
-      + `<div class='empty-line'>tModLoader estimate unavailable</div></div>`;
+      + emptyState('tModLoader estimate unavailable') + `</div>`;
   }
 
   // Instrumentation — compact stat cards, capped width, not full-width rows.

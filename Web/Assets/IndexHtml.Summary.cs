@@ -34,7 +34,7 @@ internal static partial class DashboardAssets
               <span class=""k"">lag spikes</span>
               <span class=""kpi-tag"" id=""kpi-spikes-tag"">—</span>
             </div>
-            <div class=""kpi-hero""><span class=""v"" id=""kpi-spikes-v"">—</span><span class=""v-suffix"">in 30s</span></div>
+            <div class=""kpi-hero""><span class=""v"" id=""kpi-spikes-v"">—</span><span class=""v-suffix"" id=""kpi-spikes-suffix"">in 30s</span></div>
             <div class=""kpi-subs"" id=""kpi-spikes-subs""></div>
             <svg class=""kpi-spark"" id=""kpi-spikes-spark"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg>
           </div>
@@ -61,7 +61,8 @@ internal static partial class DashboardAssets
           </header>
           <div class=""chart-wrap"">
             <svg class=""chart"" id=""frame-chart"" viewBox=""0 0 100 28"" preserveAspectRatio=""none"" aria-hidden=""true""></svg>
-            <div class=""chart-axis""><span>0</span><span>spike threshold</span><span>worst</span></div>
+            <div class=""chart-axis"" id=""chart-axis""><span>0</span><span>spike threshold</span><span>worst</span></div>
+            <div class=""panel-empty hidden"" id=""chart-empty""></div>
           </div>
         </div>
 
@@ -85,13 +86,16 @@ internal static partial class DashboardAssets
         <!-- 3-row session-trend sparklines -->
         <div class=""panel"" style=""grid-area: trends;"">
           <header class=""panel-h"">
-            <span class=""panel-title"">session trend · last 30s</span>
+            <span class=""panel-title"" id=""trends-title"">session trend · last 30s</span>
             <span class=""panel-sub"" data-explain=""sparklines"">frame · alloc · spikes</span>
           </header>
           <div class=""trends"">
-            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-frame"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
-            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-gc"">gc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
-            <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-spike"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            <div class=""trend-rows"" id=""trend-rows"">
+              <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-frame"">frame</span><svg class=""tr-spark"" id=""spark-frame"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+              <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-gc"">gc</span><svg class=""tr-spark"" id=""spark-alloc"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+              <div class=""trend-row""><span class=""tr-k"" data-explain=""spark-spike"">spikes</span><svg class=""tr-spark"" id=""spark-spike"" viewBox=""0 0 100 16"" preserveAspectRatio=""none""></svg></div>
+            </div>
+            <div class=""panel-empty hidden"" id=""trends-empty""></div>
           </div>
         </div>
 

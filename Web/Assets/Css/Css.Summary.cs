@@ -63,6 +63,14 @@ internal static partial class DashboardAssets
   font-family: var(--mono); font-size: 0.7rem; color: var(--dim);
 }
 
+/* Centered note overlaying a panel body that has no live trace (db mode).
+   Fills its positioned parent and centres the canonical .empty inside it; the
+   live SVG/rows sit behind it and are blanked, so nothing peeks through. */
+.panel-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
 /* ====== Donut chart ====== */
 .donut-wrap {
   position: relative; padding: 0.6rem;
@@ -93,7 +101,8 @@ internal static partial class DashboardAssets
 .donut-legend .leg .pc { color: var(--muted); }
 
 /* ====== Sparkline trend rows ====== */
-.trends { padding: 0.4rem 0.6rem 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.trends { position: relative; padding: 0.4rem 0.6rem 0.5rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.trend-rows { display: flex; flex-direction: column; gap: 0.25rem; }
 .trend-row {
   display: grid; grid-template-columns: 3rem minmax(0, 1fr);
   align-items: center; gap: 0.5rem;
@@ -107,7 +116,6 @@ internal static partial class DashboardAssets
   display: flex; flex-direction: column; gap: 0.2rem;
   overflow-y: auto; flex: 1 1 auto; min-height: 100px;
 }
-.nowlist .empty-line { color: var(--dim); padding: 0.4rem 0.4rem; font-style: italic; font-size: 0.85rem; }
 .now-seg {
   display: grid; grid-template-columns: 0.25rem minmax(0, 1fr) auto;
   gap: 0.45rem; align-items: center;

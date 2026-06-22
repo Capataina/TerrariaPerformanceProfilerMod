@@ -28,18 +28,29 @@ function renderKpiStrip() {
   }
   const k = lastNow.kpi;
   const ms = (lastFrames && lastFrames.frameMs) || [];
+  // db mode serves the LAST persisted session, not a live 30s window, so the
+  // window-implying sublabels ('avg 30s', 'in 30s', 'in 30s' suffix) are
+  // relabelled to a session framing. The numbers are unchanged; only the
+  // wording adapts. Live mode keeps its existing window wording verbatim.
+  const dbMode = lastNow.source === 'db';
+  const msFmt = v => dash(v, fmtMs) + (v == null || !isFinite(v) ? '' : 'ms');
+
+  // The lag-spikes hero suffix is window-implying ('in 30s'); switch to
+  // 'session' in db mode so stored counts aren't read as a live window.
+  const spSuffix = document.getElementById('kpi-spikes-suffix');
+  if (spSuffix) spSuffix.textContent = dbMode ? 'session' : 'in 30s';
 
   // ---------- avg fps ----------
   const fpsClass = k.avgFps >= 55 ? 'good' : k.avgFps >= 30 ? 'warn' : 'bad';
   const fpsTag = k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth';
   setKpi('fps', {
-    value: k.avgFps.toFixed(0),
+    value: dash(k.avgFps, v => v.toFixed(0)),
     valueClass: fpsClass,
     tag: fpsTag, tagClass: fpsClass,
     subs: [
-      { k: 'median', v: fmtMs(k.medianFrameMs) + 'ms' },
-      { k: 'best',   v: fmtMs(k.bestFrameMs) + 'ms' },
-      { k: 'samples', v: fmtInt(k.sampleN) },
+      { k: 'median', v: msFmt(k.medianFrameMs) },
+      { k: 'best',   v: msFmt(k.bestFrameMs) },
+      { k: 'samples', v: dash(k.sampleN, fmtInt) },
     ],
     sparkVals: ms.length > 1 ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : null,
     sparkClass: fpsClass,
@@ -49,13 +60,13 @@ function renderKpiStrip() {
   const worstClass = k.worstFrameMs > 100 ? 'bad' : k.worstFrameMs > 50 ? 'orange' : k.worstFrameMs > 33 ? 'warn' : 'good';
   const worstTag = k.worstFrameMs > 100 ? 'stutter' : k.worstFrameMs > 50 ? 'hitch' : k.worstFrameMs > 33 ? 'felt' : 'smooth';
   setKpi('worst', {
-    value: fmtMs(k.worstFrameMs),
+    value: dash(k.worstFrameMs, fmtMs),
     valueClass: worstClass,
     tag: worstTag, tagClass: worstClass,
     subs: [
-      { k: 'avg 30s', v: fmtMs(lastNow.avg30sMs) + 'ms' },
-      { k: 'median', v: fmtMs(k.medianFrameMs) + 'ms' },
-      { k: 'best',   v: fmtMs(k.bestFrameMs) + 'ms' },
+      { k: dbMode ? 'session avg' : 'avg 30s', v: msFmt(lastNow.avg30sMs) },
+      { k: 'median', v: msFmt(k.medianFrameMs) },
+      { k: 'best',   v: msFmt(k.bestFrameMs) },
     ],
     sparkVals: ms, sparkClass: worstClass,
   });
@@ -68,8 +79,8 @@ function renderKpiStrip() {
     valueClass: spClass,
     tag: spTag, tagClass: spClass,
     subs: [
-      { k: 'session', v: fmtInt(k.spikeCount) },
-      { k: 'lag total', v: fmtMs(k.totalLagMs) + 'ms' },
+      { k: 'session', v: dash(k.spikeCount, fmtInt) },
+      { k: 'lag total', v: msFmt(k.totalLagMs) },
       { k: 'threshold', v: '>50ms' },
     ],
     sparkVals: null,
@@ -84,9 +95,9 @@ function renderKpiStrip() {
     valueClass: stClass,
     tag: stTag, tagClass: stClass,
     subs: [
-      { k: 'biggest', v: fmtMs(k.worstStallMs) + 'ms' },
-      { k: 'average', v: fmtMs(k.avgStallMs) + 'ms' },
-      { k: 'in 30s',  v: 'see chart' },
+      { k: 'biggest', v: msFmt(k.worstStallMs) },
+      { k: 'average', v: msFmt(k.avgStallMs) },
+      { k: dbMode ? 'window' : 'in 30s',  v: dbMode ? 'last session' : 'see chart' },
     ],
     sparkVals: null,
     sparkClass: stClass,
