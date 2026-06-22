@@ -1,46 +1,51 @@
-# Code Health Audit — Obligation Evidence Map
+# Obligation Evidence Map
 
-## Run Metadata
+**Audit date:** 2026-06-22 (hook-install RAM deep-dive + repository sweep)
+**Target:** `PerformanceProfiler` — tModLoader 1.4.4 / .NET 8 mod (C#)
 
-| Field | Value |
-|---|---|
-| Project | Performance Profiler |
-| Repo root | `/Users/atacanercetinkaya/Library/Application Support/Terraria/tModLoader/ModSources/PerformanceProfiler` |
-| Started | 2026-05-20 |
-| Production source edit policy | Production source stayed untouched; audit wrote plan files only. Diagnostic tests were not written because the repo has no non-shipping C# test harness and adding `.cs` tests inside the mod source would risk packaging them into the `.tmod` unless production build metadata changed. |
+> Live verification ledger. One row per system audited in Pass 2, plus the
+> front-loaded pre-Pass-1 research row. The "What I Did Not Do" section of
+> `index.md` is the project-level summary of this per-system detail; the two
+> must agree. This run supersedes the 2026-05-20/21 audit in this folder
+> (plan-lifecycle regeneration against current code).
 
-## Front-Loaded External Research
+## Research-mode distribution
 
-| Obligation | Query | Retrieval tool | Source URL | Result | Notes |
-|---|---|---|---|---|---|
-| Pre-Pass-1 external research | `code health audit patterns for C# tModLoader mod` | `webfetch` search-results URL, because no literal `WebSearch` tool is available in this runtime | `https://www.bing.com/search?q=code+health+audit+patterns+for+C%23+tModLoader+mod` | done | Search results were low-signal; Pass-2 rows use direct primary/source-adjacent URLs. |
+| Mode | Meaning | Count |
+|------|---------|-------|
+| 1 | Domain pattern lookup | 2 |
+| 2 | Specific-technique evaluation | 2 |
+| 3 | Known-anti-pattern check | 2 |
 
-## Research Mode Distribution
+Three modes represented → variety requirement met.
 
-| Mode | Count | Evidence |
-|---|---:|---|
-| Mode 1 — domain pattern lookup | 2 | Insights statistics/confidence research; .NET test-platform research. |
-| Mode 2 — specific-technique evaluation | 2 | Overlay string allocation research; persistence atomic-write research. |
-| Mode 3 — known-anti-pattern check | 1 | tModLoader MonoModHooks hook-install/IL-hook failure surface research. |
+## Language-coverage note (script fallback)
 
-## System Evidence Rows
+The bundled `scripts/*.py` cover Python and Rust. This project is **C#**, outside
+that coverage. Per SKILL.md §"Language coverage", the fallback path was used and is
+recorded here as a reasoned omission of the script-invocation path:
 
-| System | Substantive? | Research obligation | Diagnostic-test obligation | Data-layout decision | Modularisation verdicts | Findings / potential issues | Status |
-|---|---|---|---|---|---|---|---|
-| Hook instrumentation and attribution | yes | Query: `tModLoader MonoModHooks Add Modify hook teardown instrumentation failure modes`; Source: `https://docs.tmodloader.net/docs/stable/class_mono_mod_hooks.html`; Mode 3 anti-pattern check. Source confirms `MonoModHooks.Add`, `Modify`, and hook dump surfaces, matching the abort-clean/read-only instrumentation risk surface. | Reasoned omission: no diagnostic test written. Static evidence is high for dead helpers and counter-selection drift; fault-injecting partial ILHook install requires a tModLoader host/runtime hook surface the audit cannot safely create without production changes. Potential failure-path items are in `potential-issues.md`. | Applied. Hot-path delegate and IL paths reviewed for allocation/counter surfaces; data-layout findings limited to avoiding per-draw/list-view allocations, not instrumentation arrays. | `Profiling/HookInterceptor.cs`: `split-recommended`; `Profiling/ILHookInterceptor.cs`: `leave-as-is`. | 4 certain findings in `hook-instrumentation.md`; 3 potential issues in `potential-issues.md`. | done |
-| Overlay UI and impact scoring | yes | Query: `C# Substring allocation hot draw path AsSpan`; Source: `https://learn.microsoft.com/en-us/dotnet/fundamentals/code-analysis/quality-rules/ca1846`; Mode 2 specific-technique evaluation. Source states `Substring` allocates a new heap string and many short-lived hot-path strings create GC pressure. | Reasoned omission: no diagnostic test written. The allocation is directly visible in `OverlayDraw.Truncate`; runtime magnitude would need in-game allocation profiling. Adding a C# UI test harness is blocked by the no non-shipping test project constraint. | Applied. Overlay draw paths and cached row-building paths reviewed; finding focuses on moving truncation work out of per-frame row draw. | `UI/Overlay/Tabs/OverviewTab.cs`: `leave-as-is`. | 2 certain findings in `overlay-ui.md`. | done |
-| Persistence/session logging | yes | Query: `File.WriteAllText truncates overwritten files File.Replace atomic replacement .NET`; Sources: `https://learn.microsoft.com/en-us/dotnet/api/system.io.file.writealltext?view=net-8.0`, `https://learn.microsoft.com/en-us/dotnet/api/system.io.file.replace?view=net-8.0`; Mode 2 specific-technique evaluation. Sources state `WriteAllText` truncates/overwrites existing files and `File.Replace` replaces destination contents from another file. | Reasoned omission: no diagnostic test written. The useful tests require an extracted atomic-writer/report-builder seam or a safe separate test project. Current code hard-codes paths and the audit cannot edit production code to inject a file-system seam. | Applied. I/O paths, anonymous schema construction, pruning, and report array allocations were reviewed. Data-layout finding is structural: report shaping should be pure/testable, while hot tick path remains outside this writer. | `Profiling/SessionLogWriter.cs`: `split-recommended`. | 4 certain findings in `persistence-session-logging.md`; 1 potential issue in `potential-issues.md`. | done |
-| Insights engine | yes | Query: `multiple comparison corrections false discovery rate Benjamini Hochberg analytics insight confidence`; Source: `https://www.statsig.com/blog/multiple-comparison-corrections-in-a-b`; Mode 1 domain pattern lookup. Source explains false positives under multiple tests and BH/FDR as a control method, matching the insights plan's confidence/flood-control risk. | Reasoned omission: no diagnostic test written. Pure unit tests would be valuable for scoring and confidence promotion, but the repo currently has no non-shipping C# test harness. Code evidence is high enough to issue the findings; tests are recommended as part of the build/test finding. | Applied. Pure scoring/store paths reviewed for allocation and ranking semantics. The key risks are semantics/honesty, not cache layout. | No Pass-1 modularisation candidate. | 4 certain findings in `insights-engine.md`; 1 potential issue in `potential-issues.md`. | done |
-| Build and test infrastructure | yes | Query: `.NET 8 dotnet test test project VSTest Microsoft Testing Platform`; Source: `https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test`; Mode 1 domain pattern lookup. Source documents `dotnet test` as the .NET test runner surface and the VSTest/Microsoft.Testing.Platform modes. | Reasoned omission: no diagnostic test written because the finding is the absence of a safe test harness. `test_baseline.sh` found no recognised stack, `Glob` found no `*Test*.cs`, and `dotnet msbuild` packaging was environment-blocked by a locked `.tmod`. | Not applicable. Build/test harness has no data-layout surface beyond excluding tests from `.tmod` packaging. | No Pass-1 modularisation candidate. | 2 certain findings in `build-and-tests.md`. | done |
+- **File-size scan / modularisation candidates:** `find … -name '*.cs' | xargs wc -l`
+  + the C# 550-line threshold + top-decile rule, computed manually. Output pasted into
+  `PASS-1-CHECKPOINT.md`.
+- **Import graph / hotspot intersect:** `import_graph.py` / `hotspot_intersect.py` only
+  parse Py/Rs imports → empty on C#. Substituted with `grep` over `using` directives +
+  the per-commit file activity recorded in `context/notes/decisions.md` + the
+  `context/perf-pass/baseline.md` hot-path inventory.
+- **Test baseline:** `scripts/test_baseline.sh` detects Cargo/pyproject/package.json/go.mod,
+  none present. Substituted with the real command `dotnet test
+  Tests/PerformanceProfiler.Tests.csproj`.
+- **Orphans:** `orphans.py` parses Py/Rs only. Substituted with manual `grep` call-site sweeps.
+- **Evidence-map lint / finalize:** language-agnostic; run normally.
 
-## Tool Obligation Rows
+## Rows
 
-| Obligation | Evidence | Status |
-|---|---|---|
-| `file_size_scan.py` broad sweep | `python3 /Users/atacanercetinkaya/.config/opencode/skills/code-health-audit/scripts/file_size_scan.py <repo>` scanned 160 source files and flagged 15 over-threshold rows, including duplicate `.claude/worktrees` copies. Production interpretation lives in `PASS-1-CHECKPOINT.md`. | done |
-| Test baseline | `bash /Users/atacanercetinkaya/.config/opencode/skills/code-health-audit/scripts/test_baseline.sh <repo>` found no recognised test stack; direct `dotnet msbuild` compiled `PerformanceProfiler.dll` but `.tmod` packaging failed due file lock. | done |
-| Modularisation candidate enumeration | Python/Rust helper reported no Python/Rust; C# fallback line count fixed four candidates in `PASS-1-CHECKPOINT.md`: `HookInterceptor.cs`, `SessionLogWriter.cs`, `ILHookInterceptor.cs`, `OverviewTab.cs`. Verdicts are in `PASS-2-SYSTEMS-AUDITED.md`. | done |
-| Import graph / hotspot scripts or C# fallback | `import_graph.py` and `hotspot_intersect.py` returned zero files because helper coverage is Python/Rust; C# fallback used manual call-chain, public-surface, line-count, churn, and criticality analysis during Pass 2. | done |
-| Orphan detection | `python3 /Users/atacanercetinkaya/.config/opencode/skills/code-health-audit/scripts/orphans.py <repo>` ran. Output: `_No orphan candidates detected._`; caveat that the script is Python/Rust-oriented and C# dead-code proof used `Grep` symbol-reference checks. | done |
-| Evidence-map lint | `python3 /Users/atacanercetinkaya/.config/opencode/skills/code-health-audit/scripts/evidence_map_lint.py <audit>/obligation-evidence-map.md` returned clean: 5 rows inspected; research modes `[1, 2, 3]`. | done |
-| Finalize audit receipt | `python3 /Users/atacanercetinkaya/.config/opencode/skills/code-health-audit/scripts/finalize_audit.py <audit>` emitted the required receipt; the verbatim receipt is in `index.md`. | done |
+| System | Research obligation | Diagnostic-test obligation | Findings emitted | Reasoned omissions |
+|--------|--------------------|-----------------------------|------------------|--------------------|
+| **Front-loaded (pre-Pass-1)** | Query: "code health audit patterns for C# .NET MonoMod IL hook instrumentation profiler memory"; Source: <https://learn.microsoft.com/en-us/dotnet/framework/unmanaged-api/profiling/profiling-overview>, <https://specterops.io/blog/2024/06/11/lateral-movement-with-the-net-profiler/>; Mode: 1 (domain pattern lookup) | n/a (front-load) | n/a | None |
+| **Hook-install RAM path** (`ILHookInterceptor.cs`, `HookBackend.cs`, `ProfilerSystem.PostSetupContent`) | Query: "MonoMod RuntimeDetour ILHook DynamicMethodDefinition DMDCecilGenerator retains ModuleDefinition memory after apply"; Source: <https://github.com/MonoMod/MonoMod/blob/master/MonoMod.RuntimeDetour/ILHook.cs>, <https://github.com/MonoMod/MonoMod.Common/blob/master/Utils/DynamicMethodDefinition.cs>; Mode: 3 (known-anti-pattern check) | **Decompiled the shipped binaries — ground truth, stronger than any synthetic test.** `MonoMod.RuntimeDetour 25.3.2` `DetourManager` via `ilspycmd` → `/tmp/dm.cs`: `ManagedDetourState.SourceCloneIl` (a DMD) never disposed until `RemoveILHook` (fields L346; `UpdateEndOfChain` L643-663 re-clones it on every chain change; the per-method temp DMD `val` is disposed in `finally` L662 but `SourceCloneIl` is not); `ILHookEntry.LastContext` `MakeReadOnly()`'d not disposed (`InvokeManipulator` L666-681 line 679; `CleanILContexts` L683-705 disposes only the *superseded* context). `MonoMod.Utils 25.0.10` `DynamicMethodDefinition` → `/tmp/dmd.cs`: holds `ModuleDefinition Module` (L59) + `MethodDefinition Definition` (L57); `Dispose()` (L636) disposes the Module — but is never called on `SourceCloneIl` while the hook lives. Plus split-measurement diagnostic `Tests/HookInstallRetentionDiagnostics.cs`. | 4 → [hook-install-ram.md](hook-install-ram.md) (F1 retention, F2 measurement-gap, F3 KB/hook drift, plus P-1 in potential-issues) | None |
+| **Self-health measurement** (`ProfilerSelfHealth.cs`) | Query: "GC.GetTotalMemory forceFullCollection false vs true measuring retained managed heap after transient allocation burst"; Source: <https://learn.microsoft.com/en-us/dotnet/api/system.gc.gettotalmemory>; Mode: 2 (specific-technique evaluation) | `Tests/HookInstallRetentionDiagnostics.cs` — `GetTotalMemory(false)` after allocate-then-release burst over-reports vs `GetTotalMemory(true)`, demonstrating the conflation `MarkInstallEnd` suffers (samples with `forceFullCollection:false` and no preceding collection). Result captured in finding F2. | 1 → [hook-install-ram.md](hook-install-ram.md#f2) | None |
+| **Build / test infrastructure** (`Tests/PerformanceProfiler.Tests.csproj`) | Query: "dotnet test CS2001 source file could not be found Compile Include stale path after refactor"; Source: <https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/compiler-messages/cs2001>; Mode: 3 (known-anti-pattern check) | `dotnet test Tests/PerformanceProfiler.Tests.csproj` → **build fails, 7× CS2001 reported, all 24 `Compile Include` paths stale** (files moved `Profiling/`→`Data/`). The baseline run IS the diagnostic. Stale→true-path map computed via `find`. | 2 → [build-and-tests.md](build-and-tests.md) (F4 broken-build, F5 path-map) | None |
+| **CS0105 duplicate-using sweep** (18 files: 14 `Data/Streams/`, 4 `Data/Aggregators/Segments/`) | Not performed — mechanical compiler-warning cleanup; the constant-table / lint tier per `detection-strategies.md` §"When Research Is Not Required". | `grep -nE '^using ' <file> \| sort \| uniq -d` over every `.cs` → 18 files with genuine in-file duplicate `using`; line numbers verified on 3 samples (SpikeStream L4+L9, OpenSegment L4+L7, SessionRecorder L7+L12). | 1 → [cross-cutting.md](cross-cutting.md#f6) | Research skipped: mechanical lint-class cleanup. |
+| **Documentation rot sweep** (`conventions.md` #13, `HookBackend.cs`, README KB/hook) | Not performed — verifying a comment against code is direct reading, not a research question (§"When Research Is Not Required"). | `grep -rn '_TempAllocBench'` → only a doc-comment reference; no such symbol. `grep -rn 'AggressiveInlining'` → present in ProbeStack/PerModAttribution, contradicting conventions.md #13. README says ~36 KB/hook; code `BaselineBytesPerHook = 36 KB`; live investigation reports ~60 KB/hook. | 2 → [cross-cutting.md](cross-cutting.md#f7) (F7 stale conventions #13 + README drift, F8 phantom benchmark ref) | Research skipped: doc-vs-code verification is reading. |
+| **Modularisation candidates** (12 compiled files ≥550 LOC + top-decile) | Not a per-system research target — handled by the Modularisation evaluation floor, verdicts in `PASS-2-SYSTEMS-AUDITED.md`. | n/a (structural verdicts, not tests) | Verdicts: see `PASS-2-SYSTEMS-AUDITED.md` (1 split-recommended, rest leave-as-is / not-applicable) | UI/ files not-applicable (archived `#if false`). |

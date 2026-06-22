@@ -1,122 +1,117 @@
 # Code Health Audit
 
-**Date:** 2026-05-20 (first pass) + 2026-05-21 (multi-agent follow-up pass)
-**Scope:** full repository, with Pass-2 deep dives on hook instrumentation, overlay UI, persistence/session logging, insights engine, and build/test infrastructure
-**Status:** first pass complete; multi-agent follow-up pass landed in two commits — see the 2026-05-21 section in `context/notes/decisions.md` for what changed and what was deferred.
-
-> The 2026-05-21 follow-up ran five parallel subagents across Data/, Profiling/ core, Persistence+Insights, Web/, and UI/. Findings: ~73 BUG-class plus larger PERF/SMELL/NIT counts. The critical-priority slice (Invariant 2/3 violations, data races, correctness bugs, hot-path allocations) landed in commits `90e5cc5` and `6443451`. Deferred items are enumerated at the bottom of the 2026-05-21 decisions entry.
+**Date:** 2026-06-22
+**Scope:** full repository, with the deepest Pass-2 dive on the **hook-install RAM path** (the live investigation's priority), plus a repository-wide sweep for build/test health, duplicate-using lint, documentation rot, and modularisation.
+**Status:** active (findings ready to implement)
+**Supersedes:** the 2026-05-20/21 audit previously in this folder (plan-lifecycle regeneration against current code; the prior run's per-system finding files for hook-instrumentation / insights / overlay / persistence were removed as this run does not re-audit those systems at depth — the prior critical fixes already landed per `context/notes/decisions.md`).
 
 ## Summary
 
-The audit found 16 certain findings and 6 potential issues. The highest-value work is to make the profiler's observability surfaces trustworthy: backend-aware coverage in session JSON, persistence failure isolation, a safe non-shipping test harness, and honesty fixes in the Insights ranking/badge path. Production source was not edited.
+The audit confirmed, with **decompiled ground-truth evidence from the shipped MonoMod
+binaries** (`RuntimeDetour 25.3.2`, `Utils 25.0.10`), that the ~8.2 GB tModLoader
+attributes to the profiler on a 100-mod / 152,310-hook stack is **mostly genuinely
+retained state, not a measurement illusion**: per hooked method, MonoMod keeps two Cecil
+method bodies alive for the hook's applied lifetime (the `SourceCloneIl` DMD and a
+read-only `LastContext` ILContext), reclaimed only on mod unload. The audit also found a
+real **measurement gap** — `ProfilerSelfHealth.MarkInstallEnd` samples the unstable
+`GetTotalMemory(false)` form with no collection, while `MarkInstallStart` forces a Gen2;
+a diagnostic test the audit wrote shows this swings the reported number by ~50%. Beyond
+the priority area, the **pure-logic test suite does not build** (all 24 linked-source
+paths stale after the v0.10/v0.12 reorganisation), plus 18 CS0105 duplicate-`using`
+warnings and three documentation-rot items. 8 certain findings + 2 potential issues.
+Production source was not edited; one diagnostic test (2 passing cases) was added.
+
+The single genuinely-free, coverage-preserving, in-repo win is **F2** (force a Gen2 in
+`MarkInstallEnd`): trivial, makes the install-delta honest and repeatable, no feature
+removed. The structural retained-memory reduction (reclaiming the read-only ILContext)
+is real but needs MonoMod upstream cooperation or risky reflection, so it is filed as
+**P-1** (potential) rather than presented as free.
 
 ## What I Did Not Do
 
 | Obligation | Status | Evidence |
-|---|---|---|
-| Pre-Pass-1 front-loaded external research | done | Query `code health audit patterns for C# tModLoader mod`; URL `https://www.bing.com/search?q=code+health+audit+patterns+for+C%23+tModLoader+mod`; recorded in `obligation-evidence-map.md`. |
-| Mandatory reference loading | done | Read all ten `code-health-audit/references/*.md` files before writing findings. |
-| Pass-1 checkpoint written before final output | done | `context/plans/code-health-audit/PASS-1-CHECKPOINT.md`. |
-| Project test/build baseline captured | done | `test_baseline.sh` found no recognised test stack; `dotnet msbuild` compiled DLL then failed package step due locked `.tmod`; recorded in Pass 1. |
-| Pre-existing test failures recorded | done | No test suite exists, so no failing tests could be enumerated; missing infrastructure is recorded in `build-and-tests.md`. |
-| Research obligation per substantive system | done | Five system rows in `obligation-evidence-map.md`, each with query, URL, and mode. |
-| Research mode variety | done | Modes 1, 2, and 3 are represented in `obligation-evidence-map.md`. |
-| Diagnostic tests written where required | partial | No tests written. Reasoned omission: no safe non-shipping C# test harness exists; adding `.cs` tests inside this mod source risks `.tmod` packaging unless production build metadata changes. Findings are either high-confidence from direct code evidence or marked possible/potential where tests/runtime evidence are needed. |
-| Modularisation candidate list enumerated | done | Four candidates listed in `PASS-1-CHECKPOINT.md`. |
-| Every modularisation candidate has a verdict | done | `PASS-2-SYSTEMS-AUDITED.md` records four verdicts. |
-| Confidence upgrade pathway attempted | done | Additional code reads, external docs, symbol searches, and potential-issue separation were used; no moderate/low certain finding relies on untested speculation without a reasoned omission. |
-| Pass-2 systems-audited checkpoint written | done | `context/plans/code-health-audit/PASS-2-SYSTEMS-AUDITED.md`. |
-| Potential-issues sweep ran | done | `context/plans/code-health-audit/potential-issues.md` contains 6 entries. |
-| Certain-set non-regression check | done | `PASS-2-SYSTEMS-AUDITED.md` states no finding was moved to potential to avoid proof obligations. |
-| Data Layout and Memory Access Patterns applied | done | Per-system data-layout decisions recorded in `PASS-2-SYSTEMS-AUDITED.md`; concrete allocation findings recorded in hook and overlay files. |
-| Orphan detection | done | `orphans.py` ran and reported no orphan candidates; C# dead-code proof used `Grep` symbol checks. |
-| Production source not modified | done | `git status --short` shows only `?? context/plans/`; `git diff --stat` produced no tracked production diff. |
-| Evidence-map lint | done | `evidence_map_lint.py` returned clean with 5 rows inspected and research modes `[1, 2, 3]`. |
-| Audit termination receipt | done | `finalize_audit.py` receipt pasted below. |
+|------------|--------|----------|
+| Pre-Pass-1 front-loaded WebSearch | done | Query "code health audit patterns for C# .NET MonoMod IL hook instrumentation profiler memory"; URLs in `obligation-evidence-map.md` front-load row; recorded before any reference read. |
+| Mandatory reference loading (all 10) | done | Read all `code-health-audit/references/*.md` in load order before Pass 1. |
+| Pass-1 checkpoint written before Pass 2 | done | `PASS-1-CHECKPOINT.md`. |
+| Project test/build baseline captured | done | `dotnet test Tests/PerformanceProfiler.Tests.csproj` → **build fails, CS2001 ×7, 24/24 paths stale**; recorded in `PASS-1-CHECKPOINT.md` §3. |
+| Pre-existing test failures recorded as Known Issues | done | The broken build IS the finding → F4 (`build-and-tests.md`). |
+| Research per substantive system | done | 6 system rows in `obligation-evidence-map.md`, each with query + URL + mode; mechanical lint / doc-vs-code systems recorded as reasoned omissions with justification. |
+| Research-mode variety (≥3 modes) | done | Modes 1, 2, 3 all represented; distribution table at top of `obligation-evidence-map.md` (lint confirms `[1, 2, 3]`). |
+| Diagnostic tests written where moderate→high upgrade applies | done | `Tests/HookInstallRetentionDiagnostics.cs` (2 cases, both passing) + **decompilation of the shipped MonoMod binaries** (stronger than any synthetic test) for the F1 retention root cause. Referenced from F1/F2. |
+| Confidence upgrade pathway attempted before moderate/low findings | done | F1's retention claim upgraded from "suspected Cecil retention" (decisions.md:201) to confirmed via decompilation; F2 upgraded via the passing diagnostic test. The not-free structural reclaim is filed as P-1, not a lukewarm certain finding. |
+| Pass-2 systems-audited checkpoint written | done | `PASS-2-SYSTEMS-AUDITED.md`. |
+| Potential-issues sweep ran (Pass 2.5) | done | `potential-issues.md` — 2 entries (P-1 ILContext reclaim, P-2 denominator mismatch), each with locations + observation + reasoning + suggested investigation + why-not-certain. |
+| Certain-set non-regression check | done | No finding demoted to potential to dodge proof; see `PASS-2-SYSTEMS-AUDITED.md` final section. |
+| Modularisation candidate list enumerated in Pass 1 | done | `PASS-1-CHECKPOINT.md` §4 — all compiled files ≥550 LOC + top-decile. |
+| Every modularisation candidate has a verdict | done | `PASS-2-SYSTEMS-AUDITED.md` — 13 leave-as-is (each justified per §3), generated/archived groups not-applicable; 0 "out-of-scope" verdicts. |
+| Data Layout / Memory Access analysis per audited system | done | Per-system applicability table in `PASS-2-SYSTEMS-AUDITED.md`; the priority system IS a Data-Layout finding (F1). |
+| Production source not modified | done | `git status` shows only `context/plans/code-health-audit/**` + `Tests/HookInstallRetentionDiagnostics.cs` + `Tests/Diagnostics/**` (test infrastructure carve-out) + the pre-existing untouched `context/notes/modlist-pre-upgrade-2026-06-22.md`. |
+| Scripts: Python/Rust path vs C# fallback | done | Project is C# (outside `scripts/*.py` coverage). Fallback path (`find`+`wc`, `grep`, `dotnet test`) recorded as reasoned omission in `obligation-evidence-map.md` §"Language-coverage note". `evidence_map_lint.py` + `finalize_audit.py` (language-agnostic) run normally. |
+| Evidence-map lint exit 0 before final output | done | `evidence_map_lint.py` → "lint: clean", 7 rows, modes [1,2,3], exit 0. |
 
 ## Findings Overview
 
-| File | System | Critical | High | Medium | Low | Total |
-|---|---|---:|---:|---:|---:|---:|
-| [hook-instrumentation.md](hook-instrumentation.md) | Hook instrumentation | 0 | 0 | 2 | 2 | 4 |
-| [overlay-ui.md](overlay-ui.md) | Overlay UI | 0 | 0 | 2 | 0 | 2 |
-| [persistence-session-logging.md](persistence-session-logging.md) | Persistence/session logging | 0 | 1 | 3 | 0 | 4 |
-| [insights-engine.md](insights-engine.md) | Insights engine | 0 | 0 | 3 | 1 | 4 |
-| [build-and-tests.md](build-and-tests.md) | Build/test infrastructure | 0 | 1 | 1 | 0 | 2 |
-| **Total** |  | **0** | **2** | **11** | **3** | **16** |
+| File | Concern | Critical | High | Medium | Low | Total |
+|------|---------|----------|------|--------|-----|-------|
+| [hook-install-ram.md](hook-install-ram.md) | Hook-install RAM (priority) | 0 | 2 | 1 | 0 | 3 |
+| [build-and-tests.md](build-and-tests.md) | Build / test infrastructure | 0 | 1 | 1 | 0 | 2 |
+| [cross-cutting.md](cross-cutting.md) | Project-wide hygiene / doc rot | 0 | 0 | 0 | 3 | 3 |
+| [potential-issues.md](potential-issues.md) | Suspicions (separate bar) | — | — | — | — | 2 |
+| **Total certain** | | **0** | **3** | **2** | **3** | **8** |
 
 ## Priority Actions
 
-1. **[HIGH]** Add a non-shipping C# test harness before more pure logic accumulates — [build-and-tests.md#create-a-non-shipping-c-test-harness-before-more-pure-logic-accumulates](build-and-tests.md#create-a-non-shipping-c-test-harness-before-more-pure-logic-accumulates)
-2. **[HIGH]** Isolate session logging failures from world lifecycle — [persistence-session-logging.md#isolate-session-logging-failures-from-world-lifecycle](persistence-session-logging.md#isolate-session-logging-failures-from-world-lifecycle)
-3. **[MEDIUM]** Use backend-aware coverage counters in session JSON — [hook-instrumentation.md#use-backend-aware-coverage-counters-in-session-json](hook-instrumentation.md#use-backend-aware-coverage-counters-in-session-json)
-4. **[MEDIUM]** Score share-based insight magnitudes as fractions — [insights-engine.md#score-share-based-insight-magnitudes-as-fractions-not-ratios-above-one](insights-engine.md#score-share-based-insight-magnitudes-as-fractions-not-ratios-above-one)
-5. **[MEDIUM]** Prevent untested observations from promoting to medium confidence — [insights-engine.md#prevent-untested-observations-from-promoting-to-medium-confidence-by-repetition-alone](insights-engine.md#prevent-untested-observations-from-promoting-to-medium-confidence-by-repetition-alone)
-6. **[MEDIUM]** Move truncation allocations out of per-row draw paths — [overlay-ui.md#move-truncation-allocations-out-of-per-row-draw-paths](overlay-ui.md#move-truncation-allocations-out-of-per-row-draw-paths)
+1. **[HIGH]** Force a Gen2 in `MarkInstallEnd` so the install-delta / KB-per-hook / severity are honest and repeatable (the only free in-repo win in the priority area) — [hook-install-ram.md#f2](hook-install-ram.md#f2).
+2. **[HIGH]** Repair the test project's 24 stale `<Compile Include>` paths so the pure-logic suite builds again — [build-and-tests.md#f4](build-and-tests.md#f4) (path map in [#f5](build-and-tests.md#f5)).
+3. **[HIGH]** Acknowledge / act on the confirmed per-hook Cecil retention root cause; the structural reclaim is P-1 (needs MonoMod cooperation) — [hook-install-ram.md#f1](hook-install-ram.md#f1).
+4. **[MED]** Reconcile README ~36 KB/hook vs code baseline 36 KB vs observed ~60 KB/hook (honesty contract) — [hook-install-ram.md#f3](hook-install-ram.md#f3).
+5. **[LOW]** Remove 18 CS0105 duplicate-`using` lines (exact line pairs listed) — [cross-cutting.md#f6](cross-cutting.md#f6).
+6. **[LOW]** Fix stale `conventions.md` #13 (AggressiveInlining IS used) and the phantom `_TempAllocBench` doc reference — [cross-cutting.md#f7](cross-cutting.md#f7), [#f8](cross-cutting.md#f8).
 
 ## By Category
 
-| Category | Count | Main systems |
-|---|---:|---|
-| Known Issues and Active Risks | 8 | Session logging, insights, overlay contract, build baseline, coverage JSON |
-| Test Coverage Gaps | 2 | Build/test infrastructure, session schema |
-| Modularisation | 1 | `SessionLogWriter.cs` |
-| Dead Code Removal | 1 | `HookInterceptor.cs` legacy helpers |
-| Pattern Extraction | 1 | Backend category routing |
-| Performance Improvement | 2 | Overlay truncation, spike window view wrapper |
-| Documentation Rot | 1 | Gated free-removal detector comments |
+- Data Layout and Memory Access Patterns: 1 (F1) — the priority finding.
+- Known Issues and Active Risks: 3 (F2, F4, F5).
+- Documentation Rot: 3 (F3, F7, F8).
+- Inconsistent Patterns: 1 (F6).
+- Potential issues (separate bar): 2 (P-1, P-2).
 
-## Potential Issues
+## Diagnostic tests written by this audit
 
-See [potential-issues.md](potential-issues.md) for six follow-ups that need runtime evidence or a product decision before implementation.
+| Test | What it asserts | Result |
+|------|-----------------|--------|
+| `Tests/HookInstallRetentionDiagnostics.cs` → `ForcedCollection_IsRepeatable` | Two consecutive `GetTotalMemory(true)` samples on a stable set agree (drift ≤ 1 MB) | PASS (0 KB drift) |
+| `Tests/HookInstallRetentionDiagnostics.cs` → `ForcedCollection_GivesStableRetainedMeasurement` | `GetTotalMemory(false)` vs `(true)` differ materially (methodology spread); forced form is a sound retained lower bound | PASS (24.3 MB vs 32.2 MB on 16 MB set; 7.9 MB spread) |
 
-## Implementation Receipt (2026-05-20, post-audit)
+Built/run via the self-contained `Tests/Diagnostics/HookInstallRetentionDiagnostics.csproj`
+(separate from the broken main test project per F4). The fixture's doc-comment honestly
+records that an over-report claim it first attempted did NOT reproduce synthetically, and
+narrows to the property it can prove. Decompiled binaries (`/tmp/dm.cs`, `/tmp/dmd.cs`)
+back the F1 retention claim with ground truth.
 
-The audit was followed by an in-session implementation pass across three commits.
-Status of every certain finding and every potential issue is recorded below;
-the audit's own termination receipt follows unchanged.
+## Note for the implementing engineer
 
-### Certain findings — implementation status
-
-| File | Finding | Status | Notes |
-|---|---|---|---|
-| hook-instrumentation | Remove legacy delegate hook-name arrays and helper methods | done | Round 1 — ~180 lines deleted; HookCoverageVersion bumped to 3. |
-| hook-instrumentation | Use backend-aware coverage counters in session JSON | done | Round 1 — new `HookCoverageView`; overlay + TreeTab + SessionLogWriter all route through it. |
-| hook-instrumentation | Share hook category routing between backends | done | Round 1 — new `HookCategoryRouter.ResolveCategory`. |
-| hook-instrumentation | Cache the spike window view exposed to consumers | done | Round 1 — `SpikeDetector` allocates `_windowsView` at construction. |
-| overlay-ui | Reconcile `IOverlayTab.IsAvailable` with tab chrome behaviour | done | Round 2 — enforced via `TabRegistry.Visible` + `ResolveActive`. |
-| overlay-ui | Move truncation allocations out of per-row draw paths | done | Round 2 — `OverviewTab._truncatedNames` and `InsightsTab._rankedBodies` caches refilled at 1 Hz. |
-| persistence-session-logging | Isolate session logging failures from world lifecycle | done | Round 1 — `ProfilerSystem` wraps `Create`/`Tick`/`End` in try/catch with `SessionLogFailureException` self-disable. |
-| persistence-session-logging | Write session reports through a temp file and same-directory replace | done | Round 1 — new `AtomicWrite` using `File.Replace` (with `File.Move` first-write fallback). |
-| persistence-session-logging | Split pure report construction from file I/O in `SessionLogWriter` | DEFERRED | Pure code-org refactor with zero behaviour change. Best landed once the new test harness can safety-net the relocation. |
-| persistence-session-logging | Add schema snapshot coverage for agent-readable session reports | DEFERRED | Depends on the split above. Belongs in the follow-up commit that does the split. |
-| insights-engine | Score share-based insight magnitudes as fractions, not ratios above one | done | Round 2 — `RankingScorer.NormaliseMagnitude` is now pattern-aware. |
-| insights-engine | Prevent untested observations from promoting to medium confidence | done | Round 2 — `InsightStore.PromoteConfidence` gates Medium on `PValueAdjusted <= 0.10`. Pinned by `Tests/InsightStoreTests.cs`. |
-| insights-engine | Separate data-strength badges from confidence badges | done | Round 2 — new `EvidenceScope` enum + field; rendered alongside Confidence in `InsightsTab`. |
-| insights-engine | Correct the gated free-removal detector comments | done | Round 2 — docstring rewritten to state the actual gated-roster contract. |
-| build-and-tests | Create a non-shipping C# test harness | done | Round 3 — `Tests/PerformanceProfiler.Tests.csproj` (xUnit). 10/10 tests pass; main mod build unaffected. |
-| build-and-tests | Treat the current `.tmod` packaging failure as an environment blocker | acknowledged | tModLoader was open during every dev-side build; the C# DLL compiles cleanly, only `.tmod` packaging hits the file lock. Closing tML resolves it. |
-
-### Potential issues — implementation status
-
-| # | Issue | Status | Notes |
-|---|---|---|---|
-| 1 | Partial ILHook install failure may leave already-added hooks undisposed | done | Round 1 — `ILHookInterceptor.Install` outer catch now calls `Uninstall()`. |
-| 2 | Delegate fallback install failures may be counted as measured hooks | done | Round 1 — `TryHookSupportedOverride` returns a tri-state `InstallOutcome`; install failures get their own counter. |
-| 3 | Open spike windows may be missing from final session reports | done | Round 1 — `MetricCollector.FlushSpikes()` is called in `OnWorldUnload` before the final `End()`. |
-| 4 | Public two-arg `PerModAttribution.Add` appears unused | done | Round 1 — overload removed. |
-| 5 | Session log pruning may delete manual JSON artefacts | done | Round 1 — `PruneIncompatibleLogs` narrowed to the writer-owned filename shape via `LooksLikeOurReport`. |
-| 6 | Insights have a player surface before an agent/session-log surface | done | Round 2 — `SessionLogWriter` schema v4 includes an `insights` block (live + history + gated). |
-
-### Deferred for a follow-up commit
-
-* persistence-session-logging modularisation finding (split `SessionLogWriter` into lifecycle/IO + pure `SessionReportBuilder`) — pure refactor, no behaviour change. Best landed alongside the schema-snapshot test the same finding implies, now that the test harness exists.
+Two concurrent agents were running against this repo during this audit. This run touched
+**only** `context/plans/code-health-audit/**` and the two new test files; it did not edit
+any production `.cs` (including the install-path files `ILHookInterceptor.cs`,
+`HookBackend.cs`, `ProfilerSelfHealth.cs`, which the main session was investigating live)
+nor the rest of `context/` (architecture/systems/_Overview owned by a concurrent
+`upkeep-context` agent), nor the untouched `context/notes/modlist-pre-upgrade-2026-06-22.md`.
 
 ## Audit Termination Receipt
 
+> Note: the receipt's "Counts" line is `finalize_audit.py`'s own coarse regex heuristic
+> (it scans for a couple of marker strings); the authoritative counts are 8 certain
+> findings + 2 potential issues, and 13 leave-as-is / generated-archived-not-applicable
+> modularisation verdicts, as detailed in `PASS-2-SYSTEMS-AUDITED.md`. The receipt's
+> load-bearing content is the verbatim lint result proving the evidence map passed at the
+> terminal moment.
+
+```
 # Audit Termination Receipt — generated by finalize_audit.py
 
-_Generated: 2026-05-20T00:55:46Z_
+_Generated: 2026-06-22T13:26:45Z_
 _Audit folder: `/Users/atacanercetinkaya/Library/Application Support/Terraria/tModLoader/ModSources/PerformanceProfiler/context/plans/code-health-audit`_
 
 ## Lint
@@ -125,34 +120,33 @@ _Audit folder: `/Users/atacanercetinkaya/Library/Application Support/Terraria/tM
 - Exit code: 0
 - Output (verbatim):
 
-```
+\`\`\`
 # Evidence map lint: clean
 
 _Checked: `/Users/atacanercetinkaya/Library/Application Support/Terraria/tModLoader/ModSources/PerformanceProfiler/context/plans/code-health-audit/obligation-evidence-map.md`_
 
-Rows inspected: 5
+Rows inspected: 7
 Research modes detected: [1, 2, 3]
-```
+\`\`\`
 
 ## Counts
 
-- Certain findings: 16
-- Potential issues: 6
-- Modularisation verdicts: split-recommended=4, leave-as-is=4, not-applicable=0
+- Certain findings: 1
+- Potential issues: 2
+- Modularisation verdicts: split-recommended=1, leave-as-is=1, not-applicable=0
 
 ## Audit folder contents
 
-```
+\`\`\`
 - PASS-1-CHECKPOINT.md
 - PASS-2-SYSTEMS-AUDITED.md
 - build-and-tests.md
-- hook-instrumentation.md
+- cross-cutting.md
+- hook-install-ram.md
 - index.md
-- insights-engine.md
 - obligation-evidence-map.md
-- overlay-ui.md
-- persistence-session-logging.md
 - potential-issues.md
-```
+\`\`\`
 
 _Paste this entire block verbatim into `index.md` under the section `## Audit Termination Receipt`. The Quality Checklist requires its presence; absence of this section is a checklist failure._
+```
