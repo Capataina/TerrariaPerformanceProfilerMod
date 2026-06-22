@@ -64,6 +64,12 @@ async function pollSelf() {
   if (activeTab === 'self') renderSelf();
 }
 
+async function pollMemory() {
+  const mem = await fetchJson('/api/memory');
+  if (mem) lastMemory = mem;
+  if (activeTab === 'memory') renderMemory();
+}
+
 async function pollHeatmap() {
   const hm = await fetchJson('/api/heatmap');
   if (hm) lastHeatmap = hm;
@@ -143,8 +149,9 @@ setInterval(pollNow, POLL_NOW_MS);
 setInterval(pollDetail, POLL_DETAIL_MS);
 setInterval(pollHooks, POLL_HOOKS_MS);
 setInterval(pollSelf, POLL_SELF_MS);
+setInterval(pollMemory, POLL_SELF_MS);
 setInterval(pollHeatmap, 3000);
 setInterval(updateConnection, 1000);
-pollNow(); pollDetail(); pollSelf(); pollHeatmap();
+pollNow(); pollDetail(); pollSelf(); pollHeatmap(); pollMemory();
 ";
 }

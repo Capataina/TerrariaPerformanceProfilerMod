@@ -27,6 +27,7 @@ let activeTab = 'summary';
 let lastNow = null, lastFrames = null, lastMods = null, lastHooks = null;
 let lastSegments = null, lastSpikes = null, lastStalls = null;
 let lastInsights = null, lastSelf = null, lastHeatmap = null, lastEvents = null;
+let lastMemory = null;
 let lastSuccessAt = Date.now();
 let modSort = 'composite';
 let modFilter = '';

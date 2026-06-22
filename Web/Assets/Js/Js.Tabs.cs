@@ -29,7 +29,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 // Keyboard 1-5 switches tabs.
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
-  const map = { '1': 'summary', '2': 'timeline', '3': 'lag', '4': 'insights', '5': 'self' };
+  const map = { '1': 'summary', '2': 'timeline', '3': 'lag', '4': 'insights', '5': 'self', '6': 'memory' };
   if (map[e.key]) switchTab(map[e.key]);
   if (e.key === 'Escape') closeModCard();
 });

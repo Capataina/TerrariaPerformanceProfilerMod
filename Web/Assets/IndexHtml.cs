@@ -14,5 +14,6 @@ internal static partial class DashboardAssets
         HtmlLag,
         HtmlInsights,
         HtmlSelf,
+        HtmlMemory,
         HtmlClosing);
 }

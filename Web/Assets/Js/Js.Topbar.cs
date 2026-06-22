@@ -51,6 +51,7 @@ function renderAll() {
     case 'lag':      renderLag();      break;
     case 'insights': renderInsights(); break;
     case 'self':     renderSelf();     break;
+    case 'memory':   renderMemory();   break;
   }
 }
 ";

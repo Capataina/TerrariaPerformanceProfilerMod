@@ -54,6 +54,7 @@ internal static partial class DashboardAssets
         CssLag,
         CssInsights,
         CssSelf,
+        CssMemory,
         CssModCard,
         CssTooltip,
         CssFooter,
@@ -87,5 +88,6 @@ internal static partial class DashboardAssets
         JsTimeline,
         JsLag,
         JsInsights,
-        JsSelf);
+        JsSelf,
+        JsMemory);
 }

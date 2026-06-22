@@ -46,6 +46,7 @@ internal static partial class DashboardAssets
     <button class=""tab"" data-tab=""lag""><span class=""ki"">3</span>Lag</button>
     <button class=""tab"" data-tab=""insights""><span class=""ki"">4</span>Insights</button>
     <button class=""tab"" data-tab=""self""><span class=""ki"">5</span>Self</button>
+    <button class=""tab"" data-tab=""memory""><span class=""ki"">6</span>Memory</button>
   </nav>
 
   <!-- ===== Disconnect / no-world overlays =============================== -->

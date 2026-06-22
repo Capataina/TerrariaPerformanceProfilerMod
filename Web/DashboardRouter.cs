@@ -69,6 +69,7 @@ internal static partial class DashboardRouter
             "/api/stalls"        => HttpResponse.Json(BuildStalls()),
             "/api/insights"      => HttpResponse.Json(BuildInsights()),
             "/api/self"          => HttpResponse.Json(BuildSelf()),
+            "/api/memory"        => HttpResponse.Json(BuildMemory()),
             "/api/heatmap"       => HttpResponse.Json(BuildHeatmap()),
             "/api/events"        => HttpResponse.Json(BuildEvents()),
 
