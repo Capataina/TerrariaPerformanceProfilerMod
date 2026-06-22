@@ -8,7 +8,6 @@ using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
 
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Stats;

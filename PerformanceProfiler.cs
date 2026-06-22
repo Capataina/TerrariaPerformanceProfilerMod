@@ -52,7 +52,7 @@ public class PerformanceProfiler : Mod
     /// Local HTTP dashboard server. Loopback-only (127.0.0.1), bound at
     /// <see cref="Load"/>, disposed at <see cref="Unload"/>. Null if the
     /// bind failed (every port in the search range busy); in that case
-    /// the F10 keybind prints a failure message and the rest of the mod
+    /// the F9 keybind prints a failure message and the rest of the mod
     /// keeps working.
     /// </summary>
     public static DashboardHttpServer? Dashboard { get; private set; }
@@ -98,7 +98,7 @@ public class PerformanceProfiler : Mod
 
         // v0.8 step 1 prototype: start the loopback HTTP dashboard server.
         // TcpListener-based, no admin needed, binds 127.0.0.1:27277 (or the
-        // next free port up to 27287). F10 in-game opens the default browser
+        // next free port up to 27287). F9 in-game opens the default browser
         // to the chosen URL.
         try
         {
@@ -109,12 +109,12 @@ public class PerformanceProfiler : Mod
                     if (ex != null) Logger.Warn($"{msg}: {ex.GetType().Name}: {ex.Message}");
                     else Logger.Info(msg);
                 });
-            Logger.Info($"Dashboard server bound at {Dashboard.Url} (press F10 in-game to open).");
+            Logger.Info($"Dashboard server bound at {Dashboard.Url} (press F9 in-game to open).");
         }
         catch (Exception ex)
         {
             Dashboard = null;
-            Logger.Warn($"Dashboard server failed to start ({ex.GetType().Name}: {ex.Message}); F10 keybind will be inert.");
+            Logger.Warn($"Dashboard server failed to start ({ex.GetType().Name}: {ex.Message}); F9 keybind will be inert.");
         }
     }
 

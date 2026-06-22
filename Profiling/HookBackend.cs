@@ -66,7 +66,7 @@ public static class HookBackend
     /// attributed in parallel to per-mod CPU time.
     ///
     /// <para>
-    /// Default: true. The benchmark in <c>_TempAllocBench</c> measured the
+    /// Default: true. A throwaway micro-benchmark (not retained in the tree) measured the
     /// alloc API at ~3.2 ns/call vs Stopwatch at ~17.2 ns -- 5× cheaper --
     /// so the per-call cost of carrying alloc tracking on top of timing is
     /// marginal at our current modlist scale. This is the "Deep" mode the

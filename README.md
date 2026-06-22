@@ -133,7 +133,7 @@ Three rules we enforce on ourselves:
 Profiling is never free, so we measure our own cost too — and surface it on the **Self** tab so the claim is verifiable, not trusted.
 
 - **CPU**: target < 1% overhead in the default mode. On a real 18-mod install we measured 0.12 ms/tick, which is about 0.7% of a 16.6 ms frame budget at 60 fps.
-- **RAM**: ~36 KB of managed memory per installed hook. For a typical 10,000-hook install that's about 350 MB; for a 50,000-hook kitchen-sink that's about 1.7 GB. (Yes, that scales with modlist size. We're upfront about it.)
+- **RAM**: ~50-60 KB of managed memory per installed hook, mostly MonoMod/Cecil per-hook detour scaffolding. This is the dominant cost and the focus of ongoing optimisation. A ~10,000-hook install is roughly 0.5 GB; a heavy ~60,000-hook modlist (full Calamity + Thorium-class) measured ~3.5 GB; a ~150,000-hook kitchen-sink measured ~8 GB. (Yes, it scales with modlist size, and we measure and surface our own footprint on the Self tab.)
 - **Disk**: a few KB per minute of play. The database keeps a rolling window of recent ticks at full resolution and downsampled aggregates for older data.
 - **Network**: zero. Loopback only.
 

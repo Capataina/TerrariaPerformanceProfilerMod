@@ -5,7 +5,6 @@ using PerformanceProfiler.Profiling.Persistence.Records;
 using PerformanceProfiler.Profiling.Pools;
 
 using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;

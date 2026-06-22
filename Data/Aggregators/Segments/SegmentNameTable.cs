@@ -3,7 +3,6 @@
 using PerformanceProfiler.Profiling.Events;
 
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Stats;
