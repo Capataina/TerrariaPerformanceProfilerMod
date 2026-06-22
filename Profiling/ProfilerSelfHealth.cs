@@ -179,10 +179,15 @@ public sealed class ProfilerSelfHealth
     /// </summary>
     public void MarkInstallEnd(int installedHookCount)
     {
-        // No forced GC here: the delta should reflect what we ACTUALLY hold
-        // after install, including any pinning effects. Forcing here would
-        // under-report by collecting transient install scratch we genuinely
-        // released.
+        // Force a Gen2 before sampling, symmetric with MarkInstallStart, so the
+        // delta measures RETAINED state rather than whatever transient install
+        // scratch the GC happened not to have collected at the sampling instant.
+        // Without this the reported install-delta / bytes-per-hook swung ~25%
+        // between identical 152k-hook loads (9.0 GB vs 7.2 GB) on GC timing
+        // alone. The bulk is genuinely retained regardless (decompiled MonoMod
+        // keeps a per-hook SourceCloneIl + read-only LastContext Cecil graph
+        // until unload); this only makes the number honest and repeatable.
+        GC.Collect(generation: 2, mode: GCCollectionMode.Forced, blocking: true);
         ManagedHeapAtInstallEndBytes = GC.GetTotalMemory(forceFullCollection: false);
         InstalledHookCount = installedHookCount;
         IsInstalled = true;
