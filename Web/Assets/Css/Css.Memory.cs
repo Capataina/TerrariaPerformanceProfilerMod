@@ -10,7 +10,7 @@ internal static partial class DashboardAssets
 
 /* Consistent inset so the first stat cell isn't flush against the panel edge,
    matching the strip/legend below it. */
-.mem-summary { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 0.2rem 0.2rem 0.9rem; }
+.mem-summary { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 0.2rem 0.9rem 0.9rem; }
 .mem-stat { display: flex; flex-direction: column; gap: 0.1rem; }
 .mem-stat .k { font-family: var(--ui); font-size: 0.65rem; text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--muted); }
@@ -18,6 +18,13 @@ internal static partial class DashboardAssets
   font-variant-numeric: tabular-nums; }
 
 .mem-strip { height: 1.7rem; }
+/* The panel itself carries no body padding, so the strip + legend sat flush to
+   the panel border and read as if they spilled past the right edge. Inset both
+   to the panel-header gutter (0.9rem) so they line up under the header/summary.
+   width:auto lets the flex strip fill the inset box, overriding .split-bar's
+   width:100%; .split-bar's overflow:hidden still clips any rounding overshoot. */
+#mem-strip  { width: auto; margin-left: 0.9rem; margin-right: 0.9rem; }
+#mem-legend { margin-left: 0.9rem; margin-right: 0.9rem; }
 .mem-strip .mem-slice { cursor: pointer; transition: filter 0.12s, width 0.3s ease-out; }
 .mem-strip .mem-slice:hover { filter: brightness(1.25); }
 .mem-strip .mem-slice.sel { box-shadow: inset 0 0 0 2px var(--text-bright); }

@@ -23,6 +23,10 @@ internal static partial class DashboardAssets
   grid-template-columns: 2em minmax(0, 1.4fr) minmax(0, 2.2fr) 4.5em 4.5em 4.5em 5em;
   align-items: center; gap: 0.5rem;
   padding: 0.25rem 0.9rem;
+  /* Reserve the 2px left bar on every row (and the header, so columns stay
+     aligned) — it is transparent at rest and tinted on hover / for outliers,
+     which means no layout shift when it lights up. */
+  border-left: 2px solid transparent;
   font-family: var(--mono); font-size: 0.88rem;
 }
 .modtable-head {
@@ -46,13 +50,16 @@ internal static partial class DashboardAssets
 }
 .modrow {
   border-bottom: 1px solid var(--border-soft);
-  transition: background 0.12s, box-shadow 0.12s;
+  transition: background 0.12s, border-color 0.12s;
   cursor: pointer;
   user-select: none;
 }
+/* Hover lights the left bar only — no top/bottom edges. The bar is the
+   reserved transparent border tinted to the accent, so the highlight is a
+   single clean vertical stroke instead of a box-shadow drawing extra edges. */
 .modrow:hover {
   background: var(--hover);
-  box-shadow: inset 2px 0 0 var(--accent);
+  border-left-color: var(--accent);
 }
 .modrow:hover .twirl { color: var(--accent); }
 /* Mod name keeps text-select on so users can copy mod names if needed,
@@ -74,7 +81,14 @@ internal static partial class DashboardAssets
 }
 .modrow .name .modname:hover { color: var(--accent); }
 .modrow.is-top .name .modname { color: var(--text-bright); font-weight: 500; }
-.modrow.outlier { background: rgba(245, 179, 66, 0.04); border-left: 2px solid var(--amber); }
+/* The is-top bright-name rule has equal specificity to the generic name:hover
+   above and wins by source order, so highlighted rows never went blue on hover.
+   This explicit, higher-specificity hover restores it for them too. */
+.modrow.is-top .name .modname:hover { color: var(--accent); }
+.modrow.outlier { background: rgba(245, 179, 66, 0.04); border-left-color: var(--amber); }
+/* Outlier marker is gold at rest; on hover it resolves to the accent like
+   every other row rather than layering a second blue bar over the gold. */
+.modrow.outlier:hover { border-left-color: var(--accent); }
 .modrow .bar {
   height: 0.6rem; background: var(--surface);
   border-radius: 1px; overflow: hidden; position: relative;
@@ -115,7 +129,6 @@ internal static partial class DashboardAssets
 .cat-row:hover {
   background: var(--hover);
   border-left-color: var(--accent);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 .cat-row .twirl { color: var(--muted); font-size: 0.8em; width: 0.8em; text-align: center; transition: transform 0.15s, color 0.12s; }
 .cat-row:hover .twirl { color: var(--accent); }

@@ -36,5 +36,14 @@ internal static partial class DashboardAssets
 /* Keep the memory strip + any colour-coded legend inside the panel bound at
    every width (the strip's thin trailing slices used to spill past the edge). */
 .mem-strip, .bar-legend, .split-bar { max-width: 100%; box-sizing: border-box; }
+
+/* ===== Canonical selected-row accent =============================== */
+/* Selection across the list / table surfaces reads with the one signature
+   accent (the blue), not a different colour per surface. The observatory
+   cards shipped with a green selection bar that did not match the dtable's
+   blue .sel rule sitting right beside it; unify them here so 'selected'
+   means the same colour everywhere. (The memory strip keeps its inset ring
+   — a bar segment needs an all-sides outline, not a left bar.) */
+.ins-obs-card.selected { box-shadow: inset 3px 0 0 var(--accent); }
 ";
 }

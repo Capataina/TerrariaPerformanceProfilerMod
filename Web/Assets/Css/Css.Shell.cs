@@ -21,6 +21,10 @@ internal static partial class DashboardAssets
   grid-template-rows: auto auto 1fr auto;
   height: 100vh;
   width: 100vw;
+  /* The grid is exactly the viewport and only the content row scrolls; clip the
+     app itself so it can never become a second scroll source that drags the
+     fixed top bar / footer rows out of place. */
+  overflow: hidden;
   background: linear-gradient(180deg, var(--bg-page) 0%, var(--bg-deep) 70%);
 }
 
@@ -128,7 +132,7 @@ internal static partial class DashboardAssets
 /* overflow: hidden auto — y scrolls, x is clipped. Setting only overflow-y:auto
    makes the x-axis compute to auto too, which produced a few-px phantom
    horizontal scroll whenever any child sat a hair over the width. */
-.content { min-height: 0; overflow: hidden auto; padding: 1rem 1.2rem 4rem; }
+.content { min-height: 0; overflow: hidden auto; overscroll-behavior: contain; padding: 1rem 1.2rem 4rem; }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; }
 

@@ -277,7 +277,9 @@ function renderObservatoryList() {
     setHTML(scroll, emptyState('no per-mod observatory data yet'));
     return;
   }
-  const cards = obs.cards.slice().sort((a, b) => b.cpuSharePct - a.cpuSharePct);
+  // Name tiebreak so the order is deterministic and alphabetical when cpu
+  // shares are equal (e.g. idle / db mode where every card reads 0%).
+  const cards = obs.cards.slice().sort((a, b) => (b.cpuSharePct - a.cpuSharePct) || a.modName.localeCompare(b.modName));
   const maxCpu = Math.max(0.0001, cards[0].cpuSharePct);
 
   // If nothing selected, auto-select the top card so the detail pane has content.

@@ -66,6 +66,11 @@ internal static partial class DashboardAssets
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 0.6rem;
   min-height: 460px;
+  /* Bound the row so the inner scroll containers (.dor-scroll, .obs-scroll,
+     .det-scroll) actually engage. Without a cap the grid row grows to fit the
+     full card list, so a 150-mod roster stretches the whole page instead of
+     scrolling inside the observatory column. */
+  max-height: 68vh;
 }
 .ins-observatory {
   display: flex; flex-direction: column; gap: 0.4rem;

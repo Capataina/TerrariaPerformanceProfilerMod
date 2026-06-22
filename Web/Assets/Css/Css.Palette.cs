@@ -77,6 +77,10 @@ html, body {
   line-height: 1.45;
   height: 100vh;
   overflow: hidden;
+  /* Kill the document-level rubber-band: scrolling the inner content to its end
+     was bouncing the whole fixed-height app, which shunted the top bar off the
+     top edge. Nothing should ever scroll the document itself. */
+  overscroll-behavior: none;
 }
 
 .hidden { display: none !important; }
