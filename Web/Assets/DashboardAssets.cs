@@ -62,6 +62,7 @@ internal static partial class DashboardAssets
         CssHeatmap,
         CssNowPlaying,
         CssChartToggle,
+        CssCoherence,
         CssScrollbar);
 
     /// <summary>

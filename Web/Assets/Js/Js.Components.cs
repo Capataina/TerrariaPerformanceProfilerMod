@@ -107,5 +107,18 @@ function seriesPaths(values, opts) {
                ' L ' + pt(n - 1)[0].toFixed(1) + ' ' + (padTop + innerH).toFixed(1) + ' Z';
   return { line, area, scale: s };
 }
+
+// Canonical empty-state markup. Every 'no data yet' / placeholder message should
+// go through this so the styling stays consistent (see .empty in the coherence
+// layer); stops each surface re-inventing its own empty class.
+function emptyState(msg) { return `<div class='empty'>${escapeHtml(msg)}</div>`; }
+
+// Render a value, or an em-dash when it is genuinely absent (null / NaN), so a
+// label is never left with nothing after it. fn is an optional formatter; a real
+// zero still formats normally (the formatter decides how to show it).
+function dash(v, fn) {
+  if (v == null || (typeof v === 'number' && !isFinite(v))) return '—';
+  return fn ? fn(v) : String(v);
+}
 ";
 }
