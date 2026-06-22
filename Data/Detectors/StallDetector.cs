@@ -202,6 +202,20 @@ public sealed class StallDetector
     /// <summary>Lone CPU-starved stalls longer than this × baseline classify as unambiguous OS suspends.</summary>
     public const double LongSuspendMultiplier = 50.0;
 
+    /// <summary>
+    /// Absolute wall-clock ceiling, in ms, above which a gap is an OS suspend /
+    /// pause regardless of focus. Unlike the baseline-relative multipliers above
+    /// (which model perceptual severity), this one is genuinely absolute: no real
+    /// in-app main-thread freeze runs for multiple seconds — the OS would mark the
+    /// process "not responding". A multi-second-to-minutes gap is the game paused
+    /// (window unfocused, so Terraria stops ticking), the OS sleeping, or a
+    /// debugger break. Because the game stops ticking while unfocused, the
+    /// focus-loss happens between ticks and the focus-sampled signal can't observe
+    /// it, so without this ceiling such gaps misclassify as MainThreadFreeze and
+    /// pollute the lag metrics with minute-long "freezes".
+    /// </summary>
+    public const double SuspendCeilingMs = 5000.0;
+
     private readonly RingBuffer<StallEvent> _events = new RingBuffer<StallEvent>(50);
     private readonly StallEventsView _view;
     private readonly Process? _self;
@@ -459,6 +473,12 @@ public sealed class StallDetector
         // Defensive: a zero-wall stall is degenerate; report unknown.
         if (wallMs <= 0d) return StallCause.Unknown;
         if (baselineMs <= 0d) baselineMs = 16.67d;  // safety fallback to 60 fps
+
+        // Absolute pause/suspend ceiling. Caught before the focus split because
+        // an unfocus while the game isn't ticking is invisible to the focus
+        // sample, so a paused gap would otherwise read as a held-focus
+        // MainThreadFreeze. A multi-second gap is never a real in-app freeze.
+        if (wallMs >= SuspendCeilingMs) return StallCause.ProcessSuspended;
 
         bool cpuStarved = cpuMs < wallMs * 0.2d;
         bool isLone = recentStallsInLast5s <= 2;

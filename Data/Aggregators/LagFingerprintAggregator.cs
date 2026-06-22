@@ -83,6 +83,8 @@ public sealed class LagFingerprintAggregator : IDataAggregator<LagClusterSnapsho
         for (int i = 0; i < spikes.Count; i++)
         {
             SpikeWindow w = spikes[i];
+            // A multi-second "frame" is a pause/suspend resume, not a spike.
+            if (w.WorstFrameMs >= StallDetector.SuspendCeilingMs) continue;
             (int topModId, double topModMs, double totalModMs) = TopModFromSpike(in w, modNames.Length);
             string causeClass = "Spike";
             double durationMs = w.WorstFrameMs;
@@ -98,6 +100,15 @@ public sealed class LagFingerprintAggregator : IDataAggregator<LagClusterSnapsho
         for (int i = 0; i < stalls.Count; i++)
         {
             StallEvent s = stalls[i];
+            // Exclude non-gameplay gaps from the lag ledger: an OS suspend / pause
+            // (window unfocused → game stops ticking, OS sleep, debugger) and
+            // world-load JIT are not gameplay lag. Left in, a single alt-tab reads
+            // as a multi-minute "freeze" that dominates the KPIs. The duration
+            // guard also catches events stored before the SuspendCeilingMs
+            // classifier landed.
+            if (s.Cause == StallCause.ProcessSuspended || s.Cause == StallCause.WorldLoad
+                || s.TickPeriodMs >= StallDetector.SuspendCeilingMs)
+                continue;
             string causeClass = EnumStringTable.CauseName(s.Cause);
             int topModId = s.C0.ModId;
             double topModMs = s.C0.RecentMs;
