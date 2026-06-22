@@ -49,12 +49,18 @@ internal static partial class DashboardRouter
             {
                 var a = last.Archive;
                 double avgFps = a.AvgFrameMs > 0d ? Math.Min(60d, 1000d / a.AvgFrameMs) : 0d;
+                // LiteDB is opened with UTC_DATE=false, so stored UTC dates read
+                // back as Local-kind. Re-label as UTC before any offset math: a
+                // Local-kind value paired with a zero offset throws in
+                // DateTimeOffset ("UTC Offset ... does not match"), which 500'd
+                // this whole endpoint and left the dashboard stuck on "no world".
+                DateTime endedUtc = DateTime.SpecifyKind(last.EndedUtc, DateTimeKind.Utc);
                 return JsonSerializer.Serialize(new
                 {
                     worldLoaded = true,
                     source = "db",
-                    sessionLabel = last.EndedUtc.ToLocalTime().ToString("MMM d · HH:mm"),
-                    sessionEndedUnixMs = new DateTimeOffset(last.EndedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
+                    sessionLabel = endedUtc.ToLocalTime().ToString("MMM d · HH:mm"),
+                    sessionEndedUnixMs = new DateTimeOffset(endedUtc).ToUnixTimeMilliseconds(),
                     unixMs = Time.UnixMsNow(),
                     tickIndex = a.TicksObserved,
                     frameMs = a.AvgFrameMs,
