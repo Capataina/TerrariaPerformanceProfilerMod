@@ -197,6 +197,12 @@ function statGrid(tiles, o) {
   return `<div class='stat-grid'${st}>${(tiles || []).join('')}</div>`;
 }
 
+// Stat line: a label/value pair (inline). vClass: '' | 'good' | 'warn' | 'bad' | 'accent'.
+function statLine(k, v, vClass) {
+  return `<div class='statline'><span class='k'>${escapeHtml(k)}</span>` +
+    `<span class='v${vClass ? ' ' + vClass : ''}'>${v == null ? '—' : escapeHtml(String(v))}</span></div>`;
+}
+
 // Bordered callout. kind: '' | 'warn' | 'bad'.
 function callout(html, kind) { return `<div class='callout${kind ? ' ' + kind : ''}'>${html || ''}</div>`; }
 
