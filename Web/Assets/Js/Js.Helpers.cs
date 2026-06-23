@@ -55,10 +55,16 @@ function escapeHtml(s) {
                   .replace(/'/g, '&#39;').replace(/""/g, '&quot;');
 }
 
-// Consistent mod color: hash modId into the visible-pleasant range.
-// Desaturated palette so 18 simultaneous slices in the impact donut
-// don't fight the rest of the UI. Each is recognisable but muted.
-const MOD_COLORS = ['#5f8db3', '#7d6d9c', '#4f9d6a', '#7e9477', '#a07852', '#8a6db8', '#a05b6a', '#4ab8c2', '#6aa3a8', '#b88a25', '#8d7e5a', '#5b6cb0'];
+// Consistent per-mod colour: a systematic OKLCH categorical palette (12 hues at
+// a locked lightness 0.72 and chroma 0.11, stepped evenly around the wheel). The
+// equal L/C makes it read as one cohesive, muted family on the neutral-grey
+// surface rather than a clashing rainbow, while even hue keeps slices
+// distinguishable. The id*7+3 hash spreads consecutive mod ids onto non-adjacent
+// hues so neighbouring rows don't get near-identical colours.
+const MOD_COLORS = [
+  'oklch(0.72 0.11 20)',  'oklch(0.72 0.11 50)',  'oklch(0.72 0.11 80)',  'oklch(0.72 0.11 110)',
+  'oklch(0.72 0.11 140)', 'oklch(0.72 0.11 170)', 'oklch(0.72 0.11 200)', 'oklch(0.72 0.11 230)',
+  'oklch(0.72 0.11 260)', 'oklch(0.72 0.11 290)', 'oklch(0.72 0.11 320)', 'oklch(0.72 0.11 350)'];
 function modColor(id) { return MOD_COLORS[(id * 7 + 3) % MOD_COLORS.length]; }
 ";
 }

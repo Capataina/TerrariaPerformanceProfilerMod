@@ -53,7 +53,7 @@ internal static partial class DashboardAssets
   --muted-foreground:     oklch(0.610 0 0);   /* muted / label text */
   --accent:               oklch(0.922 0 0);   /* == primary (the one accent) */
   --accent-foreground:    oklch(0.205 0 0);
-  --destructive:          oklch(0.585 0.140 22); /* danger / stalls (kept red) */
+  --destructive:          oklch(0.64 0.17 25);   /* danger / stalls (perf-4 red) */
   --border:               oklch(0.269 0 0);   /* hard lines (neutral-800) */
   --input:                oklch(0.245 0 0);   /* field / soft lines */
   --ring:                 oklch(0.708 0 0);   /* neutral-400 focus ring */
@@ -80,30 +80,39 @@ internal static partial class DashboardAssets
   --accent-soft:  oklch(1 0 0 / 0.09);   /* selected-row wash */
   --accent-line:  oklch(1 0 0 / 0.22);   /* focus / hairline tint */
 
-  /* ===== Data-viz ramp (KEPT COLOURFUL — the only colour on screen) ==== */
-  /* Semantic state hues: health signal, so they stay coloured. */
-  --good:         oklch(0.62 0.10 152);   /* green */
-  --good-bar:     oklch(0.63 0.075 185);  /* teal */
-  --amber:        oklch(0.66 0.105 85);   /* amber */
-  --orange:       oklch(0.66 0.115 60);   /* orange */
-  --danger:       var(--destructive);     /* red */
-  --magenta:      oklch(0.55 0.085 312);  /* magenta */
-  --purple:       oklch(0.50 0.090 290);  /* purple */
-  --cyan:         oklch(0.70 0.080 205);
+  /* ===== Data-viz layer (KEPT COLOURFUL — the only colour on screen) ===
+     One OKLCH system, designed-with the neutral chrome (frontend-design pass):
+     - Categorical (per-mod series, see MOD_COLORS in Js.Helpers) locks L=0.72 /
+       C=0.11 and steps hue evenly — a cohesive muted family on the grey, not a
+       clashing rainbow.
+     - The perf ramp is sequential green->bad with chroma RISING toward the
+       alarm end: health stays calm + low-chroma, ""bad"" earns saturation and a
+       slight lightness dip so it reads as hotter. good/amber/orange/danger are
+       pinned to the ramp so the whole layer is one perceptually-even system. */
 
-  /* Series colours — a value with a single semantic axis. */
-  --cpu:          oklch(0.62 0.10 152);
-  --alloc:        oklch(0.50 0.090 290);
-  --spike:        oklch(0.66 0.115 60);
+  /* Performance gradient (good -> bad) */
+  --perf-0: oklch(0.72 0.10 150);   /* healthy green */
+  --perf-1: oklch(0.74 0.10 120);   /* green-yellow */
+  --perf-2: oklch(0.76 0.12 90);    /* amber */
+  --perf-3: oklch(0.70 0.14 50);    /* orange */
+  --perf-4: oklch(0.64 0.17 25);    /* red (== --destructive) */
+
+  /* Semantic state hues (pinned to the ramp) */
+  --good:         var(--perf-0);
+  --good-bar:     oklch(0.72 0.10 185);  /* teal (same L/C family) */
+  --amber:        var(--perf-2);
+  --orange:       var(--perf-3);
+  --danger:       var(--destructive);
+  --magenta:      oklch(0.72 0.11 350);
+  --purple:       oklch(0.72 0.11 300);
+  --cyan:         oklch(0.72 0.11 215);
+
+  /* Series colours — a value with a single semantic axis (same family) */
+  --cpu:          var(--perf-0);
+  --alloc:        oklch(0.72 0.11 290);
+  --spike:        var(--perf-3);
   --stall:        var(--destructive);
-  --gc:           oklch(0.50 0.090 290);
-
-  /* Performance gradient (good -> bad), stepped evenly in OKLCH. */
-  --perf-0: oklch(0.62 0.10 152);   /* healthy green */
-  --perf-1: oklch(0.66 0.085 185);  /* teal */
-  --perf-2: oklch(0.66 0.105 85);   /* amber */
-  --perf-3: oklch(0.66 0.115 60);   /* orange */
-  --perf-4: oklch(0.585 0.140 22);  /* red */
+  --gc:           oklch(0.72 0.11 290);
 
   --mono: 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
   --ui:   'Inter', -apple-system, 'Segoe UI', sans-serif;

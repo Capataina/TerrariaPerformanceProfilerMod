@@ -130,7 +130,7 @@ internal static partial class DashboardAssets
           <header class=""panel-h"">
             <span class=""panel-title"">mods · cascading tree</span>
             <span class=""panel-actions"">
-              <input type=""search"" id=""mod-filter"" placeholder=""filter…"" class=""filter-input"" />
+              <input type=""search"" id=""mod-filter"" placeholder=""search mods…"" class=""filter-input"" />
               <button id=""mods-collapse-all"" class=""mini-btn"" title=""collapse every expanded mod + category"">collapse all</button>
               <span id=""mods-sort""></span>
             </span>

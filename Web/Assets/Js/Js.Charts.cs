@@ -179,7 +179,9 @@ function gauge(o) {
   const ratio = Math.max(0, Math.min(1, o.ratio != null ? o.ratio : ((o.value || 0) / (o.max || 1))));
   const size = o.w || 170, sweep = o.sweep || 180, stroke = o.stroke || 12;
   const cx = size / 2, r = size / 2 - stroke / 2 - 1, cy = size / 2;
-  const vbH = sweep <= 180 ? (size / 2 + stroke + 4) : size;
+  // For a half gauge leave room below the diameter for the centre value + sub
+  // (the sub sits at cy + 0.12*size, so the box must clear that).
+  const vbH = sweep <= 180 ? Math.round(size / 2 + size * 0.2) : size;
   const start = 270, end = 270 + sweep;
   let svg = `<path class='gauge-track' d='${_arcStroke(cx, cy, r, start, end)}' stroke-width='${stroke}' stroke-linecap='round'></path>`;
   if (o.bands) {

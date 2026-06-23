@@ -14,6 +14,8 @@ internal static partial class DashboardAssets
     private const string CssCoherence = @"
 /* ===== Canonical panel-level empty / placeholder state ============== */
 .empty {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 4.5rem;   /* breathing room so a short panel's empty state isn't crushed */
   color: var(--muted); font-family: var(--mono); font-size: 0.82rem;
   font-style: normal; text-align: center; padding: 1.1rem 1rem; line-height: 1.5;
 }

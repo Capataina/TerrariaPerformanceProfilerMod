@@ -79,7 +79,7 @@ BOOT_FULL = r"""
 })();
 """ % (_PUMP, _UNLOCK)
 
-BOOT_TAB = r"""
+_BOOT_TAB_TMPL = r"""
 (function () {
   var t = '%%s';
 %s
@@ -93,7 +93,7 @@ BOOT_TAB = r"""
     try { if (typeof window[fn] === 'function') window[fn](); } catch (e) {}
     // Auto-select the first clickable item so detail panes / drawers populate.
     try {
-      var c = document.querySelector('.tab-pane.active .mem-slice, .tab-pane.active .dtable tr.clickable, .tab-pane.active .modrow, .tab-pane.active [data-mod]');
+      var c = document.querySelector('.tab-pane.active .mem-slice, .tab-pane.active .dtable tr.clickable, .tab-pane.active .row.clickable, .tab-pane.active .modrow, .tab-pane.active [data-mod]');
       if (c) c.click();
     } catch (e) {}
     document.title = 'PREVIEW READY';
@@ -101,7 +101,12 @@ BOOT_TAB = r"""
   setTimeout(pump, 300);
   setTimeout(show, 2600);
 })();
-""" % (_PUMP, _UNLOCK)
+"""
+# Default per-tab boot UNLOCKS the fixed-height scroll regions (one tall printout
+# per tab). The --real variant does NOT unlock and runs at a real window height,
+# so scroll-cap / overflow / overlap behaviour is shown exactly as in a browser.
+BOOT_TAB = _BOOT_TAB_TMPL % (_PUMP, _UNLOCK)
+BOOT_TAB_REAL = _BOOT_TAB_TMPL % (_PUMP, "''")
 
 
 def read(p):
@@ -217,11 +222,14 @@ def shoot(url, out_png, w, h, budget=9000):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true", help="curl the running mod for real /api data")
-    ap.add_argument("--tabs", action="store_true", help="one screenshot per tab")
+    ap.add_argument("--tabs", action="store_true", help="one screenshot per tab (tall printout, scroll unlocked)")
+    ap.add_argument("--real", action="store_true", help="per-tab at a REAL window height with scroll NOT unlocked (shows true scroll/overflow/overlap)")
     ap.add_argument("--port", type=int, default=27288)
     ap.add_argument("--width", type=int, default=1600)
     ap.add_argument("--height", type=int, default=5200)
     a = ap.parse_args()
+    if a.real and a.height == 5200:
+        a.height = 950   # realistic window height unless overridden
 
     c, j, h = extract()
     print("extracted: css=%dB js=%dB html=%dB" % (c, j, h))
@@ -231,9 +239,10 @@ def main():
     base = "http://127.0.0.1:%d/" % a.port
     results = []
     try:
-        if a.tabs:
+        if a.tabs or a.real:
+            boot = BOOT_TAB_REAL if a.real else BOOT_TAB
             for t in TABS:
-                open(os.path.join(SITE, "preview-boot.js"), "w").write(BOOT_TAB % t)
+                open(os.path.join(SITE, "preview-boot.js"), "w").write(boot % t)
                 results.append((t, shoot(base + "?t=" + t, os.path.join(SHOTS, "tab-%s.png" % t), a.width, a.height)))
         else:
             open(os.path.join(SITE, "preview-boot.js"), "w").write(BOOT_FULL)
@@ -241,7 +250,7 @@ def main():
     finally:
         httpd.shutdown()
     for name, ok in results:
-        png = ("tab-%s.png" % name) if a.tabs else "full.png"
+        png = "full.png" if name == "full" else ("tab-%s.png" % name)
         print(("OK   " if ok else "FAIL ") + os.path.join(SHOTS, png))
 
 

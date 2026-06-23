@@ -29,18 +29,19 @@ internal static partial class DashboardAssets
   padding: 0.6rem 0.9rem 1rem;
 }
 
-/* Mid section: 2-column observatory | detail. Both columns stretch to the
-   same height so the detail panel fills its column rather than leaving a gap.
-   max-height bounds the row so the inner scroll regions (the dormant table,
-   the observatory card list, the detail body) actually engage instead of a
-   large roster stretching the whole page. */
+/* Mid section: 2-column observatory | detail. Each column owns its height via
+   the explicit max-height on its inner scroll regions (the dormant table, the
+   observatory card list ~10 rows, the detail body), so the grid sizes to content
+   and nothing overflows onto the lower row. align-items:start keeps the shorter
+   column from stretching to match the taller one. (A previous max-height:68vh on
+   the grid did NOT cap the grid rows — they grew to the full 29-row roster and
+   spilled over the lower section.) */
 .ins-mid {
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 0.6rem;
-  min-height: 460px;
-  max-height: 68vh;
+  align-items: start;
 }
-@media (max-width: 900px) { .ins-mid { grid-template-columns: 1fr; max-height: none; } }
+@media (max-width: 900px) { .ins-mid { grid-template-columns: 1fr; } }
 /* Observatory column stacks the dormant panel over the card-list panel; the
    list panel grows to fill the remaining height (its .panel.fill + the
    scroll-region inside own the overflow) so the list reaches the bottom of

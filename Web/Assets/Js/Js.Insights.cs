@@ -77,6 +77,9 @@ async function pollInsightsData() {
 }
 setInterval(pollInsightsData, 3000);
 
+// Observatory list controls (persist across the 3s poll).
+let obsSort = 'cpu', obsFilter = '';
+
 function renderInsights() {
   renderInsightsKpiStrip();
   renderDormantSurface();
@@ -251,24 +254,50 @@ function renderObservatoryList() {
 
   let scroll = root.querySelector('#obs-scroll');
   if (!scroll) {
+    // Build the shell once (so the search box keeps focus + value across polls).
+    // The scroll region is bound to ~10 rows; a search box + sort control live
+    // in the header. Header controls are wired once, here.
     root.innerHTML = panel({
       title: 'per-mod observatory',
-      body: scrollRegion('obs-scroll', '', { fill: true }),
-      pad: 'flush', fill: true, cls: 'ins-fillcol',
+      actions: `<input class='filter-input' id='obs-search' placeholder='search mods…' style='width:9rem' value='${escapeHtml(obsFilter)}'>` +
+        segmented({ id: 'obs-sort', attr: 'data-osort', active: obsSort, options: [
+          { value: 'cpu', label: 'cpu' }, { value: 'usage', label: 'usage' }, { value: 'name', label: 'name' }] }),
+      body: scrollRegion('obs-scroll', '', { maxH: '32rem' }),
+      pad: 'flush',
     });
     scroll = root.querySelector('#obs-scroll');
+    const search = root.querySelector('#obs-search');
+    if (search) search.addEventListener('input', () => { obsFilter = search.value; renderObservatoryList(); });
+    const sortCtl = root.querySelector('#obs-sort');
+    if (sortCtl) sortCtl.addEventListener('click', e => {
+      const b = e.target.closest('[data-osort]'); if (!b) return;
+      obsSort = b.dataset.osort;
+      sortCtl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.osort === obsSort));
+      renderObservatoryList();
+    });
   }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
     setHTML(scroll, emptyState('no per-mod observatory data yet'));
     return;
   }
-  // Name tiebreak so the order is deterministic and alphabetical when cpu
-  // shares are equal (e.g. idle / db mode where every card reads 0%).
-  const cards = obs.cards.slice().sort((a, b) => (b.cpuSharePct - a.cpuSharePct) || a.modName.localeCompare(b.modName));
-  const maxCpu = Math.max(0.0001, cards[0].cpuSharePct);
+  // Cost bars stay comparable against the whole roster (max cpu across all cards,
+  // not just the filtered/sorted subset).
+  const maxCpu = Math.max(0.0001, ...obs.cards.map(c => c.cpuSharePct));
+  let cards = obs.cards.slice();
+  if (obsFilter) { const q = obsFilter.toLowerCase(); cards = cards.filter(c => c.modName.toLowerCase().includes(q)); }
+  // Sort by the chosen key; name tiebreak keeps it deterministic when shares
+  // tie (e.g. idle / db mode where every card reads 0%).
+  cards.sort((a, b) =>
+    obsSort === 'name' ? a.modName.localeCompare(b.modName) :
+    obsSort === 'usage' ? (b.usageSharePct - a.usageSharePct) || a.modName.localeCompare(b.modName) :
+    (b.cpuSharePct - a.cpuSharePct) || a.modName.localeCompare(b.modName));
+  if (cards.length === 0) {
+    setHTML(scroll, emptyState('no mods match the search'));
+    return;
+  }
 
-  // If nothing selected, auto-select the top card so the detail pane has content.
+  // If nothing selected (or the selection was filtered out), select the top card.
   if (selectedObservatoryModId < 0 || !cards.some(c => c.modId === selectedObservatoryModId)) {
     selectedObservatoryModId = cards[0].modId;
   }
@@ -334,8 +363,8 @@ function renderObservatoryDetail() {
   if (!scroll) {
     root.innerHTML = panel({
       title: 'mod detail',
-      body: scrollRegion('det-scroll', '', { fill: true }),
-      pad: 'flush', fill: true, cls: 'ins-fillcol',
+      body: scrollRegion('det-scroll', '', { maxH: '34rem' }),
+      pad: 'flush',
     });
     scroll = root.querySelector('#det-scroll');
   }
