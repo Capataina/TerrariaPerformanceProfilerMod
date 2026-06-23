@@ -59,12 +59,22 @@ function renderHeatmap() {
   }).join('');
 }
 
+// Render (or re-render) the ms/fps segmented toggle into the chart header.
+function renderFrameModeToggle() {
+  const host = document.getElementById('chart-mode');
+  if (!host) return;
+  host.innerHTML = segmented({
+    id: 'frame-mode', attr: 'data-mode', active: frameChartMode,
+    options: [{ value: 'ms', label: 'ms' }, { value: 'fps', label: 'fps' }],
+  });
+}
+
 function renderFrameChart() {
-  const svg = document.getElementById('frame-chart');
+  const chart = document.getElementById('frame-chart');
   const sub = document.getElementById('chart-sub');
   const title = document.getElementById('chart-title');
-  const axis = document.getElementById('chart-axis');
   const empty = document.getElementById('chart-empty');
+  if (!document.getElementById('frame-mode')) renderFrameModeToggle();
   const dbMode = lastNow && lastNow.source === 'db';
   const showFps = frameChartMode === 'fps';
   if (!lastFrames || !lastFrames.worldLoaded || !lastFrames.frameMs || lastFrames.frameMs.length === 0) {
@@ -72,157 +82,114 @@ function renderFrameChart() {
     // isn't persisted), so we relabel to a last-session framing and show a
     // note inside the panel instead of a blank chart. Outside db mode this
     // is the genuine 'no data yet' case.
-    svg.innerHTML = '';
+    chart.innerHTML = '';
     title.textContent = dbMode
       ? (showFps ? 'fps · last session' : 'frame time · last session')
       : (showFps ? 'fps · last 30s' : 'frame time · last 30s');
     if (dbMode && empty) {
       empty.innerHTML = emptyState(""live trace isn't stored — showing last session summary"");
       empty.classList.remove('hidden');
-      if (axis) axis.classList.add('hidden');
       sub.textContent = lastNow.sessionLabel || 'last session';
     } else {
       if (empty) empty.classList.add('hidden');
-      if (axis) axis.classList.remove('hidden');
       sub.textContent = '—';
     }
     return;
   }
   // Live trace present — restore the live chrome.
   if (empty) empty.classList.add('hidden');
-  if (axis) axis.classList.remove('hidden');
   const ms = lastFrames.frameMs;
   const n = ms.length;
 
   // Map series + axis depending on toggle.
   title.textContent = showFps ? 'fps · last 30s' : 'frame time · last 30s';
-  const series = showFps ? ms.map(v => v > 0 ? Math.min(120, 1000 / Math.max(0.5, v)) : 0) : ms;
+  // In fps mode each frame-time maps to an instantaneous fps (1000/ms).
+  const series = showFps ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : ms;
   const sortedMs = ms.slice().sort((a, b) => a - b);
   const medianMs = sortedMs[Math.floor(n / 2)];
   const thresholdMs = medianMs * 2;
   const sortedSeries = series.slice().sort((a, b) => a - b);
   const medianS = sortedSeries[Math.floor(n / 2)];
-  const max = Math.max(showFps ? 60 : 2, Math.max(...series) * 1.08);
-  // For FPS, low values are bad. For ms, high values are bad. Adjust accordingly.
-  const thresholdS = showFps ? 1000 / Math.max(0.5, thresholdMs) : thresholdMs;
+  // Reference rules: 60fps line + the per-session median, expressed in the
+  // active units so the rule sits where the eye expects it.
+  const sixtyVal = showFps ? 60 : 1000 / 60;
+  const medianVal = medianS;
 
   sub.textContent = showFps
     ? n + ' frames · median ' + medianS.toFixed(0) + ' fps · target 60'
     : n + ' frames · median ' + fmtMs(medianMs) + 'ms · spike ≥ ' + fmtMs(thresholdMs) + 'ms';
 
-  const w = 100, h = 28;
-  let pathD = '', areaD = '';
-  for (let i = 0; i < n; i++) {
-    const x = (i / Math.max(1, n - 1)) * w;
-    const v = showFps ? series[i] : Math.min(series[i], max);
-    const y = h - (v / max) * h;
-    pathD += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-    areaD += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-  }
-  areaD += 'L' + w + ',' + h + ' L0,' + h + ' Z';
-
-  const thresholdY = h - (Math.min(thresholdS, max) / max) * h;
-  const medianY = h - (medianS / max) * h;
-
-  // Spike markers within window. Color red because they're bad.
+  // Spike markers, positioned by tick within the window (0..1 along the axis).
+  let marks = [];
   const firstTick = lastFrames.firstTick, lastTick = lastFrames.lastTick;
-  let marks = '';
   if (lastFrames.spikeMarks && firstTick != null) {
+    const span = Math.max(1, lastTick - firstTick);
     for (const m of lastFrames.spikeMarks) {
-      const x = ((m.tick - firstTick) / Math.max(1, lastTick - firstTick)) * w;
-      const v = showFps ? Math.min(120, 1000 / Math.max(0.5, m.ms)) : m.ms;
-      const y = h - (Math.min(v, max) / max) * h;
-      marks += '<circle cx=""' + x.toFixed(2) + '"" cy=""' + y.toFixed(2) + '"" r=""0.8"" fill=""#b94e58"" stroke=""#0a0d12"" stroke-width=""0.15""/>';
+      marks.push({ at: Math.max(0, Math.min(1, (m.tick - firstTick) / span)), color: 'var(--spike)' });
     }
   }
 
-  // Series color: signature electric blue for ms, cool cyan for fps.
-  const seriesColor = showFps ? '#4ab8c2' : '#4a9eff';
-  svg.innerHTML = `
-    <defs>
-      <linearGradient id='g-area' x1='0' y1='0' x2='0' y2='1'>
-        <stop offset='0%' stop-color='${seriesColor}' stop-opacity='0.45'/>
-        <stop offset='100%' stop-color='${seriesColor}' stop-opacity='0.02'/>
-      </linearGradient>
-    </defs>
-    <line x1='0' y1='${thresholdY}' x2='${w}' y2='${thresholdY}' stroke='#ff9e64' stroke-width='0.25' stroke-dasharray='0.8,0.8'/>
-    <line x1='0' y1='${medianY}' x2='${w}' y2='${medianY}' stroke='#565f89' stroke-width='0.2' stroke-dasharray='0.5,0.8'/>
-    <path d='${areaD}' fill='url(#g-area)'/>
-    <path d='${pathD}' fill='none' stroke='${seriesColor}' stroke-width='0.5' stroke-linejoin='round' stroke-linecap='round'/>
-    ${marks}
-  `;
+  chart.innerHTML = lineChart({
+    series: [{ values: series, color: 'var(--accent)', area: true }],
+    rules: [
+      { value: sixtyVal, color: 'var(--muted)', label: '60fps' },
+      { value: medianVal, color: 'var(--dim)', label: 'median' },
+    ],
+    markers: marks,
+    axis: true,
+    fmt: showFps ? (v => v.toFixed(0)) : fmtMs,
+  });
 }
 
-// Frame-chart mode toggle.
+// Frame-chart mode toggle (delegated; the segmented control is re-rendered).
 const chartModeEl = document.getElementById('chart-mode');
 if (chartModeEl) {
   chartModeEl.addEventListener('click', e => {
     const b = e.target.closest('button');
     if (!b) return;
     frameChartMode = b.dataset.mode;
-    document.querySelectorAll('#chart-mode button').forEach(x => x.classList.toggle('active', x === b));
+    renderFrameModeToggle();
     renderFrameChart();
   });
 }
 
 function renderDonut() {
-  const svg = document.getElementById('donut-svg');
-  const legend = document.getElementById('donut-legend');
-  const pctEl = document.getElementById('donut-pct');
-  const nameEl = document.getElementById('donut-name');
-  const msEl = document.getElementById('donut-ms');
+  const chart = document.getElementById('donut-svg');
+  const legendEl = document.getElementById('donut-legend');
   const sub = document.getElementById('donut-sub');
 
   if (!lastMods || !lastMods.worldLoaded || !lastMods.mods) {
-    svg.innerHTML = ''; legend.innerHTML = '';
-    pctEl.textContent = '—'; nameEl.textContent = '—'; msEl.textContent = '';
+    chart.innerHTML = ''; legendEl.innerHTML = '';
     sub.textContent = '—';
     return;
   }
   const sorted = lastMods.mods.slice().filter(m => m.cpuMs > 0.001).sort((a, b) => b.cpuMs - a.cpuMs);
   const total = sorted.reduce((s, m) => s + m.cpuMs, 0);
-  if (total <= 0) { svg.innerHTML = ''; legend.innerHTML = ''; sub.textContent = 'idle'; return; }
+  if (total <= 0) { chart.innerHTML = ''; legendEl.innerHTML = ''; sub.textContent = 'idle'; return; }
   sub.textContent = sorted.length + ' active · ' + fmtMs(total) + ' ms/t';
 
   const top = sorted.slice(0, 6);
   const rest = sorted.slice(6);
   const restSum = rest.reduce((s, m) => s + m.cpuMs, 0);
 
-  let acc = 0;
-  let paths = '';
-  for (const m of top) {
-    const frac = m.cpuMs / total;
-    paths += donutSlice(acc, acc + frac, modColor(m.id));
-    acc += frac;
-  }
-  if (restSum > 0) paths += donutSlice(acc, 1, '#3a3f4a');
-  svg.innerHTML = paths;
+  // Top-6 mod slices + one aggregated 'rest' slice, coloured per-mod.
+  const data = top.map(m => ({
+    value: m.cpuMs, label: m.name, color: modColor(m.id),
+    valueLabel: (m.cpuMs / total * 100).toFixed(1) + '%',
+  }));
+  if (restSum > 0) data.push({ value: restSum, label: '+ ' + rest.length + ' more', color: 'var(--surface-2)', valueLabel: (restSum / total * 100).toFixed(1) + '%' });
 
   const headliner = top[0];
-  pctEl.textContent = (headliner.cpuMs / total * 100).toFixed(0) + '%';
-  nameEl.textContent = truncate(headliner.name, 18);
-  msEl.textContent = fmtMs(headliner.cpuMs) + ' ms/t';
+  chart.innerHTML = donut({
+    data, inner: 0.6, w: 170,
+    center: {
+      top: (headliner.cpuMs / total * 100).toFixed(0) + '%',
+      mid: truncate(headliner.name, 18),
+      bot: fmtMs(headliner.cpuMs) + ' ms/t',
+    },
+  });
 
-  legend.innerHTML = top.map(m => `
-    <div class='leg'>
-      <span class='sw' style='background:${modColor(m.id)}'></span>
-      <span class='nm'>${escapeHtml(m.name)}</span>
-      <span class='pc'>${(m.cpuMs / total * 100).toFixed(1)}%</span>
-    </div>
-  `).join('') + (rest.length > 0 ? `<div class='leg'><span class='sw' style='background:#3a3f4a'></span><span class='nm'>+ ${rest.length} more</span><span class='pc'>${(restSum/total*100).toFixed(1)}%</span></div>` : '');
-}
-
-function donutSlice(from, to, color) {
-  // Outer radius 50, inner 32; convert fraction (0-1) to angle (-PI/2 start, clockwise).
-  const startA = -Math.PI / 2 + from * Math.PI * 2;
-  const endA   = -Math.PI / 2 + to   * Math.PI * 2;
-  const r1 = 50, r2 = 32;
-  const x1 = Math.cos(startA) * r1, y1 = Math.sin(startA) * r1;
-  const x2 = Math.cos(endA)   * r1, y2 = Math.sin(endA)   * r1;
-  const x3 = Math.cos(endA)   * r2, y3 = Math.sin(endA)   * r2;
-  const x4 = Math.cos(startA) * r2, y4 = Math.sin(startA) * r2;
-  const largeArc = (to - from) > 0.5 ? 1 : 0;
-  return `<path d='M ${x1} ${y1} A ${r1} ${r1} 0 ${largeArc} 1 ${x2} ${y2} L ${x3} ${y3} A ${r2} ${r2} 0 ${largeArc} 0 ${x4} ${y4} Z' fill='${color}'/>`;
+  legendEl.innerHTML = legend(data.map(d => ({ color: d.color, label: d.label, value: d.valueLabel })), { stack: true });
 }
 
 function renderTrendSparklines() {
@@ -256,40 +223,33 @@ function renderTrendSparklines() {
   if (title) title.textContent = 'session trend · last 30s';
   if (rows) rows.classList.remove('hidden');
   if (empty) empty.classList.add('hidden');
-  drawSpark('spark-frame', lastFrames.frameMs, '#4a9eff');
+  drawSpark('spark-frame', lastFrames.frameMs, 'var(--accent)');
   // alloc: derive a rough proxy from gc time (no per-tick alloc series). Substitute zero series otherwise.
-  drawSpark('spark-alloc', lastFrames.gcMs || [], '#c39ad8');
-  // spike density: counts within a sliding window. For simplicity show a marker per spike.
+  drawSpark('spark-alloc', lastFrames.gcMs || [], 'var(--alloc)');
+  // spike density: a marker per spike, positioned by tick within the window.
   drawSpikeMarkers('spark-spike', lastFrames);
 }
 
 function drawSpark(id, vals, color) {
-  const svg = document.getElementById(id);
-  if (!vals || vals.length === 0) { svg.innerHTML = ''; return; }
-  const max = Math.max(0.5, Math.max(...vals));
-  const n = vals.length;
-  let d = '';
-  for (let i = 0; i < n; i++) {
-    const x = (i / Math.max(1, n - 1)) * 100;
-    const y = 16 - (vals[i] / max) * 14;
-    d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-  }
-  svg.innerHTML = `<path d='${d}' fill='none' stroke='${color}' stroke-width='0.5'/>`;
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = sparkline(vals, { color, strokeW: 1 });
 }
 
 function drawSpikeMarkers(id, frames) {
-  const svg = document.getElementById(id);
+  const el = document.getElementById(id);
+  if (!el) return;
+  // Place a marker per spike, indexed along the tick window. sparkline() draws
+  // markers as vertical lines; with no series, it renders the markers alone.
   if (!frames.spikeMarks || frames.spikeMarks.length === 0 || frames.firstTick == null) {
-    svg.innerHTML = '<line x1=""0"" y1=""15"" x2=""100"" y2=""15"" stroke=""#3a3f4a"" stroke-width=""0.2""/>';
+    el.innerHTML = sparkline([], {});
     return;
   }
-  let marks = '';
   const span = Math.max(1, frames.lastTick - frames.firstTick);
-  for (const m of frames.spikeMarks) {
-    const x = ((m.tick - frames.firstTick) / span) * 100;
-    marks += `<line x1='${x.toFixed(2)}' y1='2' x2='${x.toFixed(2)}' y2='14' stroke='#c97f3c' stroke-width='0.4'/>`;
-  }
-  svg.innerHTML = '<line x1=""0"" y1=""15"" x2=""100"" y2=""15"" stroke=""#3a3f4a"" stroke-width=""0.2""/>' + marks;
+  const n = 100;
+  const markers = frames.spikeMarks.map(m =>
+    Math.round(Math.max(0, Math.min(1, (m.tick - frames.firstTick) / span)) * (n - 1)));
+  el.innerHTML = sparkline([], { markers, markN: n, markColor: 'var(--spike)' });
 }
 
 function renderNowPlaying() {
@@ -301,25 +261,39 @@ function renderNowPlaying() {
     return;
   }
   sub.textContent = lastSegments.open.length + ' open';
-  root.innerHTML = lastSegments.open
+  const cols = '0.32rem minmax(0, 1.4fr) auto';
+  root.innerHTML = rowList(lastSegments.open
     .slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family))
     .map(s => {
-      const top = s.topModName
-        ? `<span class='mod'>${truncate(s.topModName, 16)}</span> · ${fmtMs(s.topModMsPerTick)}ms/t`
-        : '<span class=""muted"">—</span>';
-      return `<div class='now-seg rich' data-family='${s.family}'>
-        <span class='swatch'></span>
-        <span class='name-block'>
-          <span class='top'><span class='family-tag'>${escapeHtml(s.family)}</span>${escapeHtml(s.name)}</span>
-          <span class='sub'>${fmtDuration(s.elapsedMs)} · ${fmtInt(s.ticks)} ticks${s.spikeCount > 0 ? ' · ⚡' + s.spikeCount : ''}${s.deathCount > 0 ? ' · ☠' + s.deathCount : ''}</span>
-        </span>
-        <span class='meta'>${top}</span>
-      </div>`;
-    }).join('');
+      const meta = s.topModName
+        ? `<span class='now-mod'>${escapeHtml(truncate(s.topModName, 16))}</span> · ${fmtMs(s.topModMsPerTick)}ms/t`
+        : `<span class='muted'>—</span>`;
+      return row({
+        cols,
+        cells: [
+          `<span class='now-swatch' style='background:${familyColor(s.family)}'></span>`,
+          `<span class='now-name'>` +
+            `<span class='now-top'><span class='chip'>${escapeHtml(s.family)}</span>${escapeHtml(s.name)}</span>` +
+            `<span class='now-sub'>${fmtDuration(s.elapsedMs)} · ${fmtInt(s.ticks)} ticks${s.spikeCount > 0 ? ' · ⚡' + s.spikeCount : ''}${s.deathCount > 0 ? ' · ☠' + s.deathCount : ''}</span>` +
+          `</span>`,
+          `<span class='now-meta'>${meta}</span>`,
+        ],
+      });
+    }));
 }
 function familyWeight(f) {
   const order = ['Boss', 'Invasion', 'UserBookmark', 'Weather', 'Subworld', 'Combat', 'Hardmode', 'DeathBracket', 'Biome'];
   const i = order.indexOf(f); return i < 0 ? 99 : i;
+}
+// Family -> data colour for the now-playing swatch (was driven by [data-family]
+// attribute selectors). Boss/Invasion read as danger, the world-state families
+// as amber, combat as the spike hue, bookmarks as the accent.
+function familyColor(f) {
+  return ({
+    Boss: 'var(--danger)', Invasion: 'var(--danger)',
+    Weather: 'var(--amber)', Hardmode: 'var(--amber)', Subworld: 'var(--amber)',
+    Combat: 'var(--spike)', DeathBracket: 'var(--muted)', UserBookmark: 'var(--accent)',
+  })[f] || 'var(--good)';
 }
 
 function renderNowEvents() {
@@ -332,13 +306,16 @@ function renderNowEvents() {
     root.innerHTML = emptyState('nothing yet — events appear as segments close + spikes fire');
     return;
   }
-  root.innerHTML = lastEvents.events.map(e =>
-    `<div class='event' data-kind='${e.kind}'>
-      <span class='glyph'>${glyphFor(e.kind)}</span>
-      <span class='what'>${escapeHtml(e.text)}</span>
-      <span class='when'>${fmtAgo(e.unixMs)}</span>
-    </div>`
-  ).join('');
+  const cols = '1.4em minmax(0, 1fr) auto';
+  root.innerHTML = rowList(lastEvents.events.map(e => row({
+    cols, cls: 'ev-row',
+    attrs: `data-kind='${e.kind}'`,
+    cells: [
+      `<span class='ev-glyph'>${glyphFor(e.kind)}</span>`,
+      `<span class='nm'>${escapeHtml(e.text)}</span>`,
+      `<span class='ev-when'>${fmtAgo(e.unixMs)}</span>`,
+    ],
+  })));
 }
 function glyphFor(kind) {
   return ({ 'boss-kill':'✓', 'death':'☠', 'spike':'⚡', 'stall':'⏸', 'segment':'↺' })[kind] || '·';

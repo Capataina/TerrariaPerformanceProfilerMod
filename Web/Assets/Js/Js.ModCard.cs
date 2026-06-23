@@ -41,52 +41,42 @@ function openModCard(modId) {
 
   // Category breakdown.
   const cats = lastMods.categories || [];
-  const catTotal = mod.categories.reduce((s, v) => s + v, 0);
   const catMax = Math.max(...mod.categories);
   const catRows = mod.categories.map((v, i) => {
     if (v <= 0.001) return '';
-    return `<div class='mc-cat-row'>
-      <span class='nm'>${escapeHtml(cats[i] || 'cat:' + i)}</span>
-      <span class='br'><span style='width: ${(v / catMax * 100).toFixed(1)}%'></span></span>
-      <span class='vl'>${fmtMs(v)} ms</span>
-    </div>`;
-  }).filter(Boolean).join('');
+    return row({
+      cols: 'minmax(0, 1fr) minmax(0, 2fr) 5em',
+      cells: [
+        `<span class='nm'>${escapeHtml(cats[i] || 'cat:' + i)}</span>`,
+        cellBar(v / catMax, 'var(--cpu)'),
+        `<span class='mc-catv'>${fmtMs(v)} ms</span>`,
+      ],
+    });
+  }).filter(Boolean);
 
-  body.innerHTML = `
-    <div class='mc-section'>
-      <h3>cost · live</h3>
-      <div class='mc-stat-grid'>
-        <div class='mc-stat'><span class='k'>cpu now</span><span class='v big'>${fmtMs(mod.cpuMs)} ms/t</span><span class='sub'>this tick</span></div>
-        <div class='mc-stat'><span class='k'>cpu avg</span><span class='v big'>${fmtMs(mod.avgCpuMs)} ms/t</span><span class='sub'>session</span></div>
-        <div class='mc-stat'><span class='k'>alloc/t</span><span class='v'>${lastMods.tracksAllocations ? fmtBytes(mod.allocBytes) : '—'}</span><span class='sub'>${lastMods.tracksAllocations ? 'tracked' : 'off'}</span></div>
-        <div class='mc-stat'><span class='k'>share</span><span class='v accent'>${(mod.cpuMs / (sorted.reduce((s,m)=>s+m.cpuMs,0) || 1) * 100).toFixed(1)}%</span><span class='sub'>of all mods</span></div>
-      </div>
-    </div>
+  const sharePct = (mod.cpuMs / (sorted.reduce((s, m) => s + m.cpuMs, 0) || 1) * 100).toFixed(1);
 
-    <div class='mc-section'>
-      <h3>frame impact · marginal contribution</h3>
-      <div class='mc-callout'>
-        this mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame
-        (<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). at your current frame time that is the
-        difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and
-        <strong>${fpsAvg.toFixed(0)} fps</strong> on average,
-        and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.
-        <br/><span class='muted'>caveat: a marginal upper bound. sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. this describes measured cost, not a recommendation.</span>
-      </div>
-    </div>
+  body.innerHTML =
+    sectionBlock('cost · live', statGrid([
+      statTile({ k: 'cpu now', v: fmtMs(mod.cpuMs) + ' ms/t', big: true, sub: 'this tick' }),
+      statTile({ k: 'cpu avg', v: fmtMs(mod.avgCpuMs) + ' ms/t', big: true, sub: 'session' }),
+      statTile({ k: 'alloc/t', v: lastMods.tracksAllocations ? fmtBytes(mod.allocBytes) : '—', sub: lastMods.tracksAllocations ? 'tracked' : 'off' }),
+      statTile({ k: 'share', v: sharePct + '%', vClass: 'accent', sub: 'of all mods' }),
+    ], { cols: '1fr 1fr' })) +
 
-    <div class='mc-section'>
-      <h3>category breakdown</h3>
-      <div class='mc-catlist'>${catRows || '<span class=""muted"">no per-category activity yet</span>'}</div>
-    </div>
+    sectionBlock('frame impact · marginal contribution', callout(
+      `this mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
+      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). at your current frame time that is the ` +
+      `difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and ` +
+      `<strong>${fpsAvg.toFixed(0)} fps</strong> on average, ` +
+      `and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.` +
+      `<br/><span class='muted'>caveat: a marginal upper bound. sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. this describes measured cost, not a recommendation.</span>`)) +
 
-    <div class='mc-section'>
-      <h3>next steps</h3>
-      <div class='mc-callout'>
-        click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.
-      </div>
-    </div>
-  `;
+    sectionBlock('category breakdown',
+      catRows.length ? rowList(catRows) : `<span class='muted'>no per-category activity yet</span>`) +
+
+    sectionBlock('next steps', callout(
+      `click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.`));
   card.classList.remove('hidden');
 }
 

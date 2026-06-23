@@ -16,22 +16,18 @@ internal static partial class DashboardAssets
 {
     private const string JsInsights = @"
 // ====== INSIGHTS TAB ==================================================
-// The Insights tab is the per-mod observatory, rebuilt from the shared
-// readable vocabulary (split bars, perf-tinted sortable tables, chips,
-// stat lines) instead of bespoke metaphor charts.
-// Surfaces: KPI ring strip, dormant-content table (I2), mod card list
-// with a composition split bar + a tabular detail pane (I1+I3+I4), a
-// cross-cutting signal-class section list (I5), an engagement-vs-cost
-// table (I6), and a mod-pair correlation table (I7).
+// The per-mod observatory, composed entirely from the shared component
+// library: gauge() ring KPIs, panel()/scrollRegion() framing, row()/rowList()
+// for the master card list, statLine()/splitLegend()/.dtable for the detail
+// pane, and .dtable + cellBar()/splitBar()/chips for the lower analytical
+// surfaces. No bespoke per-surface markup.
 //
-// Poll-stable scroll: every scrollable surface (dormant table, observatory
-// card list, detail pane, engagement table, correlation table) keeps a
-// stable inner scroll container across polls; its header stays static and
-// only the inner content is replaced via setHTML(), so scroll survives a
-// 3s poll instead of snapping to the top.
+// Poll-stable scroll: each scrollable surface is built once with a stable
+// scroll-region container; polls re-render only the container's contents via
+// setHTML(), so scroll position survives a 3s poll instead of snapping to top.
 //
-// Invariant 3: every string is descriptive. No 'should remove', no
-// 'junk'; only measurements like 'X items used of Y in roster'.
+// Invariant 3: every string is descriptive. Measurements only ('costs X',
+// 'used N of M', 'r = ...'); never 'should remove' / 'junk' / a verdict.
 let lastModObservatory = null;
 let lastDormant = null;
 let lastCrossCutting = null;
@@ -91,10 +87,10 @@ function renderInsights() {
   renderModInteractionMatrix();
 }
 
-// Shared sortable-header builder for the readable .dtable surfaces.
-// cols: [{key, label, l (left-align bool), title}]. Clicking a header
-// sorts by that key (toggling direction); the active column shows the
-// direction arrow. onSort(key) is invoked after the state is updated.
+// Shared sortable-header builder for the .dtable surfaces. cols: [{key, label,
+// l (left-align bool), title}]. Clicking a header sorts by that key (toggling
+// direction); the active column shows the direction arrow. onSort() is invoked
+// after the state is updated. rootId scopes the click binding to one table.
 function sortableHead(cols, state, onSort, rootId) {
   const ths = cols.map(c => {
     const sorted = c.key === state.key;
@@ -122,10 +118,11 @@ function sortableHead(cols, state, onSort, rootId) {
 }
 
 // ----- KPI strip ------------------------------------------------------
-// Four mini ring gauges. Each ring's arc-fill encodes the share of the
-// loaded modlist that falls in this bucket. Descriptive only — the gauge
-// shows the measured fraction; no thresholds, no judgement. Acceptable
-// flair: small, standard, kept light-touch.
+// Four full-ring gauges (sweep 360), one per modlist bucket. Each ring's
+// arc-fill encodes that bucket's share of the loaded modlist; the centre
+// carries the count. Descriptive only — the gauge shows the measured
+// fraction, no thresholds or judgement. Built once into a panel body; the
+// counts change rarely so a plain innerHTML rebuild is fine here.
 function renderInsightsKpiStrip() {
   const root = document.getElementById('ins-kpi');
   if (!root) return;
@@ -137,70 +134,56 @@ function renderInsightsKpiStrip() {
   const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
   const denom = Math.max(1, loaded);
 
-  function ring(label, value, frac, sub, hue) {
-    const R = 26, C = 2 * Math.PI * R;
-    const f = Math.max(0, Math.min(1, frac));
-    const dash = (C * f).toFixed(1);
-    const gap  = (C - C * f).toFixed(1);
-    return `<div class='tile'>
-      <div class='ring-wrap'>
-        <svg viewBox='0 0 64 64' class='ring'>
-          <circle cx='32' cy='32' r='${R}' class='track'></circle>
-          <circle cx='32' cy='32' r='${R}' class='arc' stroke='${hue}'
-            stroke-dasharray='${dash} ${gap}' transform='rotate(-90 32 32)'></circle>
-          <text x='32' y='35' text-anchor='middle' class='ring-val'>${value}</text>
-        </svg>
-      </div>
-      <div class='tile-body'>
-        <span class='lbl'>${label}</span>
-        <span class='sub'>${sub}</span>
-      </div>
-    </div>`;
+  function kpi(label, value, frac, sub, color) {
+    const g = gauge({
+      ratio: Math.max(0, Math.min(1, frac)), sweep: 360, w: 64, stroke: 6,
+      color, centerValue: value,
+    });
+    return `<div class='kpi-cell'>${g}<div class='kpi-meta'>` +
+      `<span class='kpi-lbl'>${escapeHtml(label)}</span>` +
+      `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
   }
 
-  root.innerHTML = `
-    ${ring('mods loaded',   fmtInt(loaded),  1,                       'profiled this session', 'var(--accent)')}
-    ${ring('active',        fmtInt(active),  active / denom,          (100 * active / denom).toFixed(0) + '% of roster', 'var(--good)')}
-    ${ring('dormant',       fmtInt(dormant), dormant / denom,         (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--magenta)')}
-    ${ring('under 5% usage',fmtInt(lowUse),  lowUse / denom,          (100 * lowUse / denom).toFixed(0) + '% sub-5%',     'var(--amber)')}
-  `;
-}
-
-// Build (once) the static header + stable scroll container inside a
-// section root, returning the scroll element. The scroll element keeps a
-// stable identity across polls so setHTML() can preserve its scrollTop —
-// only its inner content is replaced each tick, never the wrapper itself.
-// hClass is the header element class, sClass the scroll container class.
-function ensureScrollSection(root, hClass, sClass) {
-  let scroll = root.querySelector('.' + sClass);
-  if (!scroll) {
-    root.innerHTML = `<div class='${hClass}'></div><div class='${sClass}'></div>`;
-    scroll = root.querySelector('.' + sClass);
-  }
-  return { head: root.querySelector('.' + hClass), scroll };
+  const body = `<div class='kpi-grid'>` +
+    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session',                              'var(--accent)') +
+    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster',    'var(--good)') +
+    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--magenta)') +
+    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%',      'var(--amber)') +
+    `</div>`;
+  root.innerHTML = panel({ body });
 }
 
 // ----- I2 dormant surface --------------------------------------------
-// Sortable perf-tinted table. Each row is a mod with a usage split bar
-// (engaged green vs unused surface) carrying the % text, a used/roster
-// count, and the dominant unused category as a chip. The caption carries
-// the two headline totals. Pure measurement — no judgement on any row.
-// The .dor-scroll container is stable across polls (setHTML preserves its
-// scroll position); only the table inside it is rebuilt each tick.
+// Sortable .dtable inside a panel. Each row is a mod with a usage split bar
+// (engaged green vs unused surface) carrying the % text, a used/roster count,
+// and the dominant unused category as a chip. The panel sub carries the two
+// headline totals. Pure measurement — no judgement on any row. The scroll
+// region is stable across polls so setHTML preserves its position; only the
+// table inside it is rebuilt each tick.
 function renderDormantSurface() {
   const root = document.getElementById('ins-dormant');
   if (!root) return;
-  const { head, scroll } = ensureScrollSection(root, 'dor-h', 'dor-scroll');
   const dor = lastDormant;
+
+  let scroll = root.querySelector('#dormant-scroll');
+  if (!scroll) {
+    root.innerHTML = panel({
+      title: 'dormant content', sub: '—',
+      body: scrollRegion('dormant-scroll', '', { maxH: '220px' }),
+      pad: 'flush',
+    });
+    scroll = root.querySelector('#dormant-scroll');
+  }
+  const subEl = root.querySelector('.panel-sub');
+
   if (!dor || !dor.worldLoaded) {
-    head.innerHTML = `<span class='label'>dormant content</span><span>—</span>`;
+    if (subEl) subEl.textContent = '—';
     setHTML(scroll, '');
     return;
   }
-  const entries = (dor.entries || []).slice();
-  const headSummary = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
-  head.innerHTML = `<span class='label'>dormant content</span><span>${headSummary}</span>`;
+  if (subEl) subEl.textContent = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
 
+  const entries = (dor.entries || []).slice();
   if (entries.length === 0) {
     setHTML(scroll, emptyState('no dormant entries recorded this session'));
     return;
@@ -221,9 +204,9 @@ function renderDormantSurface() {
   });
 
   const cols = [
-    { key: 'modName',    label: 'mod',              l: true },
-    { key: 'usageRatio', label: 'usage',            title: 'engaged share of this roster' },
-    { key: 'usedCount',  label: 'used / roster',    title: 'roster entries observed in use this session' },
+    { key: 'modName',    label: 'mod',           l: true },
+    { key: 'usageRatio', label: 'usage',         title: 'engaged share of this roster' },
+    { key: 'usedCount',  label: 'used / roster', title: 'roster entries observed in use this session' },
     { key: 'rosterSize', label: 'roster' },
   ];
   // The dominant-unused-category column is presentational only (not sorted).
@@ -242,7 +225,7 @@ function renderDormantSurface() {
       : `<span class='dim'>—</span>`;
     return `<tr title='${escapeHtml(e.modName + ' — ' + pct + '% engaged · ' + fmtInt(e.usedCount) + '/' + fmtInt(e.rosterSize) + ' entries used')}'>
       <td class='l'>${escapeHtml(e.modName)}</td>
-      <td class='l'><div class='dor-usage'>${bar}<span class='dor-pct'>${pct}%</span></div></td>
+      <td class='l'><div class='ins-usage'>${bar}<span class='ins-pct'>${pct}%</span></div></td>
       <td>${fmtInt(e.usedCount)} / ${fmtInt(e.rosterSize)}</td>
       <td>${fmtInt(e.rosterSize)}</td>
       <td class='l'>${cat}</td>
@@ -257,20 +240,23 @@ function renderDormantSurface() {
 }
 
 // ----- I1 observatory list -------------------------------------------
-// Ranked card list, ordered by cpu share. Each card carries the mod
-// name, a cost cellBar, readable usage micro-stats, and a roster
-// composition split bar (replacing the unreadable DNA strand) whose
-// legend appears in the detail pane. Click selects -> fills detail pane.
+// Ranked card list (row()/rowList()), ordered by cpu share. Each card carries
+// the rank, name + usage micro-stats + a cpu cost cellBar + a roster
+// composition split bar, and the smoothed ms. Click selects (row sel) and
+// fills the detail pane. The panel.fill body + scroll-region grow to fill the
+// observatory column; scroll survives the poll via setHTML.
 function renderObservatoryList() {
   const root = document.getElementById('ins-obs-list');
   if (!root) return;
-  // Stable inner scroll container: the .ins-obs-list wrapper persists, the
-  // .obs-scroll element keeps its identity across polls so setHTML preserves
-  // the card list's scroll position instead of snapping back to the top.
-  let scroll = root.querySelector('.obs-scroll');
+
+  let scroll = root.querySelector('#obs-scroll');
   if (!scroll) {
-    root.innerHTML = `<div class='obs-scroll'></div>`;
-    scroll = root.querySelector('.obs-scroll');
+    root.innerHTML = panel({
+      title: 'per-mod observatory',
+      body: scrollRegion('obs-scroll', '', { fill: true }),
+      pad: 'flush', fill: true, cls: 'ins-fillcol',
+    });
+    scroll = root.querySelector('#obs-scroll');
   }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
@@ -287,12 +273,9 @@ function renderObservatoryList() {
     selectedObservatoryModId = cards[0].modId;
   }
 
-  // Roster composition split bar: each segment is a category, fraction =
-  // that category's count / roster total. Rendered as a secondary signal
-  // (thin + quieted via .comp) so it shows the roster mix without competing
-  // with the card's primary cpu/cost signals — every card's bar is full
-  // width regardless of mod size, so it must not lead. Empty roster ->
-  // a muted 'no content'.
+  // Roster composition split bar: each segment is a category, fraction = that
+  // category's count / roster total. A secondary signal (thin) showing the
+  // roster mix; empty roster -> a muted 'no content' note.
   function compositionBar(roster) {
     const counts = ROSTER_CATS.map(([f]) => roster[f] || 0);
     const tot = counts.reduce((a, b) => a + b, 0);
@@ -305,23 +288,30 @@ function renderObservatoryList() {
     return splitBar(segs, { thin: true });
   }
 
-  setHTML(scroll, cards.map((c, i) => {
-    const sel = c.modId === selectedObservatoryModId ? 'selected' : '';
+  const cols = '2.2em minmax(0,1fr) 5em';
+  setHTML(scroll, rowList(cards.map((c, i) => {
     const costFrac = c.cpuSharePct / maxCpu;
     const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage`;
-    return `<div class='ins-obs-card ${sel}' data-mod='${c.modId}'>
-      <span class='rank'>${i + 1}</span>
-      <div class='body'>
-        <div class='nm'>${escapeHtml(c.modName)}</div>
-        <div class='micro'>${micro}</div>
-        <div class='cost'>${cellBar(costFrac, 'var(--cpu)')}</div>
-        <div class='comp'>${compositionBar(c.roster)}</div>
-      </div>
-      <span class='ms'>${fmtMs(c.smoothedMsThisTick)}<span class='u'>ms</span></span>
-    </div>`;
-  }).join(''));
+    const bodyCell = `<div class='obs-body'>` +
+      `<div class='nm'>${escapeHtml(c.modName)}</div>` +
+      `<div class='obs-micro'>${micro}</div>` +
+      `<div class='obs-cost'>${cellBar(costFrac, 'var(--cpu)')}</div>` +
+      `<div class='obs-comp'>${compositionBar(c.roster)}</div>` +
+      `</div>`;
+    return row({
+      cols,
+      clickable: true,
+      sel: c.modId === selectedObservatoryModId,
+      attrs: `data-mod='${c.modId}'`,
+      cells: [
+        `<span class='rk'>${i + 1}</span>`,
+        bodyCell,
+        `<span class='obs-ms'>${fmtMs(c.smoothedMsThisTick)}<span class='u'>ms</span></span>`,
+      ],
+    });
+  })));
 
-  scroll.querySelectorAll('.ins-obs-card').forEach(el => {
+  scroll.querySelectorAll('.row.clickable').forEach(el => {
     el.addEventListener('click', () => {
       selectedObservatoryModId = parseInt(el.dataset.mod, 10);
       renderObservatoryList();
@@ -331,21 +321,23 @@ function renderObservatoryList() {
 }
 
 // ----- I1 + I3 + I4 detail pane --------------------------------------
-// Restyled with the shared statline + dtable vocabulary. Leads with the
-// roster composition legend (the key to the list's split bars), then the
-// headline stats, the roster-vs-usage table, biome attendance, and top
-// loadout influence. Tabular and readable — no metaphor shapes.
+// The master-detail right side, built from the shared statLine + splitLegend
+// + .dtable vocabulary inside a panel. Leads with the roster composition
+// legend (the key to the list's split bars), then the headline stats, the
+// roster-vs-usage table, biome attendance (I3), and top loadout influence
+// (I4). Tabular and readable — no metaphor shapes.
 function renderObservatoryDetail() {
   const root = document.getElementById('ins-detail');
   if (!root) return;
-  // Stable inner scroll container: the .ins-detail aside persists, .det-scroll
-  // keeps identity across polls so setHTML preserves scroll position while a
-  // selected mod's long detail is open. Selecting a new mod replaces content
-  // (and naturally scrolls to top via the new shorter/longer body).
-  let scroll = root.querySelector('.det-scroll');
+
+  let scroll = root.querySelector('#det-scroll');
   if (!scroll) {
-    root.innerHTML = `<div class='det-scroll'></div>`;
-    scroll = root.querySelector('.det-scroll');
+    root.innerHTML = panel({
+      title: 'mod detail',
+      body: scrollRegion('det-scroll', '', { fill: true }),
+      pad: 'flush', fill: true, cls: 'ins-fillcol',
+    });
+    scroll = root.querySelector('#det-scroll');
   }
   const obs = lastModObservatory;
   if (!obs || !obs.cards || obs.cards.length === 0) {
@@ -369,6 +361,13 @@ function renderObservatoryDetail() {
   const legendHtml = legendSegs.length > 0
     ? splitLegend(legendSegs)
     : `<div class='comp-empty'>no content registered (library-shaped mod)</div>`;
+
+  // Headline stats as shared stat lines.
+  const statsHtml =
+    statLine('cpu share', dash(card.cpuSharePct, v => v.toFixed(2) + '%')) +
+    statLine('smoothed ms this tick', dash(card.smoothedMsThisTick, v => fmtMs(v) + ' ms')) +
+    statLine('average ms', dash(card.averageMs, v => fmtMs(v) + ' ms')) +
+    statLine('usage share', dash(card.usageSharePct, v => v.toFixed(2) + '%'));
 
   // Roster vs usage table — perf-vocabulary dtable.
   const rosterRows = [
@@ -411,56 +410,44 @@ function renderObservatoryDetail() {
         </tr>`).join('')}</tbody></table>`;
 
   setHTML(scroll, `
-    <div>
-      <div class='det-title'>${escapeHtml(card.modName)}</div>
-      <div style='font-family:var(--mono);font-size:0.74rem;color:var(--muted)'>roster total ${fmtInt(totalRoster)} entries</div>
-    </div>
-    <div>
-      <h4>roster composition</h4>
-      ${legendHtml}
-    </div>
-    <div class='det-stats'>
-      <div class='statline'><span class='k'>cpu share</span><span class='v'>${dash(card.cpuSharePct, v => v.toFixed(2) + '%')}</span></div>
-      <div class='statline'><span class='k'>smoothed ms this tick</span><span class='v'>${dash(card.smoothedMsThisTick, v => fmtMs(v) + ' ms')}</span></div>
-      <div class='statline'><span class='k'>average ms</span><span class='v'>${dash(card.averageMs, v => fmtMs(v) + ' ms')}</span></div>
-      <div class='statline'><span class='k'>usage share</span><span class='v'>${dash(card.usageSharePct, v => v.toFixed(2) + '%')}</span></div>
-    </div>
-    <div>
-      <h4>roster vs usage</h4>
-      <table class='dtable'>
-        <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
-        <tbody>${rosterRows}</tbody>
-      </table>
-    </div>
-    <div>
-      <h4>biome attendance</h4>
-      ${biomeHtml}
-    </div>
-    <div>
-      <h4>top loadout influence</h4>
-      ${liHtml}
+    <div class='det-pad'>
+      <div class='det-head'>
+        <div class='det-title'>${escapeHtml(card.modName)}</div>
+        <div class='det-roster'>roster total ${fmtInt(totalRoster)} entries</div>
+      </div>
+      ${sectionBlock('roster composition', legendHtml)}
+      ${sectionBlock('headline cost &amp; engagement', statsHtml)}
+      ${sectionBlock('roster vs usage', `
+        <table class='dtable'>
+          <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
+          <tbody>${rosterRows}</tbody>
+        </table>`)}
+      ${sectionBlock('biome attendance', biomeHtml)}
+      ${sectionBlock('top loadout influence', liHtml)}
     </div>
   `);
 }
 
 // ----- I5 cross-cutting ----------------------------------------------
-// Grouped ranked tables: one labelled section per signal class, each a
-// ranked .dtable of leader mods (mod name + appearances + a cellBar
-// scaled to the section's max appearances). Replaces the constellation
-// spine/stars with a readable, scannable list. Descriptive only.
+// One ranked .dtable per signal class, packed into an auto-fit grid in a
+// panel body. Each row is a leader mod (rank + name + appearances + a cellBar
+// scaled to the class max). Descriptive only.
 function renderCrossCutting() {
   const root = document.getElementById('ins-cross');
   if (!root) return;
   const cc = lastCrossCutting;
+
+  function shell(body, sub) {
+    root.innerHTML = panel({ title: 'cross-cutting signals', sub, body });
+  }
+
   if (!cc || !cc.worldLoaded || !cc.groups || cc.groups.length === 0) {
-    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>` +
-      emptyState('no cross-cutting signals recorded yet');
+    shell(emptyState('no cross-cutting signals recorded yet'), '—');
     return;
   }
   const groups = cc.groups.filter(g => g.leaders && g.leaders.length > 0);
   if (groups.length === 0) {
-    root.innerHTML = `<div class='cc-h'>cross-cutting signals</div>` +
-      emptyState('signals recorded but no leaders yet');
+    shell(emptyState('signals recorded but no leaders yet'), '—');
     return;
   }
 
@@ -470,45 +457,55 @@ function renderCrossCutting() {
 
   const sections = groups.map(g => {
     const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
-    const maxApp = Math.max(1, leaders[0]?.appearances || 1);
+    const maxApp = Math.max(1, leaders[0] && leaders[0].appearances || 1);
     const rows = leaders.map((l, i) => `<tr title='${escapeHtml(l.modName + ' — ' + fmtInt(l.appearances) + ' appearances in ' + g.signalClass)}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(l.modName)}</td>
       <td>${fmtInt(l.appearances)}</td>
-      <td class='l cc-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
+      <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
     </tr>`).join('');
-    return `<div class='cc-section'>
-      <div class='cc-cls'>${escapeHtml(g.signalClass)} <span class='cc-cnt'>${fmtInt(leaders.length)} mods</span></div>
-      <table class='dtable'>
+    return sectionBlock(
+      escapeHtml(g.signalClass),
+      `<table class='dtable'>
         <thead><tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
-    </div>`;
+      </table>`,
+      fmtInt(leaders.length) + ' mods');
   }).join('');
 
-  root.innerHTML = `
-    <div class='cc-h'>cross-cutting signals — ${groups.length} classes · ${distinct.size} mods</div>
-    <div class='cc-sections'>${sections}</div>
-  `;
+  shell(`<div class='cc-sections'>${sections}</div>`,
+    `${groups.length} classes · ${distinct.size} mods`);
 }
 
 // ----- I6 engagement vs cost -----------------------------------------
-// Sortable perf-tinted table. Columns: mod, usage share, cpu share,
-// roster size, and a 'tilt' chip describing where the mod sits in the
+// Sortable perf .dtable in a panel. Columns: mod, usage share, cpu share,
+// roster size, and a 'tilt' chip describing where the mod sits on the
 // usage-vs-cost ratio. cost-heavy (cpu materially above usage) -> .bad;
 // usage-heavy (usage materially above cpu) -> .good; otherwise balanced.
-// The tilt is a measurement of the share ratio, not a verdict.
+// The tilt is a measurement of the share ratio, not a verdict. Scroll region
+// stable across polls.
 function renderEngagementScatter() {
   const root = document.getElementById('ins-scatter');
   if (!root) return;
-  // Static header + stable scroll container so a poll preserves scroll position.
-  const { head, scroll } = ensureScrollSection(root, 'sc-h', 'sc-scroll');
   const ec = lastEngagementCost;
+
+  let scroll = root.querySelector('#scatter-scroll');
+  if (!scroll) {
+    root.innerHTML = panel({
+      title: 'engagement vs cost', sub: '—',
+      body: scrollRegion('scatter-scroll', '', { maxH: '360px' }),
+      pad: 'flush',
+    });
+    scroll = root.querySelector('#scatter-scroll');
+  }
+  const subEl = root.querySelector('.panel-sub');
+
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
-    head.innerHTML = `engagement vs cost`;
+    if (subEl) subEl.textContent = '—';
     setHTML(scroll, emptyState('no engagement vs cost data yet'));
     return;
   }
+  if (subEl) subEl.textContent = `${ec.dots.length} mods`;
 
   // Tilt classification from the usage-vs-cost share ratio.
   // Returns {cls, label} where cls maps to a chip variant.
@@ -537,9 +534,9 @@ function renderEngagementScatter() {
   });
 
   const cols = [
-    { key: 'modName',    label: 'mod',          l: true },
-    { key: 'usageShare', label: 'usage share',  title: 'share of all engagement attributed to this mod' },
-    { key: 'cpuShare',   label: 'cpu share',    title: 'share of all measured cpu attributed to this mod' },
+    { key: 'modName',    label: 'mod',         l: true },
+    { key: 'usageShare', label: 'usage share', title: 'share of all engagement attributed to this mod' },
+    { key: 'cpuShare',   label: 'cpu share',   title: 'share of all measured cpu attributed to this mod' },
     { key: 'rosterSize', label: 'roster' },
   ];
   const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
@@ -557,7 +554,6 @@ function renderEngagementScatter() {
     </tr>`;
   }).join('');
 
-  head.innerHTML = `engagement vs cost — ${ec.dots.length} mods`;
   setHTML(scroll, `
     <table class='dtable'>
       <thead>${headRow}</thead>
@@ -566,48 +562,56 @@ function renderEngagementScatter() {
 }
 
 // ----- I7 mod-pair cost correlation ----------------------------------
-// Readable top-coupled-pairs table only. The full NxN Pearson grid was
-// cut: it read as dead space and was twice misunderstood. The pairs table
-// carries the same signal in plain rows (mod A × mod B, r, magnitude bar,
-// samples) under a plain-English caption. Positive r tints green, negative
-// red; magnitude drives the bar. Descriptive only — no verdict on a pair.
+// Readable top-coupled-pairs .dtable in a panel under a plain-English caption.
+// Each row: mod A x mod B, signed Pearson r (green positive, red negative),
+// a magnitude cellBar, and the sample count. Descriptive only — no verdict on
+// a pair. Scroll region stable across polls.
 function renderModInteractionMatrix() {
   const root = document.getElementById('ins-matrix');
   if (!root) return;
-  // Static header + stable scroll container so a poll preserves scroll position.
-  const { head, scroll } = ensureScrollSection(root, 'mx-h', 'mx-scroll');
   const mi = lastModInteraction;
+
+  let scroll = root.querySelector('#matrix-scroll');
+  if (!scroll) {
+    root.innerHTML = panel({
+      title: 'mod-pair cost correlation', sub: '—',
+      body: scrollRegion('matrix-scroll', '', { maxH: '360px' }),
+      pad: 'flush',
+    });
+    scroll = root.querySelector('#matrix-scroll');
+  }
+  const subEl = root.querySelector('.panel-sub');
+
   if (!mi || !mi.worldLoaded || !mi.modIds || mi.modIds.length === 0) {
-    head.innerHTML = `mod-pair cost correlation`;
+    if (subEl) subEl.textContent = '—';
     setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)'));
     return;
   }
   const N = mi.modIds.length;
   if (N < 2 || !mi.topCoupled || mi.topCoupled.length === 0) {
-    head.innerHTML = `mod-pair cost correlation — ${N} mods`;
+    if (subEl) subEl.textContent = `${N} mods`;
     setHTML(scroll, emptyState('no coupled pairs ranked yet'));
     return;
   }
-
-  head.innerHTML = `mod-pair cost correlation — ${N} mods (Pearson r)`;
+  if (subEl) subEl.textContent = `${N} mods (Pearson r)`;
 
   const pairs = mi.topCoupled.slice(0, 12);
   const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
   const rows = pairs.map((p, i) => {
     const r = p.pearson || 0;
-    const sign = r >= 0 ? 'pos' : 'neg';
+    const tint = r >= 0 ? 'var(--good)' : 'var(--danger)';
     return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(p.modNameA)}</td>
       <td class='l'>${escapeHtml(p.modNameB)}</td>
-      <td class='r-${sign}'>${r.toFixed(3)}</td>
-      <td class='l mx-cell'>${cellBar(Math.abs(r) / maxAbs, r >= 0 ? 'var(--good)' : 'var(--danger)')}</td>
+      <td style='color:${tint}'>${r.toFixed(3)}</td>
+      <td class='l ins-cell'>${cellBar(Math.abs(r) / maxAbs, tint)}</td>
       <td>${fmtInt(p.samplesUsed)}</td>
     </tr>`;
   }).join('');
 
   setHTML(scroll, `
-    <div class='mx-caption'>mods whose per-tick CPU rises and falls together — a high r means they tend to get busy at the same moments</div>
+    <div class='ins-caption'>mods whose per-tick CPU rises and falls together — a high r means they tend to get busy at the same moments</div>
     <table class='dtable'>
       <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
       <tbody>${rows}</tbody>

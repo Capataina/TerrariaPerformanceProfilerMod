@@ -13,14 +13,14 @@ internal static partial class DashboardAssets
     <span id=""foot-mode"">—</span>
   </footer>
 
-  <!-- ===== Mod card slide-in (right-side panel) ========================= -->
-  <aside class=""modcard hidden"" id=""modcard"" role=""dialog"" aria-label=""mod detail"">
-    <header class=""mc-h"">
-      <span class=""mc-back"" id=""mc-close"" title=""close"">&times;</span>
-      <span class=""mc-name"" id=""mc-name"">—</span>
-      <span class=""mc-rank"" id=""mc-rank"">—</span>
+  <!-- ===== Mod card slide-in (shared .drawer component) ================= -->
+  <aside class=""drawer hidden"" id=""modcard"" role=""dialog"" aria-label=""mod detail"">
+    <header class=""drawer-h"">
+      <span class=""dr-close"" id=""mc-close"" title=""close"">&times;</span>
+      <span class=""dr-title"" id=""mc-name"">—</span>
+      <span class=""dr-meta"" id=""mc-rank"">—</span>
     </header>
-    <div class=""mc-body"" id=""mc-body""></div>
+    <div class=""drawer-body"" id=""mc-body""></div>
   </aside>
 
   <!-- ===== Tooltip layer (single instance reused) ======================= -->

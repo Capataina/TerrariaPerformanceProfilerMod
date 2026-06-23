@@ -27,6 +27,28 @@ internal static partial class DashboardAssets
 let modtableHovered = false;
 let modtableRenderPending = false;
 
+// Shared grid template for every level of the tree (headline / category / hook)
+// so columns line up with the static .modtable-head. rank | name | cost bar |
+// 30s spark | now | avg | alloc.
+const MODTABLE_COLS = '2em minmax(0, 1.4fr) minmax(0, 2.2fr) 4.5em 4.5em 4.5em 5em';
+
+// Render the composite/cpu/avg/alloc sort control via the shared segmented().
+// The alloc option is disabled (not removed) when alloc isn't tracked.
+function renderModSortControl() {
+  const host = document.getElementById('mods-sort');
+  if (!host) return;
+  const tracks = lastMods && lastMods.tracksAllocations;
+  host.innerHTML = segmented({
+    id: 'mods-sort-seg', attr: 'data-sort', active: modSort,
+    options: [
+      { value: 'composite', label: 'composite' },
+      { value: 'cpu', label: 'cpu' },
+      { value: 'avg', label: 'avg' },
+      { value: 'alloc', label: 'alloc', disabled: !tracks, title: tracks ? '' : 'allocation tracking is off' },
+    ],
+  });
+}
+
 function renderSummaryMods() {
   if (modtableHovered) { modtableRenderPending = true; return; }
   renderSummaryModsForced();
@@ -36,18 +58,14 @@ function renderSummaryModsForced() {
   modtableRenderPending = false;
   const root = document.getElementById('modtable');
   if (!lastMods || !lastMods.worldLoaded || !lastMods.mods) {
-    root.innerHTML = '<div class=""empty-line"">no data yet</div>';
+    root.innerHTML = emptyState('no data yet');
     return;
   }
 
-  // Toggle alloc visibility in header.
+  renderModSortControl();
+  // Toggle alloc visibility in the static header.
   const allocHeader = document.getElementById('mh-alloc');
-  const sortAllocBtn = document.getElementById('sort-alloc');
-  if (lastMods.tracksAllocations) {
-    allocHeader.style.opacity = ''; sortAllocBtn.style.display = '';
-  } else {
-    allocHeader.style.opacity = '0.4'; sortAllocBtn.style.opacity = '0.4';
-  }
+  if (allocHeader) allocHeader.style.opacity = lastMods.tracksAllocations ? '' : '0.4';
 
   // Filter + sort.
   const q = modFilter.trim().toLowerCase();
@@ -64,83 +82,63 @@ function renderSummaryModsForced() {
   const median = mods.length > 0 ? getter(mods[Math.floor(mods.length / 2)]) : 0;
   const outlierCut = median * 2.5;
 
-  // Color-grade bars by per-mod ratio against the median: bar color
-  // shifts from green (calm) → yellow → orange → red as a mod climbs.
-  // Provides at-a-glance answer to ""is this mod actually expensive
-  // for this session"" beyond just the bar length.
-  function barColor(value) {
-    if (median <= 0) return 'var(--perf-0)';
-    const r = value / median;
-    if (r < 1.5) return 'var(--perf-0)';
-    if (r < 3)   return 'var(--perf-1)';
-    if (r < 6)   return 'var(--perf-2)';
-    if (r < 12)  return 'var(--perf-3)';
-    return 'var(--perf-4)';
-  }
-
   let html = '';
   for (let i = 0; i < mods.length; i++) {
     const m = mods[i];
     const v = getter(m);
-    const isTop = i < 3;
     const isOutlier = v > outlierCut && i < 3;
     const isOpen = expandedMods.has(m.id);
-    const sparkSvg = renderModSparkInline(m.id);
-    const color = barColor(v);
-    html += `<div class='modrow ${isTop ? 'is-top' : ''} ${isOutlier ? 'outlier' : ''}' data-mod='${m.id}'>
-      <span class='rank'>${i + 1}</span>
-      <span class='name'>
-        <span class='twirl' data-role='twirl'>▶</span>
-        <span class='modname' data-role='name'>${escapeHtml(m.name)}</span>
-      </span>
-      <span class='bar'><span style='width: ${(v / max * 100).toFixed(1)}%; background: ${color}'></span></span>
-      <span class='spark'>${sparkSvg}</span>
-      <span class='ms'>${fmtMs(m.cpuMs)}<span class='u'>ms</span></span>
-      <span class='ms'>${fmtMs(m.avgCpuMs)}<span class='u'>avg</span></span>
-      <span class='alloc'>${lastMods.tracksAllocations ? fmtBytes(m.allocBytes) : '—'}</span>
-    </div>`;
+    // Bar colour grades by ratio against the median (perfColor): calm green ->
+    // red as a mod climbs. Outliers read amber, the top-3 climbers red.
+    const ratio = median > 0 ? v / median : 0;
+    const barCol = isOutlier ? 'var(--amber)' : (i < 3 && ratio >= 12 ? 'var(--danger)' : perfColor(ratio));
+    html += row({
+      cols: MODTABLE_COLS, clickable: true, outlier: isOutlier,
+      cls: 'modrow' + (isOpen ? ' open' : ''),
+      attrs: `data-mod='${m.id}'`,
+      cells: [
+        `<span class='rk'>${i + 1}</span>`,
+        `<span class='nm-cell'>${twirl(isOpen)}<span class='modname' data-role='name'>${escapeHtml(m.name)}</span></span>`,
+        cellBar(v / max, barCol),
+        `<span class='mt-spark'>${renderModSparkInline(m.id)}</span>`,
+        `<span class='mt-num'>${fmtMs(m.cpuMs)}<span class='u'>ms</span></span>`,
+        `<span class='mt-num'>${fmtMs(m.avgCpuMs)}<span class='u'>avg</span></span>`,
+        `<span class='mt-num'>${lastMods.tracksAllocations ? fmtBytes(m.allocBytes) : '—'}</span>`,
+      ],
+    });
     if (isOpen) html += renderModTree(m);
   }
   root.innerHTML = html;
 
-  // Toggle open class on opens.
-  for (const id of expandedMods) {
-    const r = root.querySelector('.modrow[data-mod=""' + id + '""]');
-    if (r) r.classList.add('open');
-  }
-
-  // Wire row clicks.
-  root.querySelectorAll('.modrow').forEach(row => {
-    const modId = parseInt(row.dataset.mod, 10);
-    row.querySelector('[data-role=twirl]').addEventListener('click', e => {
+  // Wire row clicks: twirl + whole row toggle the tree, the name opens the card.
+  root.querySelectorAll('.modrow').forEach(rowEl => {
+    const modId = parseInt(rowEl.dataset.mod, 10);
+    rowEl.querySelector('.twirl').addEventListener('click', e => {
       e.stopPropagation();
       toggleExpandMod(modId);
     });
-    row.querySelector('[data-role=name]').addEventListener('click', e => {
+    rowEl.querySelector('[data-role=name]').addEventListener('click', e => {
       e.stopPropagation();
       openModCard(modId);
     });
-    row.addEventListener('click', () => toggleExpandMod(modId));
+    rowEl.addEventListener('click', () => toggleExpandMod(modId));
   });
 }
 
 function renderModSparkInline(modId) {
   const arr = modSparkHistory.get(modId);
   if (!arr || arr.length < 2) return '';
-  const max = Math.max(0.005, Math.max(...arr));
-  let d = '';
-  for (let i = 0; i < arr.length; i++) {
-    const x = (i / Math.max(1, arr.length - 1)) * 100;
-    const y = 16 - (arr[i] / max) * 14;
-    d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-  }
-  return `<svg viewBox='0 0 100 16' preserveAspectRatio='none'><path d='${d}' fill='none' stroke='#6ec07e' stroke-width='0.7'/></svg>`;
+  return sparkline(arr, { color: 'var(--cpu)', strokeW: 1 });
 }
 
 function renderModTree(mod) {
+  const blank = `<span></span>`;
   // Group hook records by mod, then by category.
   if (!lastHooks || !lastHooks.hooks) {
-    return `<div class='mod-tree'><div class='cat-row'><span class='twirl'></span><span class='name muted'>loading…</span></div></div>`;
+    return `<div class='mod-tree'>` + row({
+      cols: MODTABLE_COLS, cls: 'cat-row',
+      cells: [blank, `<span class='nm muted'>loading…</span>`, blank, blank, blank, blank, blank],
+    }) + `</div>`;
   }
   const cats = lastMods.categories || [];
   // Build categoryId → hooks[] for this mod.
@@ -152,7 +150,10 @@ function renderModTree(mod) {
     arr.push(h);
   }
   if (buckets.size === 0) {
-    return `<div class='mod-tree'><div class='hook-row'><span></span><span class='name muted'>no active hooks for this mod (yet)</span><span></span><span></span><span></span><span></span><span></span></div></div>`;
+    return `<div class='mod-tree'>` + row({
+      cols: MODTABLE_COLS, cls: 'hook-row',
+      cells: [blank, `<span class='nm muted'>no active hooks for this mod (yet)</span>`, blank, blank, blank, blank, blank],
+    }) + `</div>`;
   }
   // Sort each category by cpuMs desc, sort categories by total cpuMs.
   const catOrder = [...buckets.entries()].map(([catId, arr]) => {
@@ -168,30 +169,39 @@ function renderModTree(mod) {
     const catName = cats[c.catId] || ('cat:' + c.catId);
     const catKey = mod.id + '|' + c.catId;
     const catOpen = expandedCategories.has(catKey);
-    html += `<div class='cat-row ${catOpen ? 'open' : ''}' data-cat='${catKey}'>
-      <span class='twirl'>▶</span>
-      <span class='name'>${escapeHtml(catName)}</span>
-      <span class='bar'><span style='width: ${(c.total / max * 100).toFixed(1)}%; background: #4978a8'></span></span>
-      <span></span>
-      <span class='ms'>${fmtMs(c.total)}<span class='u'>ms</span></span>
-      <span class='muted' style='text-align:right'>${c.hooks.length} hooks</span>
-      <span></span>
-    </div>`;
+    html += row({
+      cols: MODTABLE_COLS, clickable: true, cls: 'cat-row' + (catOpen ? ' open' : ''),
+      attrs: `data-cat='${catKey}'`,
+      cells: [
+        twirl(catOpen),
+        `<span class='nm'>${escapeHtml(catName)}</span>`,
+        cellBar(c.total / max, 'var(--accent)'),
+        blank,
+        `<span class='mt-num'>${fmtMs(c.total)}<span class='u'>ms</span></span>`,
+        `<span class='mt-num muted'>${c.hooks.length} hooks</span>`,
+        blank,
+      ],
+    });
     if (catOpen) {
       const hookMax = c.hooks[0].cpuMs || 1;
       for (const h of c.hooks.slice(0, 20)) {
-        html += `<div class='hook-row'>
-          <span></span>
-          <span></span>
-          <span class='name'>${escapeHtml(truncate(h.display, 60))}</span>
-          <span class='bar'><span style='width: ${(h.cpuMs / hookMax * 100).toFixed(1)}%'></span></span>
-          <span class='ms'>${fmtMs(h.cpuMs)}<span class='u'>ms</span></span>
-          <span class='ms'>${fmtMs(h.avgCpuMs)}<span class='u'>avg</span></span>
-          <span class='alloc'>${lastHooks.tracksAllocations ? fmtBytes(h.allocBytes) : '—'}</span>
-        </div>`;
+        html += row({
+          cols: MODTABLE_COLS, cls: 'hook-row',
+          cells: [
+            blank, blank,
+            `<span class='nm'>${escapeHtml(truncate(h.display, 60))}</span>`,
+            cellBar(h.cpuMs / hookMax, 'var(--accent)'),
+            `<span class='mt-num'>${fmtMs(h.cpuMs)}<span class='u'>ms</span></span>`,
+            `<span class='mt-num'>${fmtMs(h.avgCpuMs)}<span class='u'>avg</span></span>`,
+            `<span class='mt-num'>${lastHooks.tracksAllocations ? fmtBytes(h.allocBytes) : '—'}</span>`,
+          ],
+        });
       }
       if (c.hooks.length > 20) {
-        html += `<div class='hook-row'><span></span><span></span><span class='name muted'>+ ${c.hooks.length - 20} quieter hooks</span><span></span><span></span><span></span><span></span></div>`;
+        html += row({
+          cols: MODTABLE_COLS, cls: 'hook-row',
+          cells: [blank, blank, `<span class='nm muted'>+ ${c.hooks.length - 20} quieter hooks</span>`, blank, blank, blank, blank],
+        });
       }
     }
   }
@@ -222,12 +232,13 @@ function toggleExpandMod(modId) {
   renderSummaryModsForced();
 }
 
-// Mod-tree sort + filter wiring.
+// Mod-tree sort + filter wiring. The sort control is the shared segmented()
+// rendered into #mods-sort; clicks are delegated on that persistent host and
+// renderModSortControl() repaints the active state from modSort on re-render.
 document.getElementById('mods-sort').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
   modSort = b.dataset.sort;
-  document.querySelectorAll('#mods-sort button').forEach(x => x.classList.toggle('active', x === b));
   if (activeTab === 'summary') renderSummaryModsForced();
 });
 document.getElementById('mod-filter').addEventListener('input', e => {

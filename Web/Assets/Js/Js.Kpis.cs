@@ -133,18 +133,8 @@ function setKpi(name, opts) {
   if (spark) {
     if (!opts.sparkVals || opts.sparkVals.length < 2) { spark.innerHTML = ''; }
     else {
-      const vals = opts.sparkVals;
-      const max = Math.max(0.0001, Math.max(...vals));
-      const min = Math.min(...vals);
-      const range = Math.max(0.0001, max - min);
-      let d = '';
-      for (let i = 0; i < vals.length; i++) {
-        const x = (i / Math.max(1, vals.length - 1)) * 100;
-        const y = 15 - ((vals[i] - min) / range) * 13;
-        d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
-      }
       const c = opts.sparkClass === 'bad' ? 'var(--danger)' : opts.sparkClass === 'orange' ? 'var(--orange)' : opts.sparkClass === 'warn' ? 'var(--amber)' : 'var(--good)';
-      spark.innerHTML = `<path d='${d}' fill='none' stroke='${c}' stroke-width='0.6'/>`;
+      spark.innerHTML = sparkline(opts.sparkVals, { color: c, strokeW: 1 });
     }
   }
 }

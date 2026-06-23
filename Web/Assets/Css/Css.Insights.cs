@@ -14,244 +14,117 @@ namespace PerformanceProfiler.Web;
 
 internal static partial class DashboardAssets
 {
+    // Insights tab: pure layout only. Every visual (KPI ring gauges, dormant
+    // table, observatory card list, detail stat lines / tables, cross-cutting /
+    // engagement / correlation tables) is component-rendered from the shared
+    // library, so this file holds only the responsive grids that arrange the
+    // panels. The old bespoke surfaces (.ins-kpi/.tile/.ring*, .ins-dormant
+    // and its .dor-*, .ins-obs-list/.ins-obs-card/.rank/.body/.nm/.micro/.cost/
+    // .comp/.ms, .ins-detail and its .det-*, .ins-cross/.cc-*, .ins-scatter/
+    // .sc-*, .ins-matrix/.mx-*/.r-pos/.r-neg) were retired onto components.
     private const string CssInsights = @"
 /* =================================================== INSIGHTS */
-/* Insights surfaces are built from the shared readable vocabulary
-   (.split-bar, .dtable, .chip, .statline, .cellbar). The rules below are
-   layout + per-surface framing only; the components carry their own
-   styling from Css.Components.cs. Every scrollable surface keeps a stable
-   inner scroll container (.dor-scroll, .obs-scroll, .det-scroll,
-   .sc-scroll, .mx-scroll) so a poll re-render via setHTML preserves scroll
-   position instead of snapping to the top. */
 .ins-shell {
   display: flex; flex-direction: column; gap: 0.6rem;
   padding: 0.6rem 0.9rem 1rem;
 }
 
-/* KPI strip — mini ring gauges (kept; acceptable flair) ------------- */
-.ins-kpi {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem;
-}
-.ins-kpi .tile {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.5rem 0.6rem;
-  display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 0.55rem;
-  align-items: center;
-}
-.ins-kpi .tile .ring-wrap { width: 60px; height: 60px; }
-.ins-kpi .tile .ring { width: 60px; height: 60px; display: block; }
-.ins-kpi .tile .ring .track { fill: none; stroke: var(--border); stroke-width: 6; }
-.ins-kpi .tile .ring .arc   { fill: none; stroke-width: 6; stroke-linecap: round;
-  transition: stroke-dasharray 0.4s ease; }
-.ins-kpi .tile .ring .ring-val {
-  fill: var(--text-bright); font-family: var(--mono); font-size: 13px;
-  letter-spacing: 0.02em;
-}
-.ins-kpi .tile .tile-body { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.ins-kpi .tile .lbl {
-  font-family: var(--mono); font-size: 0.7rem;
-  color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ins-kpi .tile .sub { font-size: 0.72rem; color: var(--dim); }
-
-/* Mid section: 2-column observatory | detail ------------------------- */
-/* Both columns stretch to the same height (align-items: stretch is the grid
-   default) so the detail aside fills the column rather than leaving a gap
-   below it. min-height grows the row to use the vertical space the cut
-   matrix freed up. */
+/* Mid section: 2-column observatory | detail. Both columns stretch to the
+   same height so the detail panel fills its column rather than leaving a gap.
+   max-height bounds the row so the inner scroll regions (the dormant table,
+   the observatory card list, the detail body) actually engage instead of a
+   large roster stretching the whole page. */
 .ins-mid {
   display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 0.6rem;
   min-height: 460px;
-  /* Bound the row so the inner scroll containers (.dor-scroll, .obs-scroll,
-     .det-scroll) actually engage. Without a cap the grid row grows to fit the
-     full card list, so a 150-mod roster stretches the whole page instead of
-     scrolling inside the observatory column. */
   max-height: 68vh;
 }
+@media (max-width: 900px) { .ins-mid { grid-template-columns: 1fr; max-height: none; } }
+/* Observatory column stacks the dormant panel over the card-list panel; the
+   list panel grows to fill the remaining height (its .panel.fill + the
+   scroll-region inside own the overflow) so the list reaches the bottom of
+   the row instead of leaving dead space below short lists. */
 .ins-observatory {
-  display: flex; flex-direction: column; gap: 0.4rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
   min-width: 0; min-height: 0;
 }
 
-/* Shared per-surface section header. */
-.ins-dormant .dor-h .label,
-.ins-cross .cc-h, .ins-scatter .sc-h, .ins-matrix .mx-h {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--muted);
-  letter-spacing: 0.08em; text-transform: uppercase;
-}
-
-/* I2 dormant surface — sortable table -------------------------------- */
-.ins-dormant {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.45rem 0.7rem;
-}
-.ins-dormant .dor-h {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
-  margin-bottom: 0.3rem;
-}
-.ins-dormant .dor-h .label { color: var(--text); }
-.ins-dormant .dor-scroll { max-height: 220px; overflow-y: auto; }
-.ins-dormant .dor-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
-.ins-dormant .dor-usage .split-bar { flex: 1; }
-.ins-dormant .dor-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
-
-/* I1 observatory card list ------------------------------------------ */
-/* The .ins-obs-list wrapper is the stable element; the inner .obs-scroll
-   carries overflow so a poll re-render via setHTML preserves scroll. The
-   wrapper fills the remaining height of the observatory column (flex:1)
-   and .obs-scroll fills the wrapper, so the list reaches the bottom of the
-   mid row instead of leaving dead space below short lists. */
-.ins-obs-list {
-  background: var(--panel);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  flex: 1 1 auto;
-  min-height: 240px;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.ins-obs-list .obs-scroll {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  min-height: 0;
-}
-.ins-obs-card {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 90px;
-  gap: 0.5rem;
-  padding: 0.45rem 0.7rem;
-  border-bottom: 1px solid var(--border-soft);
-  cursor: pointer;
-  align-items: center;
-}
-.ins-obs-card:hover { background: var(--hover); }
-.ins-obs-card.selected { background: var(--hover); box-shadow: inset 3px 0 0 var(--good); }
-.ins-obs-card .rank {
-  font-family: var(--mono); font-size: 0.72rem; color: var(--dim); text-align: right;
-}
-.ins-obs-card .body { min-width: 0; }
-.ins-obs-card .body .nm {
-  font-family: var(--ui); font-size: 0.88rem; color: var(--text);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.ins-obs-card .body .micro {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  margin-top: 0.2rem;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.ins-obs-card .body .cost { margin-top: 0.3rem; }
-/* Roster composition is a secondary signal: rendered last and quieted (the
-   bar is full-width regardless of mod size, so it must not lead). Lower
-   opacity drops its visual weight below the cpu/cost signals above it. */
-.ins-obs-card .body .comp { margin-top: 0.28rem; opacity: 0.55; }
-.ins-obs-card .ms {
-  font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
-}
-.ins-obs-card .ms .u { font-size: 0.65rem; color: var(--dim); margin-left: 0.15rem; }
-
-/* I1+I3+I4 detail pane ----------------------------------------------- */
-/* The .ins-detail aside is the stable element and fills its grid column
-   (stretch); the inner .det-scroll carries overflow so a poll re-render via
-   setHTML preserves scroll while a mod's detail is open. */
-.ins-detail {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.6rem 0.85rem;
-  min-height: 240px;
-  display: flex; flex-direction: column;
-  overflow: hidden;
-}
-.ins-detail .det-scroll {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  min-height: 0;
-  display: flex; flex-direction: column; gap: 0.6rem;
-}
-.ins-detail h4 {
-  margin: 0 0 0.3rem; font-family: var(--mono); font-size: 0.72rem;
-  color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase;
-}
-.ins-detail .det-title {
-  font-family: var(--ui); font-size: 1.05rem; color: var(--text);
-  margin-bottom: 0.1rem;
-}
-.ins-detail .det-stats { display: flex; flex-direction: column; }
-
-/* Lower analytical row: cross-cutting | engagement | correlation ------ */
-/* A responsive grid so the three surfaces pack across the full width
-   instead of stacking full-width with empty right-hand strips. Cross-cutting
-   is the widest (it holds its own auto-fit section grid) so it spans two
-   columns; engagement and correlation are narrow tables sharing the rest.
-   On narrow viewports the auto-fit collapses them to a single column. */
+/* Lower analytical row: cross-cutting | engagement | correlation. A responsive
+   grid so the three surfaces pack across the full width instead of stacking
+   full-width with empty right-hand strips. Cross-cutting is the widest (it
+   holds its own auto-fit section grid) so it spans the full row; engagement
+   and correlation are narrower tables sharing the next row. On narrow
+   viewports the auto-fit collapses everything to a single column. */
 .ins-lower {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 0.6rem;
   align-items: start;
 }
-.ins-lower .ins-cross { grid-column: 1 / -1; }
+.ins-lower > #ins-cross { grid-column: 1 / -1; }
 
-/* I5 cross-cutting — grouped section list ---------------------------- */
-.ins-cross {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.55rem 0.8rem;
-  display: flex; flex-direction: column; gap: 0.5rem;
-}
-.ins-cross .cc-h { margin-bottom: 0.15rem; }
-.ins-cross .cc-sections {
+/* Cross-cutting packs one ranked table per signal class into an auto-fit grid
+   inside its panel body. */
+.cc-sections {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 0.6rem 0.9rem;
 }
-.ins-cross .cc-section {
-  border: 1px solid var(--border-soft); border-radius: 4px;
-  background: var(--panel); padding: 0.4rem 0.55rem;
-}
-.ins-cross .cc-cls {
-  font-family: var(--mono); font-size: 0.82rem; color: var(--text);
-  margin-bottom: 0.3rem;
-}
-.ins-cross .cc-cls .cc-cnt { color: var(--dim); font-size: 0.72rem; margin-left: 0.4rem; }
-.ins-cross .cc-cell { width: 6rem; }
 
-/* I6 engagement vs cost — sortable table ----------------------------- */
-.ins-scatter {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.55rem 0.8rem;
-}
-.ins-scatter .sc-h { margin-bottom: 0.4rem; }
-.ins-scatter .sc-scroll { max-height: 360px; overflow-y: auto; }
+/* Width caps for the in-cell magnitude bars so a cellBar in a table column
+   does not stretch the whole column. */
+.ins-cell { width: 6rem; }
 
-/* I7 mod-pair correlation — top-coupled-pairs table ------------------ */
-/* The full NxN Pearson grid was cut (dead space, twice misunderstood). Only
-   the readable pairs table remains, under a plain-English caption. .mx-scroll
-   is the stable scroll container so a poll preserves scroll position. */
-.ins-matrix {
-  background: var(--panel-2);
-  border: 1px solid var(--border-soft);
-  border-radius: 4px;
-  padding: 0.55rem 0.8rem;
+/* KPI strip: four full-ring gauges in an even grid inside the panel body.
+   Each cell pairs the ring with a label + sub. Collapses to two columns on
+   narrow viewports. */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; }
+@media (max-width: 700px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+.kpi-cell { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0.55rem; align-items: center; }
+.kpi-meta { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.kpi-lbl {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  letter-spacing: 0.08em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ins-matrix .mx-h { margin-bottom: 0.4rem; }
-.ins-matrix .mx-caption {
-  font-size: 0.74rem; color: var(--dim); line-height: 1.35;
-  margin-bottom: 0.45rem;
+.kpi-sub { font-family: var(--mono); font-size: 0.72rem; color: var(--dim); }
+
+/* Fill-column panels (observatory list + detail) grow to the height of the
+   mid row so their inner scroll regions engage. */
+.ins-fillcol { min-height: 0; height: 100%; }
+
+/* Dormant + engagement usage cell: split bar plus a right-aligned percentage,
+   sharing one row inside the table cell. */
+.ins-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
+.ins-usage .split-bar { flex: 1; }
+.ins-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
+
+/* Observatory card internals (the middle cell of each row()). Stacks the mod
+   name, the usage micro-stats, the cpu cost bar, and the (quieted) roster
+   composition bar. The composition is a secondary signal: its bar is full
+   width regardless of mod size, so it is dropped below the cpu/cost signals
+   and lowered in opacity so it never leads. */
+.obs-body { min-width: 0; }
+.obs-micro {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  margin-top: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.ins-matrix .mx-scroll { max-height: 360px; overflow-y: auto; }
-.ins-matrix .mx-cell { width: 6rem; }
-/* Signed correlation values: green positive, red negative. */
-.ins-matrix .r-pos { color: var(--good); }
-.ins-matrix .r-neg { color: var(--danger); }
+.obs-cost { margin-top: 0.3rem; }
+.obs-comp { margin-top: 0.28rem; opacity: 0.55; }
+.obs-ms {
+  font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
+}
+.obs-ms .u { font-size: 0.65rem; color: var(--dim); margin-left: 0.15rem; }
+
+/* Detail pane: the scroll-region is flush, so the body insets here. */
+.det-pad { padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.det-head { margin-bottom: 0.4rem; }
+.det-title { font-family: var(--ui); font-size: 1.05rem; color: var(--text); }
+.det-roster { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); margin-top: 0.1rem; }
+
+/* Plain-English caption above the correlation table. */
+.ins-caption {
+  font-size: 0.74rem; color: var(--dim); line-height: 1.35; margin-bottom: 0.45rem;
+}
 ";
 }

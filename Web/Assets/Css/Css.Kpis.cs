@@ -88,5 +88,6 @@ internal static partial class DashboardAssets
   height: 1.2rem;
   display: block; width: 100%;
 }
+.kpi-spark .spark-svg { height: 100%; }
 ";
 }

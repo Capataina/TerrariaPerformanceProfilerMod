@@ -14,30 +14,27 @@ namespace PerformanceProfiler.Web;
 
 internal static partial class DashboardAssets
 {
-    // Timeline renderers — readable-vocabulary layer.
+    // Timeline renderers — composed from the shared component library.
     //
-    // The earlier metaphor-heavy renderers (seismograph waveform, per-kind
-    // glyph track, nested treemap, abstract death icons) were rejected as
-    // unreadable. They are replaced here with shapes from the shared
-    // component vocabulary (split bars, dtables, chips, perf tints) so every
-    // surface reads at a glance. No data field was dropped — each was
-    // reshaped onto a quieter primitive:
-    //   tl-heatstrip    per-minute vertical bar strip (height = avgFrameMs,
-    //                   colour = perf tint; spike/stall as small markers)
-    //   tl-transitions  time-placed labelled .chip tokens (words, not glyphs)
-    //   tl-gantt lanes  kept — time-scaled bars, top-mod waterfall via splitBar
-    //   tl-detail       kept — restyled with .statline + cellBar bars
-    //   tl-attendance   split bar (vanilla vs per-mod) + supporting .dtable
-    //   tl-deaths       death cards + labelled .chip event row (words)
-    //   tl-chronicle    kept — chronological blocks, minor restyle
+    // Every surface now draws with the shared vocabulary instead of bespoke
+    // markup. No data field was dropped — each was reshaped onto a component:
+    //   heat strip   barChart() vertical strip (value = avgFrameMs,
+    //                colour = perfColor(avgFrameMs/16.6), spike/stall marks)
+    //   transitions  time-placed .chip tokens — KEPT bespoke (time-domain)
+    //   swimlanes    absolute gantt — KEPT bespoke; waterfall via splitBar()
+    //   detail       panel() body: statLine() rows + a .dtable of per-mod ms
+    //   attendance   panel() body: statLine totals + splitBar/splitLegend + .dtable
+    //   deaths       per-death cards: head statline-ish + a .chip event row
+    //   chronicle    scrollRegion + setHTML, a tokenised block list
+    //   filter bar   segmented() control (gates which swimlanes render)
     //
     // The family filter (timelineFilter, declared in JsConfig) gates which
-    // swimlanes render; '.tl-filter' buttons in the HTML drive it.
+    // swimlanes + transitions + attendance render; the segmented control in
+    // #tl-filterbar drives it via setTimelineFilter.
     //
     // Caching: every renderer keys its last input by a cheap signature so a
-    // poll that returns identical data doesn't re-build the DOM. Hot-path
-    // overhead is irrelevant here (browser side) but DOM churn is, since
-    // the F9 overlay shares browser resources with the game.
+    // poll that returns identical data doesn't re-build the DOM. DOM churn
+    // matters here since the F9 overlay shares browser resources with the game.
     private const string JsTimeline = @"
 // ====== TIMELINE ======================================================
 let lastSegmentLifetime = null;
@@ -52,7 +49,7 @@ let selectedSegmentKey  = null;   // 'family|key|startTick'
 // Render-signature cache — skip rebuild when input didn't change.
 const _tlSig = {
   heatstrip: '', transitions: '', swimlanes: '', detail: '',
-  attendance: '', deaths: '', chronicle: ''
+  attendance: '', deaths: '', chronicle: '', filterbar: ''
 };
 
 const TL_FAMILIES = ['Biome','Weather','Boss','Invasion','Subworld'];
@@ -60,12 +57,6 @@ const TL_FAMILIES = ['Biome','Weather','Boss','Invasion','Subworld'];
 function segKey(family, key, startTick) {
   return (family || '') + '|' + (key != null ? key : '') + '|' + (startTick != null ? startTick : '');
 }
-
-// Per-family swimlane bar colour, matched to the CSS lane accents.
-const TL_FAMILY_COLOR = {
-  Biome: 'var(--good)', Weather: 'var(--amber)', Boss: 'var(--danger)',
-  Invasion: 'var(--orange)', Subworld: 'var(--purple)'
-};
 
 function timelineWindow() {
   let s = Infinity, e = -Infinity;
@@ -107,9 +98,9 @@ function pctOf(ms, win) {
 }
 
 // ---- Family filter --------------------------------------------------
-// timelineFilter (JsConfig) is 'all' or one of TL_FAMILIES. Clicking a
-// filter button narrows the swimlanes + transitions + attendance to that
-// family; 'all' shows everything. Filter is reflected in the button row.
+// timelineFilter (JsConfig) is 'all' or one of TL_FAMILIES. Selecting a
+// family narrows the swimlanes + transitions + attendance to it; 'all' shows
+// everything. State is reflected in the segmented control.
 function setTimelineFilter(f) {
   const next = (f === timelineFilter && f !== 'all') ? 'all' : f;
   if (next === timelineFilter) return;
@@ -124,17 +115,21 @@ function setTimelineFilter(f) {
   renderTimeline();
 }
 
+// Family filter rendered as the shared segmented() control. The options are
+// 'all' + each family; the active option mirrors timelineFilter.
 function renderTimelineFilterBar() {
   const root = document.getElementById('tl-filterbar');
   if (!root) return;
-  const opts = ['all'].concat(TL_FAMILIES);
-  root.innerHTML = opts.map(o => {
-    const active = (o === timelineFilter) ? ' active' : '';
-    const label = (o === 'all') ? 'all' : o.toLowerCase();
-    return `<button type='button' class='tl-filter-btn${active}' data-tlfilter='${o}'>${escapeHtml(label)}</button>`;
-  }).join('');
-  root.querySelectorAll('.tl-filter-btn').forEach(b => {
-    b.addEventListener('click', () => setTimelineFilter(b.dataset.tlfilter));
+  const sig = timelineFilter;
+  if (sig === _tlSig.filterbar) return;
+  _tlSig.filterbar = sig;
+  const options = [{ value: 'all', label: 'all' }].concat(
+    TL_FAMILIES.map(f => ({ value: f, label: f.toLowerCase() })));
+  root.innerHTML = segmented({
+    id: 'tl-filter-seg', attr: 'data-tlfilter', active: timelineFilter, options
+  });
+  root.querySelectorAll('[data-tlfilter]').forEach(b => {
+    b.addEventListener('click', () => setTimelineFilter(b.getAttribute('data-tlfilter')));
   });
 }
 
@@ -142,14 +137,12 @@ function familyVisible(f) {
   return timelineFilter === 'all' || timelineFilter === f;
 }
 
-// ---- T4: heat strip — per-minute vertical bar strip -----------------
-// One thin fixed-width vertical bar per minute bucket inside a modest
-// fixed-height container. Bar height is avgFrameMs auto-scaled across the
-// session's minutes via niceScale (so a flat-but-busy session still shows
-// its variation rather than every bar pinning to the top), colour is the
-// perf tint of avgFrameMs vs a 16.6 ms (60 fps) reference. Spike/stall
-// presence shows as a small marker above the bar, never by inflating the
-// bar. Native title= carries the full per-minute summary.
+// ---- T4: heat strip — barChart vertical strip -----------------------
+// One vertical bar per minute bucket inside a height-bounded shell. Bar value
+// is avgFrameMs (scaled to the busiest minute so a flat-but-busy session still
+// reads as variation), colour is the perf ramp of avgFrameMs vs the 16.6 ms
+// (60 fps) reference. Spike/stall presence shows as marks above the bar via
+// barChart's marks:[]. The native tip carries the full per-minute summary.
 function renderTimelineHeatstrip() {
   const root = document.getElementById('tl-heatstrip');
   if (!root) return;
@@ -159,37 +152,33 @@ function renderTimelineHeatstrip() {
   _tlSig.heatstrip = sig;
 
   if (buckets.length === 0) {
-    root.innerHTML = `<div class='tl-empty'>no activity buckets yet</div>`;
+    root.innerHTML = emptyState('no activity buckets yet');
     return;
   }
 
-  // Auto-scale heights across the minutes so the strip reads as variation,
-  // not a wall. Floor each bar at a small visible stub so a near-zero minute
-  // still registers as a tick rather than vanishing.
-  const scale = niceScale(buckets.map(b => b.avgFrameMs), 0.05);
-  const span = (scale.max - scale.min) || 1;
-
+  // Scale bars to the busiest minute so the strip reads as variation, not a
+  // wall; barChart floors each fill at a small visible stub on its own.
+  const maxFrame = buckets.reduce((m, b) => Math.max(m, b.avgFrameMs || 0), 0) || 1;
   const bars = buckets.map(b => {
-    const norm = (b.avgFrameMs - scale.min) / span;
-    const hPct = Math.max(6, Math.min(100, norm * 100));
-    const tint = tintClass(b.avgFrameMs / 16.6);   // 16.6 ms = 60 fps reference
-    const tip = `min ${b.minuteIndex}: ${fmtMs(b.avgFrameMs)} ms/t, ${b.segmentCount} segs, ${b.spikeCount} spikes, ${b.stallCount} stalls`;
-    let mark = '';
-    if (b.stallCount > 0)      mark = `<span class='hs-mark stall' title='${escapeHtml(b.stallCount + ' stalls')}'></span>`;
-    else if (b.spikeCount > 0) mark = `<span class='hs-mark spike' title='${escapeHtml(b.spikeCount + ' spikes')}'></span>`;
-    return `<span class='hs-col' title='${escapeHtml(tip)}'>
-      ${mark}
-      <span class='hs-bar ${tint}' style='height:${hPct.toFixed(1)}%'></span>
-    </span>`;
-  }).join('');
-
-  root.innerHTML = `<div class='hs-strip'>${bars}</div>`;
+    const marks = [];
+    if (b.stallCount > 0)      marks.push('stall');
+    else if (b.spikeCount > 0) marks.push('spike');
+    return {
+      value: b.avgFrameMs,
+      color: perfColor(b.avgFrameMs / 16.6),   // 16.6 ms = 60 fps reference
+      marks,
+      tip: 'min ' + b.minuteIndex + ': ' + fmtMs(b.avgFrameMs) + ' ms/t, ' +
+           b.segmentCount + ' segs, ' + b.spikeCount + ' spikes, ' + b.stallCount + ' stalls'
+    };
+  });
+  root.innerHTML = barChart({ bars, max: maxFrame, colWidth: 5, scrollx: true });
 }
 
 // ---- T3: transitions track — time-placed labelled chips -------------
-// type strings look like 'weather:BloodMoon' / 'biome:Jungle' /
-// 'hardmode' / 'invasion:Goblin' / 'subworld:...'. We split on ':' to
-// route the chip colour-class by the head and word the label in full.
+// type strings look like 'weather:BloodMoon' / 'biome:Jungle' / 'hardmode' /
+// 'invasion:Goblin' / 'subworld:...'. We split on ':' to route the chip
+// colour-class by the head and word the label in full. Genuine time-domain
+// layout: chips are absolutely placed at their tick fraction (KEPT bespoke).
 function transitionChipClass(type) {
   const head = (type || '').split(':')[0].toLowerCase();
   switch (head) {
@@ -227,7 +216,7 @@ function renderTimelineTransitions() {
   _tlSig.transitions = sig;
 
   if (list.length === 0) {
-    root.innerHTML = `<div class='tl-empty'>no transitions${timelineFilter !== 'all' ? ' for ' + escapeHtml(timelineFilter.toLowerCase()) : ''} yet</div>`;
+    root.innerHTML = emptyState('no transitions' + (timelineFilter !== 'all' ? ' for ' + timelineFilter.toLowerCase() : '') + ' yet');
     return;
   }
   const chips = list.map(t => {
@@ -246,10 +235,11 @@ function renderTimelineTransitions() {
 }
 
 // ---- T1+T2: swimlanes ------------------------------------------------
-// Time-scaled bars per family. Each closed segment carries a top-4-mod
-// waterfall rendered with the shared splitBar primitive (coloured by
-// modColor), a lifetime-delta badge, and perf-tint outlining when the
-// segment is a lifetime outlier. Filter gates which lanes render.
+// Absolute time-scaled gantt bars per family (KEPT bespoke — no generic
+// component does absolute time placement). Each closed segment carries a
+// top-4-mod waterfall rendered with the shared splitBar() (coloured by
+// modColor), a lifetime-delta badge, and accent outlining when the segment is
+// a lifetime outlier. Filter gates which lanes render.
 function renderTimelineSwimlanes() {
   const win = timelineWindow();
   const byFamily = {};
@@ -353,17 +343,19 @@ function renderTimelineSwimlanes() {
 }
 
 // ---- Detail pane: selected segment drill ----------------------------
-// Tabular drill of the selected segment, restyled onto .statline rows
-// plus a per-mod contribution table built with cellBar bars.
+// Tabular drill of the selected segment, composed from statLine() rows plus a
+// per-mod contribution .dtable with cellBar bars. The panel chrome is static
+// in the markup; this fills its scroll body via setHTML so a poll-driven
+// rebuild (e.g. lifetime sample count ticking up) keeps the scroll position.
 function renderTimelineDetail() {
-  const root = document.getElementById('tl-detail');
+  const root = document.getElementById('tl-detail-body');
   if (!root) return;
   const sig = selectedSegmentKey || '(none)';
   // Always rebuild when selection changes; cheap.
   if (!selectedSegmentKey) {
     if (_tlSig.detail === '(none)') return;
     _tlSig.detail = '(none)';
-    root.innerHTML = `<h4>segment detail</h4><div class='tl-empty'>select a segment block above</div>`;
+    setHTML(root, emptyState('select a segment block above'));
     return;
   }
   _tlSig.detail = sig + ':' + (lastSegmentLifetime ? (lastSegmentLifetime.entries||[]).length : 0);
@@ -380,7 +372,7 @@ function renderTimelineDetail() {
     }
   }
   if (!s) {
-    root.innerHTML = `<h4>segment detail</h4><div class='tl-empty'>selected segment no longer in the window</div>`;
+    setHTML(root, emptyState('selected segment no longer in the window'));
     return;
   }
   let lifetime = null;
@@ -421,40 +413,41 @@ function renderTimelineDetail() {
   if (attr && attr.perMod && attr.perMod.length > 0) { modSource = attr.perMod; idKey = 'modId'; }
   else if (s.topMods && s.topMods.length > 0)        { modSource = s.topMods; idKey = 'id'; }
   if (modSource) {
-    const total = modSource.reduce((a,b)=>a+b.ms, 0) || 1;
     const maxMs = modSource.reduce((a,b)=>Math.max(a, b.ms), 0) || 1;
     const sorted = modSource.slice().sort((a,b)=>b.ms-a.ms);
-    modsHtml = `<div class='det-mods'>` + sorted.map(m => {
+    const modRows = sorted.map(m => {
       const id = m[idKey];
       const name = m.modName != null ? m.modName : m.name;
       const c = modColor(id);
-      return `<div class='row'>
-        <span class='name' style='color:${c}'>${escapeHtml(name)}</span>
-        <span class='bar'>${cellBar(m.ms / maxMs, c)}</span>
-        <span class='ms'>${fmtMs(m.ms)}</span>
-      </div>`;
-    }).join('') + `</div>`;
+      return `<tr>
+        <td class='l' style='color:${c}'>${escapeHtml(name)}</td>
+        <td>${cellBar(m.ms / maxMs, c)}</td>
+        <td>${fmtMs(m.ms)} ms</td>
+      </tr>`;
+    }).join('');
+    modsHtml = `<table class='dtable' style='margin-top:0.5rem'>
+      <thead><tr><th class='l'>mod</th><th></th><th>ms</th></tr></thead>
+      <tbody>${modRows}</tbody>
+    </table>`;
   }
 
-  // tl-detail is an overflow:auto pane; setHTML preserves scroll when the
-  // pane rebuilds on a poll (e.g. lifetime sample count ticking up).
-  setHTML(root,
-    `<h4>segment detail</h4>` +
-    rows.map(r => `<div class='statline'><span class='k'>${escapeHtml(r[0])}</span><span class='v'>${escapeHtml(String(r[1]))}</span></div>`).join('') +
-    modsHtml);
+  const body = rows.map(r => statLine(r[0], String(r[1]))).join('') + modsHtml;
+  // setHTML preserves the scroll body's position across a poll rebuild.
+  setHTML(root, body);
 }
 
 // ---- T5: attendance — split bar + supporting table -----------------
-// A summary band of the four totals, a colour-coded split bar (vanilla
-// vs per-mod modded biome ticks, each mod coloured by modColor), its
-// legend, and a .dtable enumerating every mod's attendance counts.
+// A summary band of the four totals (statLine), a colour-coded split bar
+// (vanilla vs per-mod modded biome ticks) with its legend, and a .dtable
+// enumerating every mod's attendance counts. The panel chrome is static in
+// the markup; this fills its scroll body via setHTML.
 function renderTimelineAttendance() {
-  const root = document.getElementById('tl-attendance');
+  const root = document.getElementById('tl-attendance-body');
   if (!root) return;
   if (!lastAttendance || !lastAttendance.byMod || lastAttendance.byMod.length === 0) {
     if (_tlSig.attendance === 'empty') return;
     _tlSig.attendance = 'empty';
-    root.innerHTML = `<h4>attendance</h4><div class='tl-empty'>no attendance data yet</div>`;
+    setHTML(root, emptyState('no attendance data yet'));
     return;
   }
   const a = lastAttendance;
@@ -466,12 +459,12 @@ function renderTimelineAttendance() {
   const modded = Math.max(0, Math.min(total, a.moddedBiomeTicks || 0));
   const vanilla = Math.max(0, total - modded);
 
-  const totalsBand = `<div class='tm-totals'>
-    <span class='statline'><span class='k'>biome ticks</span><span class='v'>${fmtInt(a.totalBiomeTicks)}</span></span>
-    <span class='statline'><span class='k'>modded</span><span class='v'>${fmtInt(a.moddedBiomeTicks)}</span></span>
-    <span class='statline'><span class='k'>invasions</span><span class='v'>${fmtInt(a.totalInvasions)}</span></span>
-    <span class='statline'><span class='k'>boss segments</span><span class='v'>${fmtInt(a.totalBossSegments)}</span></span>
-  </div>`;
+  const totalsBand = `<div class='tm-totals'>` +
+    statLine('biome ticks', fmtInt(a.totalBiomeTicks)) +
+    statLine('modded', fmtInt(a.moddedBiomeTicks)) +
+    statLine('invasions', fmtInt(a.totalInvasions)) +
+    statLine('boss segments', fmtInt(a.totalBossSegments)) +
+    `</div>`;
 
   // Split bar: vanilla first, then each contributing mod by biome ticks.
   const sorted = a.byMod.slice().filter(m => m.biomeTicks > 0).sort((x,y)=>y.biomeTicks-x.biomeTicks);
@@ -487,7 +480,7 @@ function renderTimelineAttendance() {
 
   // Legend: vanilla + the top contributors (cap to keep it readable).
   const legendSegs = segsArr.slice(0, 9).map(s => ({ color: s.color, label: s.label, value: s.value }));
-  const barHtml = splitBar(segsArr, { tall: true }) + splitLegend(legendSegs);
+  const barHtml = `<div class='tm-bar'>${splitBar(segsArr, { tall: true })}${splitLegend(legendSegs)}</div>`;
 
   const rows = sorted.map(m => {
     const share = (m.biomeTicks / total) * 100;
@@ -507,15 +500,13 @@ function renderTimelineAttendance() {
     <tbody>${rows}</tbody>
   </table>`;
 
-  // tl-attendance is an overflow:auto pane; setHTML preserves scroll when the
-  // table rebuilds on a poll instead of snapping the reader to the top.
-  setHTML(root, `<h4>attendance</h4>${totalsBand}<div class='tm-bar'>${barHtml}</div>${tableHtml}`);
+  setHTML(root, totalsBand + barHtml + tableHtml);
 }
 
 // ---- T6: death replay — compact cards + labelled event chips --------
-// Per death, a card header (when, biome, boss, final damage) and a
-// horizontal row of .chip tokens for the pre-death events — text label
-// from event.label/kind, native title= carrying kind + mod + offset.
+// Per death, a card header (when, biome, boss, final damage) and a horizontal
+// row of .chip tokens for the pre-death events — text label from
+// event.label/kind, native title= carrying kind + mod + offset.
 function deathEventChipClass(kind) {
   switch (kind) {
     case 'death':       return 'bad';
@@ -537,7 +528,7 @@ function renderTimelineDeaths() {
   _tlSig.deaths = sig;
 
   if (deaths.length === 0) {
-    root.innerHTML = `<div class='tl-empty'>no deaths this session</div>`;
+    root.innerHTML = emptyState('no deaths this session');
     return;
   }
   root.innerHTML = deaths.map(d => {
@@ -545,7 +536,7 @@ function renderTimelineDeaths() {
     const dmgMod = d.finalDamageModName ? ' (' + escapeHtml(d.finalDamageModName) + ')' : '';
     const events = (d.events || []).slice().sort((a,b)=>a.offsetMs-b.offsetMs);
     const chips = events.length === 0
-      ? `<span class='tl-empty'>no recorded events</span>`
+      ? emptyState('no recorded events')
       : events.map(e => {
           const cls = deathEventChipClass(e.kind);
           const label = e.label || e.kind || 'event';
@@ -567,32 +558,59 @@ function renderTimelineDeaths() {
   }).join('');
 }
 
-// ---- T7: chronicle — chronological blocks --------------------------
+// ---- T7: chronicle — chronological block list ----------------------
+// A tokenised block list inside a bounded scrollRegion; each line is a
+// timestamp + kind + text block, left-accented by kind via the .chip colour
+// classes. setHTML keeps the reader's scroll position across the poll.
+function chronicleKindClass(kind) {
+  switch (kind) {
+    case 'death':       return 'bad';
+    case 'spike':       return 'warn';
+    case 'boss-start':
+    case 'boss-end':    return 'warn';
+    case 'weather':     return 'cool';
+    case 'transition':  return 'good';
+    case 'summary':     return 'cool';
+    default:            return '';
+  }
+}
+
 function renderTimelineChronicle() {
-  const root = document.getElementById('tl-chronicle');
-  if (!root) return;
+  const scroll = document.getElementById('tl-chronicle-scroll');
+  if (!scroll) return;
   const lines = (lastChronicle && lastChronicle.lines) || [];
   const sig = lines.length + ':' + (lines.length ? (lines[0].unixMs + ',' + lines[lines.length-1].unixMs) : '');
   if (sig === _tlSig.chronicle) return;
   _tlSig.chronicle = sig;
 
   if (lines.length === 0) {
-    root.innerHTML = `<div class='tl-empty'>no chronicle lines yet</div>`;
+    setHTML(scroll, emptyState('no chronicle lines yet'));
     return;
   }
-  // Oldest -> newest so the column reads top-to-bottom in session order.
+  // Oldest -> newest so the column reads top-to-bottom in session order. Each
+  // line is a single-column row() (so it inherits the shared hover + left-bar)
+  // whose cell stacks a meta line (kind chip + timestamp) over the text.
   const sorted = lines.slice().sort((a,b) => a.unixMs - b.unixMs);
   const blocks = sorted.map(l => {
     const t = l.unixMs ? new Date(l.unixMs).toLocaleTimeString() : '—';
-    return `<div class='cr-block' data-kind='${escapeHtml(l.kind)}' title='${escapeHtml(t + ' — ' + l.kind + ': ' + l.text)}'>
-              <div class='cr-meta'><span class='cr-time'>${escapeHtml(t)}</span><span class='cr-kind'>${escapeHtml(l.kind)}</span></div>
-              <div class='cr-text'>${escapeHtml(l.text)}</div>
-            </div>`;
-  }).join('');
-  // tl-chronicle is itself the overflow:auto scroll container; setHTML keeps
-  // the reader's scroll position across the 2.5 s poll instead of snapping
-  // them back to the top whenever a new chronicle line lands.
-  setHTML(root, `<div class='cr-list'>${blocks}</div>`);
+    const cls = chronicleKindClass(l.kind);
+    const cell =
+      `<div class='cr-cell'>` +
+        `<div class='cr-meta'>` +
+          `<span class='chip ${cls}'>${escapeHtml(l.kind)}</span>` +
+          `<span class='cr-time muted'>${escapeHtml(t)}</span>` +
+        `</div>` +
+        `<div class='cr-text'>${escapeHtml(l.text)}</div>` +
+      `</div>`;
+    return row({
+      cols: '1fr',
+      cells: [cell],
+      cls: 'cr-block',
+      attrs: `title='${escapeHtml(t + ' — ' + l.kind + ': ' + l.text)}'`
+    });
+  });
+  // tl-chronicle-scroll is the overflow:auto container; setHTML keeps scroll.
+  setHTML(scroll, rowList(blocks));
 }
 
 // ---- Top-level dispatch --------------------------------------------
