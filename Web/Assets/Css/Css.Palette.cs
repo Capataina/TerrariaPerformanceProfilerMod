@@ -15,52 +15,95 @@ namespace PerformanceProfiler.Web;
 internal static partial class DashboardAssets
 {
     private const string CssPalette = @"
-/* Palette: command-center / Palantir-style. Near-black backgrounds,
-   restrained electric-blue accent, desaturated semantic colours so
-   alerts pop without the whole UI feeling like a Christmas tree. */
+/* Palette: shadcn ""neutral"" base, dark, MONOCHROME chrome. The entire UI
+   surface is pure neutral grey (zero chroma) and the one signature accent is
+   near-white, so the ONLY colour on screen is data. Colour is reserved for
+   meaning: the perf ramp (green->bad red), per-mod series, and the semantic
+   state hues (good / warn / danger). Chrome never competes with the data.
+
+   Colour is defined in OKLCH (perceptually uniform) on two layers:
+     1. a shadcn SEMANTIC token layer (--background / --card / --primary /
+        --muted-foreground / --border / --ring / --radius …) the component
+        library reads, and
+     2. the LEGACY vars (--bg-deep / --panel / --text / --accent …) every
+        not-yet-migrated surface still reads, aliased onto the same ramp so the
+        two can never drift. One source of truth.
+
+   The data-viz ramp (--perf-0..4, --cpu, --alloc, the state hues …) is a
+   DELIBERATELY separate, still-colourful block: chart encodings and UI chrome
+   are different concerns. Greying the chrome must never grey the data.
+
+   NB --muted is the muted TEXT grey here (every surface reads it that way),
+   NOT a shadcn ""muted surface"" token; surfaces are --card/--secondary/
+   --surface. --accent is OUR codebase's bright SIGNAL (active tab / selection /
+   focus), so it maps to shadcn --primary (near-white), not shadcn's grey
+   --accent. */
 :root {
-  --bg-deep:      #07090c;
-  --bg-page:      #0a0d12;
-  --panel:        #0d1117;
-  --panel-2:      #0a0d12;
-  --surface:      #11161c;
-  --surface-2:    #161b22;
-  --header:       #0a0d12;
-  --border:       #1b2028;
-  --border-soft:  #14191f;
-  --hover:        #161c24;
+  /* ===== shadcn neutral semantic tokens (OKLCH, dark, zero chroma) ===== */
+  --background:           oklch(0.145 0 0);   /* neutral-950 page base */
+  --foreground:           oklch(0.985 0 0);   /* neutral-50 body text */
+  --card:                 oklch(0.205 0 0);   /* neutral-900 Panel surface */
+  --card-foreground:      oklch(0.985 0 0);
+  --popover:              oklch(0.235 0 0);   /* Drawer / tooltip surface */
+  --popover-foreground:   oklch(0.985 0 0);
+  --primary:              oklch(0.922 0 0);   /* near-white: THE signal accent */
+  --primary-foreground:   oklch(0.205 0 0);   /* dark text on a light primary */
+  --secondary:            oklch(0.269 0 0);   /* neutral-800 raised control */
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted-foreground:     oklch(0.610 0 0);   /* muted / label text */
+  --accent:               oklch(0.922 0 0);   /* == primary (the one accent) */
+  --accent-foreground:    oklch(0.205 0 0);
+  --destructive:          oklch(0.585 0.140 22); /* danger / stalls (kept red) */
+  --border:               oklch(0.269 0 0);   /* hard lines (neutral-800) */
+  --input:                oklch(0.245 0 0);   /* field / soft lines */
+  --ring:                 oklch(0.708 0 0);   /* neutral-400 focus ring */
+  --radius:               5px;                /* one radius scale */
 
-  --text:         #d6dae0;
-  --text-bright:  #f0f3f8;
-  --muted:        #6a727f;
-  --dim:          #3d434c;
+  /* ===== Legacy vars (aliased onto the neutral ramp) =================== */
+  --bg-deep:      oklch(0.120 0 0);
+  --bg-page:      var(--background);
+  --panel:        var(--card);
+  --panel-2:      oklch(0.175 0 0);
+  --surface:      oklch(0.235 0 0);
+  --surface-2:    var(--secondary);
+  --header:       oklch(0.170 0 0);
+  --border-soft:  var(--input);
+  --hover:        oklch(0.255 0 0);
 
-  /* Restrained, desaturated semantic accents */
-  --good:         #4f9d6a;   /* muted green */
-  --good-bar:     #4b9c8c;   /* dim teal */
-  --amber:        #b88a25;   /* dim amber */
-  --orange:       #c97f3c;   /* burnt orange */
-  --danger:       #b94e58;   /* muted red */
-  --magenta:      #8367a3;   /* dim magenta */
-  --purple:       #6e5d96;   /* dim purple */
-  --accent:       #4a9eff;   /* THE single signature electric blue */
-  --cyan:         #4ab8c2;
-  --accent-soft:  rgba(74, 158, 255, 0.08);
-  --accent-line:  rgba(74, 158, 255, 0.30);
+  --text:         var(--foreground);
+  --text-bright:  oklch(1 0 0);
+  --muted:        var(--muted-foreground);  /* muted TEXT, not a surface */
+  --dim:          oklch(0.430 0 0);
 
-  /* Series colours — used everywhere a value has a single semantic axis */
-  --cpu:          #4f9d6a;
-  --alloc:        #6e5d96;
-  --spike:        #c97f3c;
-  --stall:        #b94e58;
-  --gc:           #6e5d96;
+  /* Chrome accent is monochrome: the bright signal is near-white, its washes
+     are white-alpha. No blue anywhere in the chrome. */
+  --accent-soft:  oklch(1 0 0 / 0.09);   /* selected-row wash */
+  --accent-line:  oklch(1 0 0 / 0.22);   /* focus / hairline tint */
 
-  /* Performance gradient (good → bad), mod bars + heatmap cells */
-  --perf-0: #4f9d6a;   /* healthy green */
-  --perf-1: #6aa3a8;   /* teal */
-  --perf-2: #b88a25;   /* amber */
-  --perf-3: #c97f3c;   /* orange */
-  --perf-4: #b94e58;   /* red */
+  /* ===== Data-viz ramp (KEPT COLOURFUL — the only colour on screen) ==== */
+  /* Semantic state hues: health signal, so they stay coloured. */
+  --good:         oklch(0.62 0.10 152);   /* green */
+  --good-bar:     oklch(0.63 0.075 185);  /* teal */
+  --amber:        oklch(0.66 0.105 85);   /* amber */
+  --orange:       oklch(0.66 0.115 60);   /* orange */
+  --danger:       var(--destructive);     /* red */
+  --magenta:      oklch(0.55 0.085 312);  /* magenta */
+  --purple:       oklch(0.50 0.090 290);  /* purple */
+  --cyan:         oklch(0.70 0.080 205);
+
+  /* Series colours — a value with a single semantic axis. */
+  --cpu:          oklch(0.62 0.10 152);
+  --alloc:        oklch(0.50 0.090 290);
+  --spike:        oklch(0.66 0.115 60);
+  --stall:        var(--destructive);
+  --gc:           oklch(0.50 0.090 290);
+
+  /* Performance gradient (good -> bad), stepped evenly in OKLCH. */
+  --perf-0: oklch(0.62 0.10 152);   /* healthy green */
+  --perf-1: oklch(0.66 0.085 185);  /* teal */
+  --perf-2: oklch(0.66 0.105 85);   /* amber */
+  --perf-3: oklch(0.66 0.115 60);   /* orange */
+  --perf-4: oklch(0.585 0.140 22);  /* red */
 
   --mono: 'JetBrains Mono', 'SFMono-Regular', 'Menlo', monospace;
   --ui:   'Inter', -apple-system, 'Segoe UI', sans-serif;

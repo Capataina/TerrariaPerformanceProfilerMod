@@ -55,10 +55,12 @@ function cellBar(frac, color) {
   return `<span class='cellbar'><span style='width:${w}%${color ? ';background:'+color : ''}'></span></span>`;
 }
 
-// Heat-cell background from intensity 0..1 (faint -> accent). For .rh-cell.
+// Heat-cell background from intensity 0..1 (faint -> bright). For .rh-cell.
+// Monochrome scheme: magnitude reads as white luminance on the dark surface, so
+// the heatmap fits the neutral chrome while still encoding the value by opacity.
 function heatFill(intensity) {
   const a = Math.max(0, Math.min(1, intensity || 0));
-  return `rgba(74,158,255,${(0.05 + a*0.5).toFixed(3)})`;
+  return `oklch(0.985 0 0 / ${(0.05 + a*0.45).toFixed(3)})`;
 }
 
 // Replace innerHTML while preserving the element's own scroll position, so a
@@ -119,6 +121,123 @@ function emptyState(msg) { return `<div class='empty'>${escapeHtml(msg)}</div>`;
 function dash(v, fn) {
   if (v == null || (typeof v === 'number' && !isFinite(v))) return '—';
   return fn ? fn(v) : String(v);
+}
+
+// ====== Structural components ========================================
+// A 'component' here = one CSS class block + one render fn returning an HTML
+// string + an opts contract. No framework. Data is the only variable.
+
+// Panel: border + radius + header (title / sub / actions) + ONE body slot.
+// opts: { title?, sub?, actions?:html, body:html, scroll?:bool, scrollId?,
+//         fill?:bool, pad?:'flush'|'tight', maxH?, cls? }
+function panel(o) {
+  o = o || {};
+  const actions = o.actions ? `<div class='panel-actions'>${o.actions}</div>` : '';
+  const sub = o.sub != null ? `<span class='panel-sub'>${escapeHtml(String(o.sub))}</span>` : '';
+  const head = (o.title != null || o.sub != null || o.actions)
+    ? `<header class='panel-h'><span class='panel-title'>${escapeHtml(o.title || '')}</span>${sub}${actions}</header>` : '';
+  let body;
+  if (o.scroll) {
+    const st = o.maxH ? ` style='max-height:${o.maxH}'` : '';
+    body = `<div class='scroll-region${o.fill ? ' fill' : ''}' id='${o.scrollId || ''}'${st}>${o.body || ''}</div>`;
+  } else {
+    const pad = o.pad === 'flush' ? ' flush' : o.pad === 'tight' ? ' tight' : '';
+    body = `<div class='panel-body${pad}'>${o.body || ''}</div>`;
+  }
+  return `<div class='panel${o.fill ? ' fill' : ''}${o.cls ? ' ' + o.cls : ''}'>${head}${body}</div>`;
+}
+
+// Scroll region markup (bound by .fill or an inline max-height). Re-render its
+// contents via setHTML(el, html) so the poll never snaps it to the top.
+function scrollRegion(id, html, o) {
+  o = o || {};
+  const st = o.maxH ? ` style='max-height:${o.maxH}'` : '';
+  return `<div class='scroll-region${o.fill ? ' fill' : ''}' id='${id}'${st}>${html || ''}</div>`;
+}
+
+// Section header: the small uppercase label inside a panel body / drawer.
+function sectionHeader(title, sub) {
+  return `<div class='section-h'><span>${escapeHtml(title || '')}</span>` +
+    (sub != null ? `<span class='section-sub'>${escapeHtml(String(sub))}</span>` : '') + `</div>`;
+}
+function sectionBlock(title, body, sub) {
+  return `<div class='section-block'>${sectionHeader(title, sub)}${body || ''}</div>`;
+}
+
+// The one expand/collapse chevron.
+function twirl(open) { return `<span class='twirl${open ? ' open' : ''}'>&#9656;</span>`; }
+
+// Row in a clickable list: one hover + selection model, reserved left bar.
+// opts: { cols:gridTemplate, cells:[html], clickable?, sel?, outlier?, attrs?, cls? }
+function row(o) {
+  o = o || {};
+  let cls = 'row';
+  if (o.clickable) cls += ' clickable';
+  if (o.sel) cls += ' sel';
+  if (o.outlier) cls += ' outlier';
+  if (o.cls) cls += ' ' + o.cls;
+  const st = o.cols ? ` style='grid-template-columns:${o.cols}'` : '';
+  return `<div class='${cls}'${st}${o.attrs ? ' ' + o.attrs : ''}>${(o.cells || []).join('')}</div>`;
+}
+function rowList(rowsHtml) { return `<div class='rowlist'>${(rowsHtml || []).join('')}</div>`; }
+
+// Stat tile: label-over-value card, optional severity tint + proportion bar.
+// opts: { k, v, vClass?, big?, sub?, frac?, color? }
+function statTile(o) {
+  o = o || {};
+  let h = `<div class='stat-tile'><span class='k'>${escapeHtml(o.k || '')}</span>` +
+    `<span class='v${o.vClass ? ' ' + o.vClass : ''}${o.big ? ' big' : ''}'>${o.v == null ? '—' : escapeHtml(String(o.v))}</span>`;
+  if (o.sub != null) h += `<span class='sub'>${escapeHtml(String(o.sub))}</span>`;
+  if (o.frac != null && isFinite(o.frac)) h += `<span class='stat-bar'>${cellBar(o.frac, o.color)}</span>`;
+  return h + `</div>`;
+}
+function statGrid(tiles, o) {
+  o = o || {};
+  const st = o.cols ? ` style='grid-template-columns:${o.cols}'` : '';
+  return `<div class='stat-grid'${st}>${(tiles || []).join('')}</div>`;
+}
+
+// Bordered callout. kind: '' | 'warn' | 'bad'.
+function callout(html, kind) { return `<div class='callout${kind ? ' ' + kind : ''}'>${html || ''}</div>`; }
+
+// Legend (one impl). items: [{color, label, value?}]. opts: {stack?, inline?}.
+function legend(items, o) {
+  o = o || {};
+  let cls = 'bar-legend' + (o.stack ? ' stack' : '') + (o.inline ? ' inline' : '');
+  let h = `<div class='${cls}'>`;
+  for (const s of items) {
+    if (!s) continue;
+    h += `<span class='lg'><span class='sw' style='background:${s.color}'></span>${escapeHtml(s.label)}`;
+    if (s.value != null) h += ` <span class='lg-v'>${escapeHtml(String(s.value))}</span>`;
+    h += `</span>`;
+  }
+  return h + `</div>`;
+}
+
+// Segmented control (unifies .segctl / .chart-toggle). The caller wires clicks
+// via the data-attr + id. opts: { id, attr:'data-x', active, options:[{value,label,disabled?,title?}] }
+function segmented(o) {
+  o = o || {};
+  let h = `<span class='segctl' id='${o.id || ''}'>`;
+  for (const s of o.options) {
+    const on = s.value === o.active ? ' active' : '';
+    const dis = s.disabled ? ` style='opacity:0.35;pointer-events:none'` : '';
+    const tip = s.title ? ` title='${escapeHtml(s.title)}'` : '';
+    h += `<button ${o.attr || 'data-seg'}='${s.value}' class='${on.trim()}'${dis}${tip}>${escapeHtml(s.label)}</button>`;
+  }
+  return h + `</span>`;
+}
+
+// Re-render only when the input signature changed, so the 500ms poll doesn't
+// churn the DOM. Generalises the Timeline _tlSig pattern. Returns true if it
+// rendered. el may be a scroll container (scroll position is preserved).
+const _renderSig = {};
+function renderIfChanged(key, sig, el, html) {
+  if (_renderSig[key] === sig) return false;
+  _renderSig[key] = sig;
+  if (typeof el === 'function') { el(); return true; }
+  if (el) setHTML(el, html);
+  return true;
 }
 ";
 }

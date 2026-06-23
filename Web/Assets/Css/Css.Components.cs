@@ -81,5 +81,117 @@ internal static partial class DashboardAssets
 .statline:last-child { border-bottom: 0; }
 .statline .k { color: var(--muted); font-size: 0.76rem; }
 .statline .v { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ===== Panel body: THE single padded slot ========================== */
+/* Every panel child insets identically here, so nothing sits flush to the
+   border and no pane invents its own gutter maths (the strip-leak class). */
+.panel-body { padding: 0.7rem 0.9rem; min-height: 0; }
+.panel-body.flush { padding: 0; }
+.panel-body.tight { padding: 0.4rem 0.6rem; }
+/* A panel whose body must fill + scroll: the body is the flex child that grows
+   and the ScrollRegion inside it owns the overflow. */
+.panel.fill { flex: 1 1 auto; }
+
+/* ===== Scroll region: bounded overflow + poll-stable scroll ======== */
+/* The ONE scroll primitive. Callers re-render its innerHTML through setHTML()
+   so the poll never snaps it to the top. Bound it either by .fill (grows to a
+   height-bounded flex parent) or an inline max-height. */
+.scroll-region { min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
+.scroll-region.fill { flex: 1 1 auto; }
+
+/* ===== Section header: sub-headers INSIDE a panel body ============= */
+/* The canonical small uppercase label every sub-section used to reinvent
+   (.dor-h / .cc-h / .lag-section-h / .mem-sect-h / .tl-detail h4 …). */
+.section-h { display: flex; align-items: baseline; justify-content: space-between;
+  gap: 0.6rem; font-family: var(--ui); font-size: 0.7rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
+  margin: 0 0 0.4rem; }
+.section-h .section-sub { font-family: var(--mono); font-weight: 400;
+  text-transform: none; letter-spacing: 0; color: var(--dim); }
+.section-h + .section-h, .section-block + .section-block { margin-top: 0.8rem; }
+
+/* ===== Row / RowList: one clickable-list model ===================== */
+/* One hover + selection treatment everywhere: subtle bg + a reserved 2px left
+   bar tinted to the accent. No box-shadow edges, no per-pane .selected colour.
+   The grid template is passed inline by the renderer (columns vary per list);
+   everything else is shared. */
+.rowlist { display: flex; flex-direction: column; }
+.row { display: grid; align-items: center; gap: 0.5rem; padding: 0.28rem 0.6rem;
+  border-left: 2px solid transparent; border-bottom: 1px solid var(--border-soft);
+  font-family: var(--mono); font-size: 0.84rem; }
+.rowlist .row:last-child { border-bottom: 0; }
+.row.clickable { cursor: pointer; user-select: none;
+  transition: background 0.12s, border-color 0.12s; }
+.row.clickable:hover { background: var(--hover); border-left-color: var(--accent); }
+.row.sel { background: var(--accent-soft); border-left-color: var(--accent); }
+.row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.row .rk { color: var(--dim); text-align: right; font-size: 0.78rem; }
+/* Outlier marker: gold at rest, resolves to the accent on hover (no second bar). */
+.row.outlier { border-left-color: var(--amber); }
+.row.outlier:hover { border-left-color: var(--accent); }
+
+/* ===== Twirl: the one expand/collapse chevron ===================== */
+.twirl { color: var(--muted); font-size: 0.8em; width: 0.8em; flex: none;
+  text-align: center; transition: transform 0.15s, color 0.12s; }
+.twirl.open, .open > .twirl, .open > * > .twirl { transform: rotate(90deg); }
+.clickable:hover > .twirl, .clickable:hover > * > .twirl { color: var(--accent); }
+
+/* ===== Stat tile / grid: label-over-value card (optional bar) ====== */
+/* Consolidates .mem-card / .mc-stat / .hero-stat into one tile, and the
+   severity tint (.good/.warn/.bad) into ONE definition. */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem; }
+.stat-tile { display: flex; flex-direction: column; gap: 0.15rem;
+  background: var(--secondary); border: 1px solid var(--border-soft);
+  border-radius: 4px; padding: 0.5rem 0.6rem; min-width: 0; }
+.stat-tile .k { font-family: var(--ui); font-size: 0.7rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; }
+.stat-tile .v { font-family: var(--mono); font-size: 1.15rem; color: var(--text-bright);
+  font-variant-numeric: tabular-nums; line-height: 1.15; }
+.stat-tile .v.big { font-size: 1.5rem; }
+.stat-tile .sub { font-family: var(--mono); font-size: 0.7rem; color: var(--dim); }
+.stat-tile .stat-bar { margin-top: 0.3rem; }
+/* The ONE severity tint, shared by stat tiles, stat lines and kpi values. */
+.v.good, .stat-tile .v.good, .statline .v.good { color: var(--good); }
+.v.warn, .stat-tile .v.warn, .statline .v.warn { color: var(--amber); }
+.v.bad,  .stat-tile .v.bad,  .statline .v.bad  { color: var(--danger); }
+.v.accent { color: var(--accent); }
+
+/* ===== Drawer: the one slide-in detail overlay ==================== */
+/* Generalises .modcard. A fixed right-side panel that slides in; its body
+   scrolls and is built from section blocks. */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 26rem; max-width: 92vw;
+  z-index: 40; display: flex; flex-direction: column;
+  background: var(--popover); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0,0,0,0.45);
+  transform: translateX(0); transition: transform 0.18s ease-out; }
+.drawer.hidden { transform: translateX(100%); pointer-events: none; display: flex !important; }
+.drawer-h { display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+  gap: 0.6rem; padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--border-soft); }
+.drawer-h .dr-close { cursor: pointer; color: var(--muted); font-size: 1.1rem;
+  line-height: 1; padding: 0 0.2rem; }
+.drawer-h .dr-close:hover { color: var(--text-bright); }
+.drawer-h .dr-title { font-family: var(--ui); font-weight: 600; color: var(--text-bright);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-h .dr-meta { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); }
+.drawer-body { flex: 1 1 auto; min-height: 0; overflow: hidden auto;
+  padding: 0.8rem 0.9rem; }
+.section-block { margin-bottom: 0.9rem; }
+
+/* ===== Callout: bordered info / warn / danger box ================= */
+.callout { border: 1px solid var(--accent-line); background: var(--accent-soft);
+  border-radius: 4px; padding: 0.5rem 0.7rem; font-family: var(--ui);
+  font-size: 0.82rem; color: var(--text); line-height: 1.4; }
+.callout strong { color: var(--accent); }
+.callout.warn { border-color: rgba(184,138,37,0.4); background: rgba(184,138,37,0.08); }
+.callout.warn strong { color: var(--amber); }
+.callout.bad { border-color: rgba(185,78,88,0.4); background: rgba(185,78,88,0.08); }
+.callout.bad strong { color: var(--danger); }
+
+/* ===== Legend variants (one legend, two layouts) ================== */
+/* .bar-legend (above) is the inline default; .stack is the vertical scrollable
+   form the donut used, .inline a wider-gap row the heatmap used. */
+.bar-legend.stack { flex-direction: column; flex-wrap: nowrap; gap: 0.25rem; }
+.bar-legend.inline { gap: 0.4rem 1.2rem; }
 ";
 }
