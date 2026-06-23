@@ -56,6 +56,9 @@ internal static partial class DashboardAssets
   background: var(--panel-2);
   padding: 0.3rem 0.5rem;
   min-height: 2rem;
+  /* Clip absolutely-positioned chips to the track so a chip near the right edge
+     can never leak off the panel (and off the screen). */
+  overflow: hidden;
 }
 .tl-transitions .tx-track {
   position: relative;
@@ -68,12 +71,17 @@ internal static partial class DashboardAssets
 }
 .tl-transitions .tx-chip {
   position: absolute; top: 50%;
-  transform: translate(-50%, -50%);
   z-index: 1;
-  /* Floor the token width so a closely-timed transition chip stays a
-     readable label rather than shrinking toward its text. */
+  /* Floor the token width so a closely-timed transition chip stays a readable
+     label, and cap it so a long ""from -> to"" label can't dominate the track.
+     The per-chip horizontal transform (edge-anchoring) is set inline so a chip
+     near either edge stays inside the clipped track. */
   min-width: 2rem;
-  justify-content: center;
+  max-width: 14rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  justify-content: flex-start;
 }
 .tl-transitions .tx-chip .tx-kind {
   color: var(--muted);

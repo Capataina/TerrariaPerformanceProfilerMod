@@ -603,9 +603,12 @@ function renderModInteractionMatrix() {
   let scroll = root.querySelector('#matrix-scroll');
   if (!scroll) {
     root.innerHTML = panel({
+      // Caption lives in the (non-scrolling) panel body ABOVE the scroll region,
+      // so the table's sticky header can never overlap it.
       title: 'mod-pair cost correlation', sub: '—',
-      body: scrollRegion('matrix-scroll', '', { maxH: '360px' }),
-      pad: 'flush',
+      body: `<div class='ins-caption'>mods whose per-tick CPU rises and falls together — a high r means they tend to get busy at the same moments</div>` +
+        scrollRegion('matrix-scroll', '', { maxH: '320px' }),
+      pad: 'tight',
     });
     scroll = root.querySelector('#matrix-scroll');
   }
@@ -640,7 +643,6 @@ function renderModInteractionMatrix() {
   }).join('');
 
   setHTML(scroll, `
-    <div class='ins-caption'>mods whose per-tick CPU rises and falls together — a high r means they tend to get busy at the same moments</div>
     <table class='dtable'>
       <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
       <tbody>${rows}</tbody>

@@ -59,11 +59,16 @@ internal static partial class DashboardAssets
    viewports the auto-fit collapses everything to a single column. */
 .ins-lower {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.6rem;
   align-items: start;
 }
+/* Cross-cutting holds its own auto-fit section grid, so it spans the full row;
+   engagement + correlation share the row below, each ~half width so their
+   tables fit without clipping. (A previous auto-fit minmax(320px) made 5 narrow
+   columns and the wide tables clipped their right-hand columns.) */
 .ins-lower > #ins-cross { grid-column: 1 / -1; }
+@media (max-width: 900px) { .ins-lower { grid-template-columns: 1fr; } }
 
 /* Cross-cutting packs one ranked table per signal class into an auto-fit grid
    inside its panel body. */

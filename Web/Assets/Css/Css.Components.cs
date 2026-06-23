@@ -25,10 +25,15 @@ internal static partial class DashboardAssets
 
 /* ===== Data table: dense, sortable, perf-tinted ===================== */
 .dtable { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.82rem; }
-.dtable thead th { position: sticky; top: 0; z-index: 1; background: var(--header);
+/* Sticky header sits at the very top of the scroll region. z-index 3 + an opaque
+   surface (and a matching cover on thead) so rows scrolling underneath can never
+   bleed through or above it. A box-shadow seam hides any sub-pixel gap at the top. */
+.dtable thead { background: var(--header); }
+.dtable thead th { position: sticky; top: 0; z-index: 3; background: var(--header);
   font-family: var(--ui); font-size: 0.67rem; font-weight: 500; text-transform: uppercase;
   letter-spacing: 0.07em; color: var(--muted); text-align: right;
-  padding: 0.4rem 0.55rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  padding: 0.4rem 0.55rem; border-bottom: 1px solid var(--border); white-space: nowrap;
+  box-shadow: 0 -1px 0 var(--header); }
 .dtable thead th.l { text-align: left; }
 .dtable thead th.sortable { cursor: pointer; user-select: none; }
 .dtable thead th.sortable:hover { color: var(--text); }

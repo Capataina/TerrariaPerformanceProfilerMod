@@ -220,14 +220,17 @@ function renderTimelineTransitions() {
     return;
   }
   const chips = list.map(t => {
-    const leftPct = Math.max(0, Math.min(98, pctOf(t.unixMs, win)));
+    const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
+    // Edge-anchor: chips near the left/right edge anchor to that edge so the
+    // (clipped) track never cuts the label; the rest centre on their tick.
+    const tx = leftPct < 14 ? '0' : leftPct > 86 ? '-100%' : '-50%';
     const cls = transitionChipClass(t.type);
     const word = transitionKindWord(t.type);
     const arrow = (t.from || t.to)
       ? `${escapeHtml(t.from || '?')} → ${escapeHtml(t.to || '?')}`
       : escapeHtml(t.type || word);
     const tip = `${word}: ${t.from || '?'} → ${t.to || '?'} (tick ${t.tickIndex})`;
-    return `<span class='chip ${cls} tx-chip' style='left:${leftPct.toFixed(2)}%' title='${escapeHtml(tip)}'>
+    return `<span class='chip ${cls} tx-chip' style='left:${leftPct.toFixed(2)}%;transform:translate(${tx},-50%)' title='${escapeHtml(tip)}'>
       <span class='tx-kind'>${escapeHtml(word)}</span> ${arrow}
     </span>`;
   }).join('');
