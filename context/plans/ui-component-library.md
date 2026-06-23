@@ -14,12 +14,18 @@
 > its OKLCH perceptually-grounded colour scheme, the cleanest modern baseline to
 > build on.
 >
-> Status: **FLESHED OUT — evidence-based build brief, not yet started.** This
-> file states the why, the full target component set, the project-specific
-> idiom, the bugs the migration kills, and the build sequence. It is grounded in
-> a line-by-line read of every Web/Assets file (see the duplication census).
+> Status: **EXECUTED (2026-06-23) — pending in-game confirmation.** The whole
+> rework landed across four commits: the shadcn-neutral OKLCH token layer +
+> component library + chart module (`533d6d1`), the Self reference pane
+> (`16f445d`), the five-pane fan-out — Insights / Lag / Timeline / Memory /
+> Summary+Mods+ModCard (`8bff037`), and the cleanup + version bump (this commit).
+> All six tabs were verified through the preview harness against live db-mode
+> data; the bundle parses; the CSS bundle shrank ~84KB -> ~55KB; every named
+> collision bug below is resolved. The remaining gate is the dual-surface
+> interaction check (hover / selection / drawer slide / scroll-at-extreme) at the
+> in-game Build + Reload, which the static harness cannot reach.
 >
-> Date opened: 2026-06-22. Fleshed out: 2026-06-23. Mod version: `0.16.1`.
+> Date opened: 2026-06-22. Fleshed out + executed: 2026-06-23. Mod version: `0.17`.
 
 ---
 

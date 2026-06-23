@@ -38,7 +38,6 @@ internal static partial class DashboardAssets
   transition: transform 0.08s, box-shadow 0.08s;
 }
 .hm-cell:hover { transform: scale(1.18); z-index: 2; box-shadow: 0 0 0 1px var(--accent); }
-.hm-cell.empty { background: var(--surface); opacity: 0.4; }
 /* Performance gradient by frame-time bucket */
 .hm-cell.p0 { background: var(--perf-0); }
 .hm-cell.p1 { background: var(--perf-1); }
