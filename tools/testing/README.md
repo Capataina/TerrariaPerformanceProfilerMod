@@ -72,9 +72,20 @@ function to `pp_testing/scenarios.py::SCENARIOS` — you never edit an endpoint 
 ```
 
 1. **`capture`** drives the dashboard against the chosen scenario and writes, into the
-   clean-slate `/tmp/pp-audit/shots/` (wiped each run): every tab's `_whole.png`, each
-   panel cropped (`NN-title.png`) in its default / `--scrolled` / `--selected` states,
-   each tab's `_drawer.png`, and `manifest.json`.
+   clean-slate `/tmp/pp-audit/shots/` (wiped each run):
+   - every tab's `_whole.png`;
+   - each panel cropped (`NN-title.png`) in its `default` / `--scrolled` / `--hover` /
+     `--selected` states;
+   - each **non-panel section** (`sec-<label>.png`, e.g. the Timeline swimlane /
+     heatstrip / transition track) — bespoke blocks outside `.panel` chrome, cropped and
+     driven in their `--hover` / `--selected` states too;
+   - `_after-click.png` — the **whole tab after clicking the first data target anywhere
+     in the pane** (master → detail), so a click in one surface that fills a detail in
+     another is captured (clicking a swimlane block populates "segment detail", etc.);
+   - each tab's `_drawer.png`;
+   - and `manifest.json`.
+   Interactivity is discovered generically (any element with a pointer cursor or a known
+   interactive selector), so bespoke click targets are driven without being named.
 
 2. **Review (the agent fan-out).** For each tab in the manifest, spawn one vision-
    capable agent. The fan-out is the capability OpenDesign lacks (no subagent
