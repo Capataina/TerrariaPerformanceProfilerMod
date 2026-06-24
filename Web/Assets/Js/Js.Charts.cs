@@ -198,6 +198,13 @@ function gauge(o) {
   const va = start + sweep * ratio;
   const valColor = o.color || (o.bands ? _bandColor(o.bands, ratio) : 'var(--accent)');
   if (ratio > 0) svg += `<path class='gauge-val' d='${_arcStroke(cx, cy, r, start, va)}' stroke='${valColor}' stroke-width='${stroke}' stroke-linecap='round'></path>`;
+  // Optional reference tick across the band (e.g. a budget threshold), so the
+  // arc is read against a target instead of in the abstract.
+  if (o.ref != null && isFinite(o.ref)) {
+    const ra = start + sweep * Math.max(0, Math.min(1, o.ref));
+    const i = _polar(cx, cy, r - stroke * 0.8, ra), oo = _polar(cx, cy, r + stroke * 0.8, ra);
+    svg += `<line class='gauge-ref' x1='${i[0].toFixed(2)}' y1='${i[1].toFixed(2)}' x2='${oo[0].toFixed(2)}' y2='${oo[1].toFixed(2)}'></line>`;
+  }
   if (o.centerValue != null) svg += `<text class='gauge-text' x='${cx}' y='${cy}' font-size='${(size * 0.17).toFixed(0)}'>${escapeHtml(String(o.centerValue))}</text>`;
   if (o.centerSub != null) svg += `<text class='gauge-sub' x='${cx}' y='${(cy + size * 0.12).toFixed(0)}' font-size='${(size * 0.075).toFixed(0)}'>${escapeHtml(String(o.centerSub))}</text>`;
   return `<svg viewBox='0 0 ${size} ${vbH}' class='chart-gauge' width='${size}' height='${vbH}'>${svg}</svg>`;

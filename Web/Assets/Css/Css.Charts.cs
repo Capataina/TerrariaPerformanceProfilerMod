@@ -41,8 +41,13 @@ internal static partial class DashboardAssets
 .chart-gauge { display: block; max-width: 100%; height: auto; }
 .gauge-track { fill: none; stroke: var(--surface); }
 .gauge-val { fill: none; }
-.gauge-text { font-family: var(--mono); fill: var(--text-bright); text-anchor: middle; }
-.gauge-sub  { font-family: var(--ui); fill: var(--muted); text-anchor: middle; }
+/* dominant-baseline:central so the value/sub are vertically CENTRED on their y
+   anchor instead of sitting on the baseline (which pushed the number up into the
+   arc stroke and read as off-centre). */
+.gauge-text { font-family: var(--mono); fill: var(--text-bright); text-anchor: middle; dominant-baseline: central; }
+.gauge-sub  { font-family: var(--ui); fill: var(--muted); text-anchor: middle; dominant-baseline: central; }
+/* Optional reference tick on a gauge arc (e.g. an overhead budget threshold). */
+.gauge-ref { stroke: var(--text-bright); stroke-width: 1.5; opacity: 0.85; }
 
 /* ===== Bar chart: vertical column strip ========================== */
 .bar-strip { display: flex; align-items: flex-end; gap: 1px; height: 100%;

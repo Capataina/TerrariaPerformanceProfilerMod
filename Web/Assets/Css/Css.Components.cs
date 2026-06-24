@@ -42,9 +42,17 @@ internal static partial class DashboardAssets
   border-bottom: 1px solid var(--border-soft); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
 .dtable tbody td.l { text-align: left; }
+/* Name/label cells truncate instead of pushing the table wider than its scroll
+   region: a long mod name ellipsises here rather than overflowing horizontally
+   (the class of bug the edge-long-names fixture surfaces). Numeric cells are
+   short + nowrap, so this only ever bites the left text columns. */
+.dtable th.l, .dtable td.l { max-width: 20rem; overflow: hidden; text-overflow: ellipsis; }
 .dtable tbody tr.clickable { cursor: pointer; }
 .dtable tbody tr:hover { background: var(--hover); }
-.dtable tbody tr.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+/* Selection: a clearly visible wash + a 3px accent edge + brightened text, so a
+   selected row reads at a glance (the faint 9% wash alone was imperceptible). */
+.dtable tbody tr.sel { background: oklch(1 0 0 / 0.14); box-shadow: inset 3px 0 0 var(--accent); }
+.dtable tbody tr.sel td { color: var(--text-bright); }
 .dtable td.muted, .dtable .muted { color: var(--muted); }
 .dtable td.dim, .dtable .dim { color: var(--dim); }
 
@@ -124,11 +132,19 @@ internal static partial class DashboardAssets
 .row { display: grid; align-items: center; gap: 0.5rem; padding: 0.28rem 0.6rem;
   border-left: 2px solid transparent; border-bottom: 1px solid var(--border-soft);
   font-family: var(--mono); font-size: 0.84rem; }
+/* Grid children must be allowed to shrink below their content, or the .nm
+   ellipsis never engages and a long name forces the row (and its scroll region)
+   wider than the panel. min-width:0 is the universal enabler for that. */
+.row > * { min-width: 0; }
 .rowlist .row:last-child { border-bottom: 0; }
 .row.clickable { cursor: pointer; user-select: none;
   transition: background 0.12s, border-color 0.12s; }
 .row.clickable:hover { background: var(--hover); border-left-color: var(--accent); }
-.row.sel { background: var(--accent-soft); border-left-color: var(--accent); }
+/* Selection: visible wash + accent edge + brighter text (was a near-invisible
+   9% wash with a thin bar). One treatment for every clickable list. */
+.row.sel { background: oklch(1 0 0 / 0.14); border-left-color: var(--accent);
+  box-shadow: inset 1px 0 0 var(--accent); }
+.row.sel .nm, .row.sel .rk { color: var(--text-bright); }
 .row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .row .rk { color: var(--dim); text-align: right; font-size: 0.78rem; }
 /* Outlier marker: gold at rest, resolves to the accent on hover (no second bar). */
