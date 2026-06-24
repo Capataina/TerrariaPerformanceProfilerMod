@@ -13,7 +13,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights;
+namespace PerformanceProfiler.Insights;
 
 /// <summary>
 /// Live store of <see cref="InsightRecord"/>s: dedup on submit, TTL eviction

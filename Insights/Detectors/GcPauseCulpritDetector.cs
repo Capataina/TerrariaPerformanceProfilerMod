@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 /// <summary>
 /// GC_PAUSE_CULPRIT — attributes a GC-caused stall to the mod that allocated

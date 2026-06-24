@@ -10,7 +10,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights;
+namespace PerformanceProfiler.Insights;
 
 /// <summary>
 /// Catalog of diagnostic patterns the engine can emit. One detector class

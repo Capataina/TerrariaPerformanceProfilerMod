@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 /// <summary>
 /// ALLOCATION_BURST — a mod whose smoothed allocation rate exceeds a hard

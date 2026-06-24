@@ -13,7 +13,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 /// <summary>
 /// SEGMENT_TOP_MOD — when the same mod ranks #1 in cost across many

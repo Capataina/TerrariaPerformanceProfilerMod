@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Stats;
 using PerformanceProfiler.Web.Server;

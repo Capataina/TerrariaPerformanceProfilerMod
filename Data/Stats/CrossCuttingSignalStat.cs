@@ -2,7 +2,7 @@
 
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Stats;

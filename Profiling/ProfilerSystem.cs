@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Data.Aggregators.Segments;
 

@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 /// <summary>
 /// HOT_HOOK_DOMINANCE — one hook accounts for &gt;= 60 % of its owning mod's

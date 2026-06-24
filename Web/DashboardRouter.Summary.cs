@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Detectors;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 using PerformanceProfiler.Data.Stats;
 using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Web.Server;

@@ -7,7 +7,7 @@
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;

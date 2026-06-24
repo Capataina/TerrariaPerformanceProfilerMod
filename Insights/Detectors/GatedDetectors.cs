@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 // Each detector below exists so the catalog is complete and the engine can
 // honestly report its coverage gaps via the JSONL `gated` block. They all

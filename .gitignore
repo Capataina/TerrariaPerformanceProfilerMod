@@ -16,3 +16,6 @@ obj/
 
 # Runtime lock files from background scheduled tasks
 .claude/scheduled_tasks.lock
+
+# Tool-generated skill cache (frontend-design / open-design); not project source.
+.od-skills/

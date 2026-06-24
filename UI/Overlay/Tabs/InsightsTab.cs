@@ -8,7 +8,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 using PerformanceProfiler.UI.Overlay.Components;
 
 using PerformanceProfiler.Data.Detectors;

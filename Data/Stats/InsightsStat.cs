@@ -1,7 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
-using PerformanceProfiler.Data.Detectors.Insights;
+using PerformanceProfiler.Insights;
 
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;

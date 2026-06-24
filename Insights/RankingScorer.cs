@@ -12,7 +12,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights;
+namespace PerformanceProfiler.Insights;
 
 /// <summary>
 /// Scoring formula used by <see cref="InsightStore.Top"/> to choose which

@@ -70,9 +70,9 @@
     <Compile Include="..\Profiling\Events\GameMode.cs" Link="Source\Events\GameMode.cs" />
     <Compile Include="..\Profiling\Events\BossSlotArray.cs" Link="Source\Events\BossSlotArray.cs" />
     <Compile Include="..\Profiling\Events\EventContext.cs" Link="Source\Events\EventContext.cs" />
-    <Compile Include="..\Data\Detectors\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
-    <Compile Include="..\Data\Detectors\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
-    <Compile Include="..\Data\Detectors\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+    <Compile Include="..\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
+    <Compile Include="..\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
+    <Compile Include="..\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification
@@ -105,6 +105,11 @@
     <Compile Remove="..\Profiling\Persistence\LegacyJsonImporter.cs" />
     <Compile Remove="..\Profiling\Persistence\ProfilerCompactCommand.cs" />
     <Compile Remove="..\Profiling\Persistence\ModlistFingerprint.cs" />
+    <!-- DbReadModel reads the PerformanceProfiler Mod class's static Database
+         property (a Terraria.ModLoader.Mod subclass), so it cannot compile in the
+         runtime-free test harness. Its only consumers are the dashboard routers,
+         which are integration code excluded here anyway. -->
+    <Compile Remove="..\Profiling\Persistence\DbReadModel.cs" />
     <!-- SessionRecorder (now Data/Streams/) + TickDownsampler + ContextTransitionWatcher
          + WorldSnapshotter + PlayerDeathDetector + SessionSummaryLogger all depend
          on MetricCollector + SpikeWindow which transitively pull in HookInterceptor

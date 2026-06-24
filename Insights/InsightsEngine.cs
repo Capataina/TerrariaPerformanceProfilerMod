@@ -1,7 +1,7 @@
 #nullable enable
 
 using System.Collections.Generic;
-using PerformanceProfiler.Data.Detectors.Insights.Detectors;
+using PerformanceProfiler.Insights.Detectors;
 
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
@@ -13,7 +13,7 @@ using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Detectors.Insights;
+namespace PerformanceProfiler.Insights;
 
 /// <summary>
 /// Owns the detector roster and the live <see cref="InsightStore"/>. The

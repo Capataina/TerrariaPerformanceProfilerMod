@@ -13,7 +13,7 @@ using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Stats;
 using PerformanceProfiler.Data.Streams;
 using PerformanceProfiler.Data.Collectors;
-namespace PerformanceProfiler.Data.Detectors.Insights.Detectors;
+namespace PerformanceProfiler.Insights.Detectors;
 
 /// <summary>
 /// LoadoutCorrelatedCost: fires when a loadout change is followed by a
