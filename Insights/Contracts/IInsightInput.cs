@@ -40,4 +40,18 @@ public interface IInsightInput
 
     /// <summary>The single-session frame / period / allocation baseline (histogram median + MAD).</summary>
     Baseline Baseline { get; }
+
+    // ---- Driver dimensions (Wave 5: the values the IDriver registry samples) ----
+
+    /// <summary>Active NPCs on the most recent tick — an entity-count driver dimension.</summary>
+    int LatestNpcCount { get; }
+
+    /// <summary>Active projectiles on the most recent tick — an entity-count driver dimension.</summary>
+    int LatestProjectileCount { get; }
+
+    /// <summary>Process managed-heap bytes (the leak signal Family B regresses against session age).</summary>
+    long ManagedHeapBytes { get; }
+
+    /// <summary>Ticks observed this session — the session-age driver dimension.</summary>
+    long SessionTicks { get; }
 }

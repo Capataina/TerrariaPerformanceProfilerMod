@@ -43,6 +43,8 @@ public enum PatternKey : byte
     FrameHeadroom          = 17,
     CostConcentration      = 18,
     FrameJitter            = 19,
+    // Wave 5 family B (behaviour over time): the runtime heap-leak signal.
+    HeapLeak               = 20,
 }
 
 /// <summary>

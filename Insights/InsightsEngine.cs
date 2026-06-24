@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using PerformanceProfiler.Insights.Detectors;
+using PerformanceProfiler.Insights.Drivers;
 using PerformanceProfiler.Insights.ReferenceFrames;
 using PerformanceProfiler.Insights.Shared;
 
@@ -75,8 +76,11 @@ public sealed class InsightsEngine
     // detector. Lazily sized on the first pass that has a mod table. Reusable
     // scratch buffers keep the 1 Hz update allocation-light.
     private ContextBaseline? _contextBaseline;
+    private TemporalBaseline? _temporalBaseline;
     private readonly List<long> _activeBuckets = new List<long>(8);
     private double[] _perModScratch = Array.Empty<double>();
+    private static readonly HeapDriver _heapDriver = new HeapDriver();
+    private static readonly EntityCountDriver _entityDriver = new EntityCountDriver();
 
     // Gated-pattern map is computed once at construction (detector roster is
     // static). The previous shape rebuilt it per call from inside Draw, which
@@ -102,15 +106,17 @@ public sealed class InsightsEngine
             new GcPauseCulpritDetector(),
             // Un-gated in Wave 3 against the ContextBaseline reference frame.
             new ContextConditionalCostDetector(),
-            // Wave 5 family detectors: D (headroom), E (structure), C (distribution).
+            // Wave 5 family detectors: D (headroom), E (structure), C (distribution),
+            // B (behaviour over time, against the TemporalBaseline).
             new FrameHeadroomDetector(),
             new CostConcentrationDetector(),
             new FrameJitterDetector(),
+            new HeapLeakDetector(),
+            new SustainedCostShiftDetector(),
+            new NewContributorDetector(),
 
             // Gated detectors (data not yet exposed; emit nothing today).
             new ContextCorrelatedSpikeDetector(),
-            new SustainedCostShiftDetector(),
-            new NewContributorDetector(),
             new HookFrequencyTailDetector(),
 
             // v0.5 interaction-tracking detectors. The first two query the
@@ -176,6 +182,9 @@ public sealed class InsightsEngine
     /// out-of-context cost.
     /// </summary>
     public ContextBaseline? ContextBaseline => _contextBaseline;
+
+    /// <summary>The early-vs-late session baseline (Family B). Null until the first pass with a mod table.</summary>
+    public TemporalBaseline? TemporalBaseline => _temporalBaseline;
 
     /// <summary>
     /// Installs a pre-loaded context baseline (typically seeded with prior-session
@@ -254,7 +263,15 @@ public sealed class InsightsEngine
             _activeBuckets.Add(ContextBaseline.MakeBucket(DimSubworld, ec.SubworldKey));
 
         // The global per-mod distribution always updates; buckets update only when active.
-        _contextBaseline.Observe(_activeBuckets, new System.ArraySegment<double>(_perModScratch, 0, modCount));
+        var perMod = new System.ArraySegment<double>(_perModScratch, 0, modCount);
+        _contextBaseline.Observe(_activeBuckets, perMod);
+
+        // Feed the Family-B early/late baseline with the same per-mod cost plus the
+        // workload + heap driver dimensions, so the leak detector can control for
+        // entity count and the cost-shift detectors can compare late against early.
+        _temporalBaseline ??= new TemporalBaseline(modCount);
+        var input = new CollectorInsightInput(collector);
+        _temporalBaseline.Observe(_heapDriver.Sample(input), _entityDriver.Sample(input), perMod);
     }
 
     // Context dimension ids (the byte of a ContextBaseline bucket). Stable so the

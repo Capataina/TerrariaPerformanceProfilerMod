@@ -46,45 +46,10 @@ public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
 // (Detectors/ContextConditionalCostDetector.cs) when it was un-gated in Wave 3
 // against the ContextBaseline reference frame. It is now active; see that file.
 
-/// <summary>
-/// SUSTAINED_COST_SHIFT — CUSUM-detected mean shift in per-mod ms, validated
-/// by a post-window Welch's t-test. Needs per-tick per-mod history beyond
-/// the current ring's smoothed totals; gated on the LiteDB migration.
-/// </summary>
-public sealed class SustainedCostShiftDetector : IInsightDetector
-{
-    public PatternKey Pattern => PatternKey.SustainedCostShift;
-    public Audience DefaultAudience => Audience.Both;
-    public bool IsGated => true;
-    public string? GatedOn => "litedb-cross-session";
-
-    public bool IsAvailable(MetricCollector collector) => false;
-
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
-    {
-        // TODO: requires per-tick per-mod ms history (LiteDB). See plan §4.6.
-    }
-}
-
-/// <summary>
-/// NEW_CONTRIBUTOR — mod's late-half median exceeds early-half by Cliff's
-/// delta &gt;= 0.33. Needs the early/late tick streams kept around for the
-/// Mann-Whitney test; gated on LiteDB-based per-tick persistence.
-/// </summary>
-public sealed class NewContributorDetector : IInsightDetector
-{
-    public PatternKey Pattern => PatternKey.NewContributor;
-    public Audience DefaultAudience => Audience.Both;
-    public bool IsGated => true;
-    public string? GatedOn => "litedb-cross-session";
-
-    public bool IsAvailable(MetricCollector collector) => false;
-
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
-    {
-        // TODO: requires session-half slicing of per-mod ms history. See plan §4.7.
-    }
-}
+// SUSTAINED_COST_SHIFT and NEW_CONTRIBUTOR moved to their own files
+// (Detectors/SustainedCostShiftDetector.cs, Detectors/NewContributorDetector.cs) when
+// they were un-gated in Wave 5 against the TemporalBaseline (early-vs-late session
+// windows). Both are now active; see those files.
 
 // GC_PAUSE_CULPRIT moved to its own file (Detectors/GcPauseCulpritDetector.cs)
 // when it was un-gated. The detector is now active; see that file for the

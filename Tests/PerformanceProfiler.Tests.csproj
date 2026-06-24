@@ -85,6 +85,11 @@
     <Compile Include="..\Insights\ReferenceFrames\ContextBaseline.cs" Link="Source\Insights\ReferenceFrames\ContextBaseline.cs" />
     <!-- Wave 6 cross-session store (LiteDB round-trip of the per-context baselines). -->
     <Compile Include="..\Insights\ReferenceFrames\CrossSessionStore.cs" Link="Source\Insights\ReferenceFrames\CrossSessionStore.cs" />
+    <!-- Wave 5 family B substrate: the early/late temporal baseline + the driver contracts. -->
+    <Compile Include="..\Insights\Contracts\IInsightInput.cs" Link="Source\Insights\Contracts\IInsightInput.cs" />
+    <Compile Include="..\Insights\Contracts\IDriver.cs" Link="Source\Insights\Contracts\IDriver.cs" />
+    <Compile Include="..\Insights\Drivers\Drivers.cs" Link="Source\Insights\Drivers\Drivers.cs" />
+    <Compile Include="..\Insights\ReferenceFrames\TemporalBaseline.cs" Link="Source\Insights\ReferenceFrames\TemporalBaseline.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification

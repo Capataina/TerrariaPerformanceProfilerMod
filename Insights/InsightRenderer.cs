@@ -81,6 +81,9 @@ public static class InsightRenderer
             PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
             PatternKey.CostConcentration => RenderCostConcentration(rec, density),
             PatternKey.FrameJitter => RenderFrameJitter(rec, density),
+            PatternKey.HeapLeak => RenderHeapLeak(rec, density),
+            PatternKey.SustainedCostShift => RenderSustainedCostShift(rec, density),
+            PatternKey.NewContributor => RenderNewContributor(rec, density),
             _ => RenderUnsupported(rec),
         };
     }
@@ -266,6 +269,41 @@ public static class InsightRenderer
         if (density == Density.Short)
             return $"your frame times swing ±{cv} around {median} ms — frequent small hitches.";
         return $"your median frame is {median} ms but the typical swing is ±{spread} ms ({cv} of the median) — a stutter pattern (many small hitches) rather than a steady-but-slow frame.";
+    }
+
+    private static string RenderHeapLeak(Insight rec, Density density)
+    {
+        // BaselineMs / ObservedMs carry the early / late heap level in MB here.
+        string early = rec.Magnitude.BaselineMs.ToString("F0", Invariant);
+        string late = rec.Magnitude.ObservedMs.ToString("F0", Invariant);
+        string ratio = Multiple(rec.Magnitude.RatioOrDelta);
+        string rate = rec.Magnitude.Rate.ToString("F1", Invariant);
+
+        if (density == Density.Short)
+            return $"managed heap is {ratio} its early-session level at a similar entity load — a restart resets it.";
+        return $"managed heap rose from ~{early} MB early in the session to ~{late} MB ({ratio}, about {rate} MB/min) while the entity load stayed comparable, so the growth is not explained by more entities. Heap (not GC) is what is measured; a restart returns it to the early level.";
+    }
+
+    private static string RenderSustainedCostShift(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        string early = Ms(rec.Magnitude.BaselineMs);
+        string late = Ms(rec.Magnitude.ObservedMs);
+        string ratio = Multiple(rec.Magnitude.RatioOrDelta);
+
+        if (density == Density.Short)
+            return $"{mod}'s cost shifted up to {late} ms/t ({ratio} its early level).";
+        return $"{mod} settled from {early} ms/t early in the session to {late} ms/t later ({ratio}), a sustained shift, not a transient spike. {BaselineClause(rec.Evidence.Baseline)}.";
+    }
+
+    private static string RenderNewContributor(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        string late = Ms(rec.Magnitude.ObservedMs);
+
+        if (density == Density.Short)
+            return $"{mod} was idle early, then began costing {late} ms/t.";
+        return $"{mod} was effectively silent in the first part of the session, then climbed to {late} ms/t — a mechanic that came online later (a boss, a biome, a built structure). {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
     private static string RenderUnsupported(Insight rec) =>
