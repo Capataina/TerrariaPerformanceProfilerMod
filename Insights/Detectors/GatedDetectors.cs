@@ -42,24 +42,9 @@ public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
     }
 }
 
-/// <summary>
-/// CONTEXT_CONDITIONAL_COST — Mann-Whitney over (mod ms in bucket) vs (mod
-/// ms outside bucket). Gated on the Events tab providing per-bucket dwell.
-/// </summary>
-public sealed class ContextConditionalCostDetector : IInsightDetector
-{
-    public PatternKey Pattern => PatternKey.ContextConditionalCost;
-    public Audience DefaultAudience => Audience.Both;
-    public bool IsGated => true;
-    public string? GatedOn => "events-tab";
-
-    public bool IsAvailable(MetricCollector collector) => false;
-
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
-    {
-        // TODO: requires Events tab BucketStats. See plan §4.2.
-    }
-}
+// CONTEXT_CONDITIONAL_COST moved to its own file
+// (Detectors/ContextConditionalCostDetector.cs) when it was un-gated in Wave 3
+// against the ContextBaseline reference frame. It is now active; see that file.
 
 /// <summary>
 /// SUSTAINED_COST_SHIFT — CUSUM-detected mean shift in per-mod ms, validated

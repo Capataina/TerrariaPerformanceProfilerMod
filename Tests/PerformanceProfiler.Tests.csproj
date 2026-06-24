@@ -80,6 +80,9 @@
     <Compile Include="..\Insights\Shared\ModMetrics.cs" Link="Source\Insights\Shared\ModMetrics.cs" />
     <Compile Include="..\Insights\Shared\Shares.cs" Link="Source\Insights\Shared\Shares.cs" />
     <Compile Include="..\Insights\Shared\ModNames.cs" Link="Source\Insights\Shared\ModNames.cs" />
+    <!-- Wave 3 reference-frame substrate (pure stats + the per-context accumulator). -->
+    <Compile Include="..\Insights\Shared\Stats.cs" Link="Source\Insights\Shared\Stats.cs" />
+    <Compile Include="..\Insights\ReferenceFrames\ContextBaseline.cs" Link="Source\Insights\ReferenceFrames\ContextBaseline.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification
