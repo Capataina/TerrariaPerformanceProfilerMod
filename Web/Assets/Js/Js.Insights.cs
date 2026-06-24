@@ -345,7 +345,12 @@ function renderObservatoryList() {
   const cols = '2.2em minmax(0,1fr) 5em';
   setHTML(scroll, rowList(cards.map((c, i) => {
     const costFrac = c.cpuSharePct / maxCpu;
-    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage`;
+    // cpuSharePct / usageSharePct are FRACTIONS (0..1, each sums to 1 across the
+    // roster), so they must be ×100 to read as percentages — without it a 92.9%
+    // share rendered as '0.9%' (100× too small), disagreeing with the scatter and
+    // the donut. (The sort/maxCpu uses above keep the raw fraction; only the
+    // display scales.)
+    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${(c.cpuSharePct * 100).toFixed(1)}% cpu · ${(c.usageSharePct * 100).toFixed(1)}% usage`;
     const bodyCell = `<div class='obs-body'>` +
       `<div class='nm'>${escapeHtml(c.modName)}</div>` +
       `<div class='obs-micro'>${micro}</div>` +
@@ -418,10 +423,10 @@ function renderObservatoryDetail() {
 
   // Headline stats as shared stat lines.
   const statsHtml =
-    statLine('cpu share', dash(card.cpuSharePct, v => v.toFixed(2) + '%')) +
+    statLine('cpu share', dash(card.cpuSharePct, v => (v * 100).toFixed(2) + '%')) +
     statLine('smoothed ms this tick', dash(card.smoothedMsThisTick, v => fmtMs(v) + ' ms')) +
     statLine('average ms', dash(card.averageMs, v => fmtMs(v) + ' ms')) +
-    statLine('usage share', dash(card.usageSharePct, v => v.toFixed(2) + '%'));
+    statLine('usage share', dash(card.usageSharePct, v => (v * 100).toFixed(2) + '%'));
 
   // Roster vs usage table — perf-vocabulary dtable.
   const rosterRows = [

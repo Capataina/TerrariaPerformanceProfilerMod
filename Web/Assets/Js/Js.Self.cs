@@ -144,7 +144,7 @@ function renderHookDistribution() {
       `<span class='nm'>${escapeHtml(m.name)}</span>`,
       cellBar(m.count / max, modColor(m.id)),
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
-      cellBar(m.ms / maxMs, 'var(--surface-2)'),
+      cellBar(m.ms / maxMs, modColor(m.id)),
       `<span style='text-align:right;color:var(--muted)'>${fmtMs(m.ms)} ms</span>`,
     ] : [
       `<span class='rk'>${i + 1}</span>`,

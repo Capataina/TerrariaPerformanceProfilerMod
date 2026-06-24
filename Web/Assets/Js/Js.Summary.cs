@@ -321,13 +321,14 @@ function sampleModStream() {
   }
   if (activeTab === 'summary') renderModStream();
 }
-// Warm-coloured ramp across the stack by rank: the heaviest mod sits at the base
-// in deep warm red, lighter contributors stack up toward pale yellow — so the
-// gradient itself encodes magnitude rank, distinct from the per-mod categorical
-// hues used elsewhere (here the question is 'how big', not 'which mod').
+// Colour encodes performance impact via the perf ramp: the heaviest mod sits at
+// the base in hot red, lighter contributors stack up toward calm green — so a
+// band's colour AND its thickness both say 'how much frame cost'. The bands are
+// drawn at lower opacity (see .st-band) so the stack reads as a soft, layered
+// gradient rather than hard blocks.
 function streamRamp(i, n) {
-  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base) .. 1 = smallest (top)
-  return `oklch(${(0.55 + 0.34 * t).toFixed(3)} ${(0.15 - 0.07 * t).toFixed(3)} ${(25 + 60 * t).toFixed(0)})`;
+  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base, hot) .. 1 = smallest (top, calm)
+  return `oklch(${(0.64 + 0.08 * t).toFixed(3)} ${(0.17 - 0.07 * t).toFixed(3)} ${(25 + 125 * t).toFixed(0)})`;
 }
 function renderModStream() {
   const root = document.getElementById('mod-stream');

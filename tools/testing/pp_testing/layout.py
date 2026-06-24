@@ -84,6 +84,95 @@ _STICKY_JS = r"""([key, tol]) => {
   return out.filter(v => { const k = v.invariant + v.panel + v.detail; if (seen.has(k)) return false; seen.add(k); return true; });
 }"""
 
+# Within each row-direction grid/flex, side-by-side children must share a top
+# edge. Catches a vertical-flow margin (or align bug) leaking into a horizontal
+# layout — the recurring "first column sits higher than the rest" class.
+_ROW_ALIGN_JS = r"""([key, tol]) => {
+  const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+  if (!pane) return [];
+  const out = [];
+  pane.querySelectorAll('*').forEach(c => {
+    const cs = getComputedStyle(c);
+    const disp = cs.display;
+    if (disp !== 'grid' && disp !== 'flex' && disp !== 'inline-flex') return;
+    if (disp.indexOf('flex') >= 0 && cs.flexDirection.startsWith('column')) return;  // vertical stack: tops legitimately differ
+    // Centred / end / baseline alignment makes differing tops INTENTIONAL (e.g.
+    // a .row vertically centres a tall body cell against a single-line value), so
+    // only column-style grids that should top-align (start/stretch/normal) qualify.
+    const ai = cs.alignItems;
+    if (ai === 'center' || ai === 'end' || ai === 'flex-end' || ai === 'baseline') return;
+    if (c.matches('.row, tr')) return;  // table/list row cells are aligned by their own model
+    const kids = [...c.children].filter(k => { const r = k.getBoundingClientRect();
+      return r.width > 4 && r.height > 4 && getComputedStyle(k).position !== 'absolute'; });
+    if (kids.length < 2) return;
+    const b = kids.map(k => k.getBoundingClientRect());
+    for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) {
+      const a = b[i], d = b[j];
+      const yov = Math.min(a.bottom, d.bottom) - Math.max(a.top, d.top);
+      const sideBySide = (a.right <= d.left + 2) || (d.right <= a.left + 2);
+      // Skip pairs of very different height — one likely spans multiple rows (a
+      // grid item spanning 2 rows legitimately starts above its row-neighbours).
+      const hRatio = Math.min(a.height, d.height) / Math.max(a.height, d.height);
+      if (hRatio >= 0.6 && yov > Math.min(a.height, d.height) * 0.5 && sideBySide && Math.abs(a.top - d.top) > tol + 4) {
+        out.push({ invariant: 'row-items-top-aligned',
+          detail: 'two side-by-side items in a ' + disp + ' differ in top by ' +
+                  Math.round(Math.abs(a.top - d.top)) + 'px (' + ((c.className || c.tagName) + '').slice(0, 28) + ')' });
+      }
+    }
+  });
+  const seen = new Set();
+  return out.filter(v => { if (seen.has(v.detail)) return false; seen.add(v.detail); return true; }).slice(0, 8);
+}"""
+
+# Visible label/chip/badge elements that are not nested must not overlap — the
+# transition-track / time-placed-chip collision class.
+_OVERLAP_JS = r"""([key]) => {
+  const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+  if (!pane) return [];
+  const els = [...pane.querySelectorAll('.chip, .tx-chip, .tl-segment .lbl, [class*=badge], .bar-row .lbl')]
+    .filter(e => { const r = e.getBoundingClientRect(); return r.width > 4 && r.height > 4 && e.offsetParent; });
+  const out = [];
+  for (let i = 0; i < els.length; i++) for (let j = i + 1; j < els.length; j++) {
+    const a = els[i], d = els[j];
+    if (a.contains(d) || d.contains(a)) continue;
+    const ra = a.getBoundingClientRect(), rd = d.getBoundingClientRect();
+    const ox = Math.min(ra.right, rd.right) - Math.max(ra.left, rd.left);
+    const oy = Math.min(ra.bottom, rd.bottom) - Math.max(ra.top, rd.top);
+    if (ox > 3 && oy > 3 && ox * oy > Math.min(ra.width * ra.height, rd.width * rd.height) * 0.35) {
+      out.push({ invariant: 'no-label-overlap',
+        detail: '"' + (a.textContent || '').trim().slice(0, 16) + '" overlaps "' + (d.textContent || '').trim().slice(0, 16) + '"' });
+    }
+  }
+  const seen = new Set();
+  return out.filter(v => { if (seen.has(v.detail)) return false; seen.add(v.detail); return true; }).slice(0, 6);
+}"""
+
+# Per panel: the rendered content should fill a reasonable fraction of a tall
+# panel; a mostly-empty panel is dead space. Conservative (only tall panels, and
+# panels without a chart/scroll-region that legitimately reserve height).
+_DEADSPACE_JS = r"""([key, minFill]) => {
+  const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+  if (!pane) return [];
+  const out = [];
+  pane.querySelectorAll('.panel').forEach(p => {
+    const body = p.querySelector('.panel-body, .scroll-region') || p;
+    if (p.querySelector('svg, canvas, .chart-svg, .scroll-region, .chart-stream, .chart-sankey')) return;  // legit fillers
+    const pb = body.getBoundingClientRect();
+    if (pb.height < 220) return;
+    let lo = Infinity, hi = -Infinity;
+    body.querySelectorAll('*').forEach(e => { const r = e.getBoundingClientRect();
+      if (r.height > 0 && r.width > 0 && getComputedStyle(e).position !== 'absolute') { lo = Math.min(lo, r.top); hi = Math.max(hi, r.bottom); } });
+    if (!isFinite(lo)) return;
+    const fill = (hi - lo) / pb.height;
+    if (fill < minFill) {
+      out.push({ invariant: 'panel-fills-its-height',
+        panel: (p.querySelector('.panel-title')?.textContent || '').trim(),
+        detail: 'content fills only ' + Math.round(fill * 100) + '% of the ' + Math.round(pb.height) + 'px panel body (dead space)' });
+    }
+  });
+  return out;
+}"""
+
 _DRAWER_CLOSED_JS = r"""() => {
   const c = document.getElementById('modcard');
   if (!c) return [];
@@ -152,6 +241,18 @@ def run(dash):
             v["tab"] = key
             violations.append(v)
         for v in dash.evaluate(_STICKY_JS, [key, TOL]):
+            v["tab"] = key
+            violations.append(v)
+        # New layout-quality invariants (the recurring classes: misaligned
+        # columns, overlapping labels, dead space) — caught automatically so they
+        # do not have to be hand-found each time the data shape changes.
+        for v in dash.evaluate(_ROW_ALIGN_JS, [key, TOL]):
+            v["tab"] = key
+            violations.append(v)
+        for v in dash.evaluate(_OVERLAP_JS, key):
+            v["tab"] = key
+            violations.append(v)
+        for v in dash.evaluate(_DEADSPACE_JS, [key, 0.42]):
             v["tab"] = key
             violations.append(v)
         violations += _selection_feedback(dash, key, panels)

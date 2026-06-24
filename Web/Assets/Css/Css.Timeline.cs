@@ -220,12 +220,19 @@ internal static partial class DashboardAssets
      no rainbow gradient sits behind the text any more. */
   color: oklch(0.985 0 0);
   text-shadow: 0 1px 2px oklch(0.16 0 0 / 0.95), 0 0 2px oklch(0.16 0 0 / 0.9);
-  padding: 0 2px;
-  background: linear-gradient(oklch(0.16 0 0 / 0.55), oklch(0.16 0 0 / 0));
-  border-radius: 2px 2px 0 0;
+  padding: 0 3px;
+  /* A FLAT readable scrim (was a fade-to-transparent that left the lower glyphs
+     unprotected over a bright fill / the per-mod waterfall), and z-index above
+     the waterfall so the rainbow split bar is never painted over the text. A
+     label over data always gets a guaranteed-contrast backing, never a scrim the
+     data bleeds through. */
+  background: oklch(0.16 0 0 / 0.66);
+  border-radius: 0 0 3px 0;
+  z-index: 2;
 }
 .tl-segment .tl-waterfall {
   position: absolute; left: 0; right: 0; bottom: 0;
+  z-index: 1;
 }
 .tl-segment .tl-waterfall .split-bar {
   border-radius: 0;

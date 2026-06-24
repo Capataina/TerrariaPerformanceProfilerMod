@@ -88,7 +88,11 @@ internal static partial class DashboardAssets
   gap: 0.8rem 0.9rem;
   align-items: start;
 }
-.cc-sections > .section-block { min-width: 0; overflow: hidden; }
+/* The grid gap owns the spacing here, so the shared vertical-flow rule
+   (.section-block + .section-block margin-top) must be cancelled: left on, it
+   pushes columns 2..n down by that margin and the column TOPS no longer align
+   (the recurring first-column-higher-than-the-rest bug). */
+.cc-sections > .section-block { min-width: 0; overflow: hidden; margin-top: 0; }
 .cc-sections .dtable thead th { position: static; }
 .cc-sections .section-h > span:first-child {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -66,8 +66,10 @@ internal static partial class DashboardAssets
 
 /* ===== Stacked-area stream ======================================== */
 .chart-stream { display: block; width: 100%; height: 100%; }
-.chart-stream .st-band { stroke: none; }
-.chart-stream .st-band:hover { filter: brightness(1.12); }
+/* Lower band opacity reads as a soft, layered gradient (modern/sleek) rather
+   than hard saturated blocks; the perf-ramp hue still encodes impact. */
+.chart-stream .st-band { stroke: none; fill-opacity: 0.68; }
+.chart-stream .st-band:hover { fill-opacity: 0.92; }
 /* The total envelope + its sample markers (drawn over the stack). */
 .chart-stream .st-line { fill: none; stroke: var(--perf-3); stroke-width: 1.3; opacity: 0.8; }
 .chart-stream .st-dot { fill: var(--bg-deep); stroke: var(--perf-3); stroke-width: 1.3; }
