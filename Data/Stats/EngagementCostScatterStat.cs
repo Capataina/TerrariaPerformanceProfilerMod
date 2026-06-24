@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Data.Contracts;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Stats;
@@ -50,13 +51,7 @@ public sealed class EngagementCostScatterStat : IDataStat<EngagementCostSnapshot
             int n = Math.Min(modCount, cpu.ModCount);
             for (int m = 0; m < n; m++)
             {
-                double sum = 0d;
-                int baseIdx = m * catCount;
-                for (int c = 0; c < catCount; c++)
-                {
-                    int idx = baseIdx + c;
-                    if (idx < smoothed.Count) sum += smoothed[idx];
-                }
+                double sum = ModMetrics.SumModCategories(smoothed, m, catCount);
                 perModCpu[m] = sum;
                 totalCpu += sum;
             }
@@ -82,8 +77,7 @@ public sealed class EngagementCostScatterStat : IDataStat<EngagementCostSnapshot
         {
             var u = usage.Entries[i];
             if ((uint)u.ModId >= (uint)modCount) continue;
-            long used = u.ItemsCreated + u.NpcsSpawned + u.BossesFought
-                      + u.BuffsApplied + u.InvasionsFought;
+            long used = ModMetrics.UsageWeight(u);
             usedPerMod[u.ModId] = used;
             usedTotal += used;
         }
@@ -91,15 +85,14 @@ public sealed class EngagementCostScatterStat : IDataStat<EngagementCostSnapshot
         var dots = new List<EngagementCostDot>(modCount);
         for (int m = 0; m < modCount; m++)
         {
-            double usageShare = usedTotal > 0 ? (double)usedPerMod[m] / usedTotal : 0d;
-            double cpuShare = totalCpu > 0 ? perModCpu[m] / totalCpu : 0d;
+            double usageShare = Shares.SafeShare(usedPerMod[m], usedTotal);
+            double cpuShare = Shares.SafeShare(perModCpu[m], totalCpu);
 
             // Drop truly inert mods.
             if (usageShare == 0d && cpuShare < InertCpuThreshold) continue;
 
             rosterById.TryGetValue(m, out ModRosterEntry r);
-            int rosterSize = r.Items + r.NPCs + r.Buffs + r.Projectiles
-                           + r.Mounts + r.Accessories + r.Invasions + r.Bosses;
+            int rosterSize = ModMetrics.RosterSize(r);
 
             dots.Add(new EngagementCostDot(
                 ModId: m,

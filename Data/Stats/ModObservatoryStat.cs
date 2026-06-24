@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using LiteDB;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Data.Contracts;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Profiling.Persistence.Records;
@@ -71,14 +72,8 @@ public sealed class ModObservatoryStat : IDataStat<ModObservatorySnapshot>
             int n = Math.Min(modCount, cpu.ModCount);
             for (int m = 0; m < n; m++)
             {
-                double sumS = 0d, sumA = 0d;
-                int baseIdx = m * catCount;
-                for (int c = 0; c < catCount; c++)
-                {
-                    int idx = baseIdx + c;
-                    if (idx < smoothed.Count) sumS += smoothed[idx];
-                    if (averaged != null && idx < averaged.Count) sumA += averaged[idx];
-                }
+                double sumS = ModMetrics.SumModCategories(smoothed, m, catCount);
+                double sumA = averaged != null ? ModMetrics.SumModCategories(averaged, m, catCount) : 0d;
                 perModSmoothed[m] = sumS;
                 perModAverage[m] = sumA;
                 totalSmoothed += sumS;
@@ -107,8 +102,7 @@ public sealed class ModObservatoryStat : IDataStat<ModObservatorySnapshot>
         {
             var u = usage.Entries[i];
             usageById[u.ModId] = u;
-            long w = u.ItemsCreated + u.NpcsSpawned + u.BossesFought
-                   + u.BuffsApplied + u.InvasionsFought;
+            long w = ModMetrics.UsageWeight(u);
             if ((uint)u.ModId < (uint)modCount)
             {
                 usageWeightPerMod[u.ModId] = w;
@@ -125,8 +119,8 @@ public sealed class ModObservatoryStat : IDataStat<ModObservatorySnapshot>
         int active = 0;
         for (int m = 0; m < modCount; m++)
         {
-            double share = totalSmoothed > 0 ? perModSmoothed[m] / totalSmoothed : 0d;
-            double usageShare = usageTotal > 0 ? (double)usageWeightPerMod[m] / usageTotal : 0d;
+            double share = Shares.SafeShare(perModSmoothed[m], totalSmoothed);
+            double usageShare = Shares.SafeShare(usageWeightPerMod[m], usageTotal);
 
             rosterById.TryGetValue(m, out ModRosterEntry rEntry);
             if (rEntry.ModName == null)
@@ -291,8 +285,7 @@ public sealed class ModObservatoryStat : IDataStat<ModObservatorySnapshot>
         }
         foreach (var kv in byMod)
         {
-            kv.Value.Sort((a, b) => b.EquippedTicks.CompareTo(a.EquippedTicks));
-            if (kv.Value.Count > 5) kv.Value.RemoveRange(5, kv.Value.Count - 5);
+            Shares.TopN(kv.Value, 5, (a, b) => b.EquippedTicks.CompareTo(a.EquippedTicks));
             result[kv.Key] = kv.Value;
         }
         return result;

@@ -7,6 +7,7 @@ using Terraria.ModLoader;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Stats;
@@ -103,8 +104,8 @@ public sealed class AllocationCausalityStat : IDataStat<AllocCausalitySnapshot>
                     }
                 }
                 if (bestIdx < 0) break;
-                double share = totalBytes > 0 ? bestVal * 100d / totalBytes : 0d;
-                string name = bestIdx < modNames.Length ? modNames[bestIdx] : "—";
+                double share = Shares.Percentage(bestVal, totalBytes);
+                string name = ModNames.SafeName(bestIdx, modNames, "—");
                 top.Add(new AllocCausalityContributor(
                     ModId: bestIdx,
                     ModName: name,

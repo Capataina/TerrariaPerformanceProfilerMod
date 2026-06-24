@@ -3,6 +3,7 @@
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Stats;
@@ -39,7 +40,6 @@ public sealed class CrossCuttingSignalStat : IDataStat<CrossCuttingSnapshot>
         if (engine == null) return CrossCuttingSnapshot.Empty;
 
         string[] modNames = HookInterceptor.ProfiledModNames;
-        int modCount = modNames.Length;
 
         // Group records by PatternKey; within each group, count Appearances per ModId.
         // Outer dict: PatternKey -> (modId -> appearances).
@@ -65,17 +65,13 @@ public sealed class CrossCuttingSignalStat : IDataStat<CrossCuttingSnapshot>
             var leaders = new List<CrossCuttingEntry>(kv.Value.Count);
             foreach (var mc in kv.Value)
             {
-                string name = (uint)mc.Key < (uint)modCount ? modNames[mc.Key] : "mod-" + mc.Key;
                 leaders.Add(new CrossCuttingEntry(
                     ModId: mc.Key,
-                    ModName: name,
+                    ModName: ModNames.SafeName(mc.Key, modNames),
                     Appearances: mc.Value));
             }
-            leaders.Sort((a, b) => b.Appearances.CompareTo(a.Appearances));
-            if (leaders.Count > MaxLeadersPerGroup)
-            {
-                leaders.RemoveRange(MaxLeadersPerGroup, leaders.Count - MaxLeadersPerGroup);
-            }
+            Shares.TopN(leaders, MaxLeadersPerGroup,
+                (a, b) => b.Appearances.CompareTo(a.Appearances));
             groups.Add(new CrossCuttingGroup(
                 SignalClass: kv.Key.ToString(),
                 Leaders: leaders));

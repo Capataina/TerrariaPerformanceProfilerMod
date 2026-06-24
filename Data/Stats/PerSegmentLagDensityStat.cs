@@ -7,6 +7,7 @@ using Terraria.ModLoader;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators.Segments;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Stats;
@@ -87,7 +88,7 @@ public sealed class PerSegmentLagDensityStat : IDataStat<SegmentLagDensitySnapsh
             double segMinutes = seg.Ticks > 0 ? seg.Ticks / 60d / 60d : 1d / 60d;
             int totalEvents = spikeCount + stallCount;
             double eventsPerMin = totalEvents / segMinutes;
-            double vsBaseline = baselinePerMin > 0d ? eventsPerMin / baselinePerMin : 0d;
+            double vsBaseline = Shares.SafeShare(eventsPerMin, baselinePerMin);
 
             entries.Add(new SegmentLagDensityEntry(
                 SegmentStartTick: seg.StartTick,

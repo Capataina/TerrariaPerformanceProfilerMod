@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Data.Aggregators;
@@ -123,8 +124,7 @@ public sealed class ModInteractionAggregator : IDataAggregator<ModInteractionSna
         string[] names = new string[N];
         for (int i = 0; i < N; i++)
         {
-            int id = modIds[i];
-            names[i] = (uint)id < (uint)modNames.Length ? modNames[id] : "mod-" + id;
+            names[i] = ModNames.SafeName(modIds[i], modNames);
         }
 
         // ---- Extract per-mod series into contiguous arrays ---------------

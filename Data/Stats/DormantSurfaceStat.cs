@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
+using PerformanceProfiler.Insights.Shared;
 
 namespace PerformanceProfiler.Data.Stats;
 
@@ -62,14 +63,14 @@ public sealed class DormantSurfaceStat : IDataStat<DormantSurfaceSnapshot>
         for (int i = 0; i < roster.Mods.Count; i++)
         {
             ModRosterEntry r = roster.Mods[i];
-            int rosterSize = r.Items + r.NPCs + r.Buffs + r.Projectiles
-                           + r.Mounts + r.Accessories + r.Invasions + r.Bosses;
+            int rosterSize = ModMetrics.RosterSize(r);
             usageById.TryGetValue(r.ModId, out ModUsageEntry u);
-            long used = u.ItemsCreated + u.NpcsSpawned
-                      + u.BuffsApplied + u.BossesFought;
+            // I2 historically excludes invasions from the usage weight (see
+            // ModMetrics.UsageWeight); preserved verbatim until Wave 4.
+            long used = ModMetrics.UsageWeight(u, includeInvasions: false);
             int usedCount = used > int.MaxValue ? int.MaxValue : (int)used;
 
-            double ratio = rosterSize > 0 ? (double)usedCount / rosterSize : 0d;
+            double ratio = Shares.SafeShare(usedCount, rosterSize);
             string dominant = DominantUnusedCategory(r, u);
 
             if (usedCount == 0) zero++;

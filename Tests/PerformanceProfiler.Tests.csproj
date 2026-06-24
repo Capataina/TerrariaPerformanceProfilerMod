@@ -73,6 +73,13 @@
     <Compile Include="..\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
     <Compile Include="..\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+    <!-- Wave 1 Shared primitives (pure math over the pure RolloutContracts
+         entry types); the L1 axis of context/plans/extensive-testing-infrastructure.md
+         guards their byte-identical contract for the waves that follow. -->
+    <Compile Include="..\Data\Contracts\RolloutContracts.cs" Link="Source\Contracts\RolloutContracts.cs" />
+    <Compile Include="..\Insights\Shared\ModMetrics.cs" Link="Source\Insights\Shared\ModMetrics.cs" />
+    <Compile Include="..\Insights\Shared\Shares.cs" Link="Source\Insights\Shared\Shares.cs" />
+    <Compile Include="..\Insights\Shared\ModNames.cs" Link="Source\Insights\Shared\ModNames.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification
