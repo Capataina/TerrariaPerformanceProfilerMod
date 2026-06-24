@@ -30,8 +30,8 @@ internal static partial class DashboardRouter
     {
         // Migration step 11 — insights via registry.
         var snap = Data.DataRegistry.Shared
-            .Lookup<Data.Stats.InsightsSnapshot>(Data.Stats.InsightsStat.StreamName)?
-            .CurrentSnapshot() ?? Data.Stats.InsightsSnapshot.Empty;
+            .Lookup<Insights.Publish.InsightsSnapshot>(Insights.Publish.InsightsStat.StreamName)?
+            .CurrentSnapshot() ?? Insights.Publish.InsightsSnapshot.Empty;
         if (!snap.WorldLoaded || snap.Live == null)
         {
             return JsonSerializer.Serialize(new { worldLoaded = false, records = Array.Empty<object>() }, JsonOpts);

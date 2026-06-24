@@ -1,5 +1,7 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System.Collections.Generic;
 using PerformanceProfiler.Insights;
 
@@ -12,7 +14,7 @@ using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Profiling.Persistence.Records;
-namespace PerformanceProfiler.Data.Stats;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>Live reference into <see cref="InsightsEngine.Shared"/>'s store.</summary>
 public readonly struct InsightsSnapshot

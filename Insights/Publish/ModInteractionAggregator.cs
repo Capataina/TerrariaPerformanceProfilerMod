@@ -1,12 +1,14 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System;
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
-namespace PerformanceProfiler.Data.Aggregators;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>
 /// I7 — mod-pair cost correlation. Computes a Pearson matrix over the F3

@@ -1,10 +1,12 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
 
-namespace PerformanceProfiler.Data.Stats;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>
 /// I2 — dormant content surface. For each loaded mod, compares its roster

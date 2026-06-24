@@ -1,5 +1,7 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System;
 using System.Collections.Generic;
 using LiteDB;
@@ -10,7 +12,7 @@ using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Profiling.Persistence.Records;
 
-namespace PerformanceProfiler.Data.Stats;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>
 /// Per-mod observatory cards — the I1 + I3 + I4 composite for the Insights

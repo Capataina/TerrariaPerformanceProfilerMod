@@ -144,7 +144,7 @@ public class PerformanceProfiler : Mod
         r.Register(new Data.Stats.SelfHealthStat());
         r.Register(new Data.Stats.SpikesStat());
         r.Register(new Data.Stats.StallsStat());
-        r.Register(new Data.Stats.InsightsStat());
+        r.Register(new Insights.Publish.InsightsStat());
 
         // v0.12 foundations — F1 (per-mod install-time roster scan),
         // F2 (per-mod session usage counters fed from event streams +
@@ -171,12 +171,14 @@ public class PerformanceProfiler : Mod
         r.Register(new Data.Stats.AllocationCausalityStat());
         r.Register(new Data.Aggregators.LagRhythmAggregator());
 
-        // v0.12 Insights data layer.
-        r.Register(new Data.Stats.ModObservatoryStat());
-        r.Register(new Data.Stats.DormantSurfaceStat());
-        r.Register(new Data.Stats.CrossCuttingSignalStat());
-        r.Register(new Data.Stats.EngagementCostScatterStat());
-        r.Register(new Data.Aggregators.ModInteractionAggregator());
+        // v0.12 Insights data layer. The interpreted I-series stats now live in
+        // the top-level Insights/ module (Insights.Publish) rather than next to the
+        // raw collectors in Data/Stats — see context/plans/insights-engine.md Wave 2.
+        r.Register(new Insights.Publish.ModObservatoryStat());
+        r.Register(new Insights.Publish.DormantSurfaceStat());
+        r.Register(new Insights.Publish.CrossCuttingSignalStat());
+        r.Register(new Insights.Publish.EngagementCostScatterStat());
+        r.Register(new Insights.Publish.ModInteractionAggregator());
     }
 
     public override void Unload()

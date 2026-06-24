@@ -1,12 +1,14 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights;
 using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
-namespace PerformanceProfiler.Data.Stats;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>
 /// I5 — cross-cutting signal aggregation. Walks

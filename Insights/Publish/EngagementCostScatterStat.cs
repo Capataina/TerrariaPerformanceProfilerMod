@@ -1,5 +1,7 @@
 #nullable enable
 
+using PerformanceProfiler.Data;
+
 using System;
 using System.Collections.Generic;
 using PerformanceProfiler.Data.Collectors;
@@ -7,7 +9,7 @@ using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 
-namespace PerformanceProfiler.Data.Stats;
+namespace PerformanceProfiler.Insights.Publish;
 
 /// <summary>
 /// I6 — engagement-vs-cost scatter. One dot per mod: x = usage share,
