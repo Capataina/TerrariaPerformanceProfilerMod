@@ -236,6 +236,51 @@ function renderDonut() {
   if (leg) leg.addEventListener('click', pick);
 })();
 
+// ---- Cost flow: category -> top mods (sankey) -----------------------
+// Where the measured CPU goes: the cost categories on the left, the costliest
+// mods on the right, each ribbon's width = that mod's cost in that category.
+// Answers 'which subsystem is each heavy mod heavy in' at a glance — a flow the
+// donut (per-mod totals) and the tree (per-mod categories) cannot show together.
+// Descriptive only: it shows where cost lands, names no verdict.
+function renderCostFlow() {
+  const root = document.getElementById('cost-flow');
+  if (!root) return;
+  const sub = document.getElementById('flow-sub');
+  if (!lastMods || !lastMods.worldLoaded || !lastMods.mods || !lastMods.categories) {
+    root.innerHTML = ''; if (sub) sub.textContent = '—'; return;
+  }
+  const catNames = lastMods.categories;
+  const mods = lastMods.mods.map(m => ({
+    id: m.id, name: m.name, cats: m.categories || [],
+    total: (m.categories || []).reduce((s, v) => s + (v > 0 ? v : 0), 0),
+  })).filter(m => m.total > 0).sort((a, b) => b.total - a.total).slice(0, 8);
+  if (mods.length === 0) { root.innerHTML = emptyState('no per-category cost yet'); if (sub) sub.textContent = '—'; return; }
+
+  // Category totals across the shown mods so the node heights match the ribbons.
+  const catTot = catNames.map((_, i) => mods.reduce((s, m) => s + Math.max(0, m.cats[i] || 0), 0));
+  // Categories ride a monochrome luminance ramp (a content dimension); the bright
+  // per-mod hue is reserved for the mod nodes on the right, so the two layers read
+  // as 'grey subsystem flows into coloured mod'.
+  const grey = i => `oklch(${(0.82 - 0.055 * i).toFixed(3)} 0 0)`;
+  const left = [];
+  const catIdx = [];
+  catNames.forEach((c, i) => {
+    if (catTot[i] > 0) { catIdx[i] = left.length; left.push({ label: String(c).toLowerCase(), value: catTot[i], color: grey(i) }); }
+    else catIdx[i] = -1;
+  });
+  const right = mods.map(m => ({ label: truncate(m.name, 16), value: m.total, color: modColor(m.id) }));
+
+  const grand = catTot.reduce((s, v) => s + v, 0) || 1;
+  const links = [];
+  mods.forEach((m, r) => catNames.forEach((_, i) => {
+    const v = Math.max(0, m.cats[i] || 0);
+    if (catIdx[i] >= 0 && v / grand > 0.004) links.push({ l: catIdx[i], r, value: v });
+  }));
+
+  root.innerHTML = sankey({ left, right, links, w: 900, h: 240, fmt: v => fmtMs(v) + ' ms' });
+  if (sub) sub.textContent = `${left.length} categories → top ${mods.length} mods`;
+}
+
 function renderTrendSparklines() {
   const title = document.getElementById('trends-title');
   const rows = document.getElementById('trend-rows');

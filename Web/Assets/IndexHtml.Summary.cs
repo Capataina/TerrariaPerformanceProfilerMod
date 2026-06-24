@@ -107,6 +107,15 @@ internal static partial class DashboardAssets
           </div>
         </div>
 
+        <!-- CPU cost flow: category -> top mods (sankey) -->
+        <div class=""panel"" style=""grid-area: flow;"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">where the cpu goes · category → mod</span>
+            <span class=""panel-sub"" id=""flow-sub"">—</span>
+          </header>
+          <div class=""flow-wrap"" id=""cost-flow""></div>
+        </div>
+
         <!-- Now playing segments -->
         <div class=""panel"" style=""grid-area: now;"">
           <header class=""panel-h"">

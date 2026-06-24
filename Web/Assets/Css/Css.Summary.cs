@@ -23,10 +23,11 @@ internal static partial class DashboardAssets
     'chart  chart   donut'
     'trends trends  donut'
     'heatmap heatmap heatmap'
+    'flow   flow    flow'
     'now    events  events'
     'mods   mods    mods';
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto;
+  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto auto;
   gap: 0.75rem;
 }
 
@@ -37,6 +38,7 @@ internal static partial class DashboardAssets
       'chart  chart'
       'donut  trends'
       'heatmap heatmap'
+      'flow   flow'
       'now    events'
       'mods   mods';
     grid-template-columns: 1fr 1fr;
@@ -44,10 +46,14 @@ internal static partial class DashboardAssets
 }
 @media (max-width: 700px) {
   .grid-summary {
-    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'now' 'events' 'mods';
+    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
     grid-template-columns: 1fr;
   }
 }
+
+/* ====== Cost-flow sankey ====== */
+.flow-wrap { padding: 0.35rem 0.7rem 0.6rem; }
+.flow-wrap .chart-sankey { width: 100%; max-height: 17rem; }
 
 /* ====== Frame chart hero ====== */
 .panel-hero .chart-wrap {

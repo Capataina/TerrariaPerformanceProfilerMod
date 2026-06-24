@@ -167,5 +167,14 @@ internal static partial class DashboardAssets
    still overflow. Cap each name column tighter here; the ellipsis (shared td.l
    rule) then engages and the title= tooltip carries the full pair name. */
 #ins-matrix .dtable td.l, #ins-matrix .dtable th.l { max-width: 9rem; }
+
+/* Engagement-vs-cost bubble scatter: centre the plot, legend beneath. */
+#scatter-body { display: flex; flex-direction: column; align-items: center; }
+#scatter-body .chart-scatter { max-width: 30rem; }
+.sc-foot { margin-top: 0.3rem; }
+
+/* Modlist-composition waffle: bound the cell grid so cells stay small squares. */
+.wf-wrap { max-width: 20rem; margin: 0.1rem auto 0; }
+.wf-key { margin-top: 0.55rem; }
 ";
 }

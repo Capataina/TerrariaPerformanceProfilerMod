@@ -135,47 +135,44 @@ function sortableHead(cols, state, onSort, rootId) {
   return `<tr>${ths}</tr>`;
 }
 
-// ----- KPI strip ------------------------------------------------------
-// Four full-ring gauges (sweep 360), one per modlist bucket. Each ring's
-// arc-fill encodes that bucket's share of the loaded modlist; the centre
-// carries the count. Descriptive only — the gauge shows the measured
-// fraction, no thresholds or judgement. Built once into a panel body; the
-// counts change rarely so a plain innerHTML rebuild is fine here.
+// ----- Modlist composition (waffle) ----------------------------------
+// The loaded modlist as a unit grid: one cell per mod, coloured by engagement
+// bucket (active >= 5% usage / under 5% / dormant at zero usage), so the
+// composition reads as countable area. Replaces four separate ring gauges (one
+// shape, one read) and is paired with a legend + the headline count. Descriptive
+// only — the buckets are measured usage thresholds, not judgements.
 function renderInsightsKpiStrip() {
   const root = document.getElementById('ins-kpi');
   if (!root) return;
   const obs = lastModObservatory || {};
   const dor = lastDormant || {};
-  const active = obs.activeCount != null ? obs.activeCount : 0;
-  const dormant = obs.dormantCount != null ? obs.dormantCount : (dor.modsWithZeroUsage || 0);
-  const loaded = dor.modsLoaded != null ? dor.modsLoaded : (active + dormant);
-  const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
+  const loaded = dor.modsLoaded != null ? dor.modsLoaded
+    : ((obs.activeCount || 0) + (obs.dormantCount || 0));
+  const dormant = dor.modsWithZeroUsage != null ? dor.modsWithZeroUsage : (obs.dormantCount || 0);
+  const below5 = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : dormant;
+  // Three disjoint buckets that sum to the loaded count.
+  const partial = Math.max(0, below5 - dormant);            // nonzero but under 5%
+  const active = Math.max(0, loaded - below5);              // >= 5% usage
   const denom = Math.max(1, loaded);
 
-  function kpi(label, value, frac, sub) {
-    const g = gauge({
-      ratio: Math.max(0, Math.min(1, frac)), sweep: 360, w: 64, stroke: 6,
-      color: 'var(--accent)', centerValue: value,
-    });
-    return `<div class='kpi-cell'>${g}<div class='kpi-meta'>` +
-      `<span class='kpi-lbl'>${escapeHtml(label)}</span>` +
-      `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
-  }
+  const ACTIVE = 'var(--good-bar)', PARTIAL = 'var(--amber)', DORMANT = 'var(--muted)';
+  const cells = [
+    { count: active,  color: ACTIVE,  label: 'active (≥5% usage)' },
+    { count: partial, color: PARTIAL, label: 'under 5% usage' },
+    { count: dormant, color: DORMANT, label: 'dormant (zero usage)' },
+  ];
+  const grid = waffle({ cells, total: loaded, cols: Math.min(20, Math.max(8, Math.ceil(Math.sqrt(loaded)))) });
+  const key = legend(cells.map(c => ({ color: c.color, label: c.label, value: fmtInt(c.count) })), { inline: true });
+  const sub = `${fmtInt(loaded)} mods · ${(100 * active / denom).toFixed(0)}% active · ${(100 * dormant / denom).toFixed(0)}% dormant`;
 
-  // One gauge vocabulary across all four KPIs: identical full-ring gauge on the
-  // single neutral --accent. These are four magnitude counts of the same roster,
-  // not perf states, so they must not borrow the green/amber perf ramp (that hue
-  // is reserved for actual cost/engagement data and would mis-signal 'active' as
-  // good and 'under 5%' as a warning). The differentiating signal is each ring's
-  // arc-fill + centre count + label, not the colour — so the strip reads as one
-  // coherent component family in monochrome chrome.
-  const body = `<div class='kpi-grid'>` +
-    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session') +
-    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster') +
-    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage') +
-    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%') +
-    `</div>`;
-  root.innerHTML = panel({ title: 'modlist overview', body });
+  let body = root.querySelector('#kpi-waffle');
+  if (!body) {
+    root.innerHTML = panel({ title: 'modlist composition', sub, body: `<div id='kpi-waffle'></div>` });
+    body = root.querySelector('#kpi-waffle');
+  }
+  const subEl = root.querySelector('.panel-sub');
+  if (subEl) subEl.textContent = sub;
+  setHTML(body, `<div class='wf-wrap'>${grid}</div><div class='wf-key'>${key}</div>`);
 }
 
 // ----- I2 dormant surface --------------------------------------------
@@ -534,102 +531,68 @@ function renderCrossCutting() {
     `${groups.length} classes · ${distinct.size} mods`);
 }
 
-// ----- I6 engagement vs cost -----------------------------------------
-// Sortable perf .dtable in a panel. Columns: mod, usage share, cpu share,
-// roster size, and a 'tilt' chip describing where the mod sits on the
-// usage-vs-cost ratio. cost-heavy (cpu materially above usage) -> .bad;
-// usage-heavy (usage materially above cpu) -> .good; otherwise balanced.
-// The tilt is a measurement of the share ratio, not a verdict. Scroll region
-// stable across polls.
+// ----- I6 engagement vs cost (bubble scatter) ------------------------
+// A real relationship plot: usage share (x) vs cpu share (y), bubble area =
+// roster size, with a y=x balance reference. A mod ABOVE the line costs more cpu
+// than it earns in engagement (cost-heavy); BELOW the line it earns more
+// engagement than it costs (usage-heavy); on the line it is balanced. Colour
+// encodes that tilt; position + size carry the rest. Clicking a bubble opens the
+// mod card. Descriptive throughout — the plot measures the ratio, names no verdict.
 function renderEngagementScatter() {
   const root = document.getElementById('ins-scatter');
   if (!root) return;
   const ec = lastEngagementCost;
 
-  let scroll = root.querySelector('#scatter-scroll');
-  if (!scroll) {
+  let body = root.querySelector('#scatter-body');
+  if (!body) {
     root.innerHTML = panel({
       title: 'engagement vs cost', sub: '—',
-      body: scrollRegion('scatter-scroll', '', { maxH: '360px' }),
-      pad: 'flush',
+      body: `<div id='scatter-body'></div>`,
     });
-    scroll = root.querySelector('#scatter-scroll');
+    body = root.querySelector('#scatter-body');
   }
   const subEl = root.querySelector('.panel-sub');
 
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, emptyState('no engagement vs cost data yet'));
+    setHTML(body, emptyState('no engagement vs cost data yet'));
     return;
   }
-  if (subEl) subEl.textContent = `${ec.dots.length} mods`;
+  if (subEl) subEl.textContent = `${ec.dots.length} mods · bubble = roster size`;
 
-  // Tilt classification from the usage-vs-cost share ratio.
-  // Returns {cls, label} where cls maps to a chip variant.
-  function tilt(d) {
+  // Tilt from the usage-vs-cost share ratio (−1 pure usage .. +1 pure cost).
+  const COST = 'var(--spike)', USE = 'var(--good-bar)', BAL = 'var(--muted)';
+  function tiltColor(d) {
     const sum = (d.usageShare || 0) + (d.cpuShare || 0);
-    if (sum < 1e-6) return { cls: '', label: 'idle' };
-    const t = ((d.cpuShare || 0) - (d.usageShare || 0)) / sum;  // -1 pure usage .. +1 pure cost
-    if (t > 0.15)  return { cls: 'bad',  label: 'cost-heavy' };
-    if (t < -0.15) return { cls: 'good', label: 'usage-heavy' };
-    return { cls: 'cool', label: 'balanced' };
+    if (sum < 1e-9) return BAL;
+    const t = ((d.cpuShare || 0) - (d.usageShare || 0)) / sum;
+    return t > 0.15 ? COST : t < -0.15 ? USE : BAL;
   }
 
-  const dots = ec.dots.slice();
-  const getters = {
-    modName:    d => (d.modName || '').toLowerCase(),
-    usageShare: d => d.usageShare,
-    cpuShare:   d => d.cpuShare,
-    rosterSize: d => d.rosterSize,
-  };
-  const g = getters[engagementSort.key] || getters.cpuShare;
-  dots.sort((a, b) => {
-    const va = g(a), vb = g(b);
-    if (va < vb) return -1 * engagementSort.dir;
-    if (va > vb) return  1 * engagementSort.dir;
-    return 0;
+  // Shared axis scale so the y=x balance line is a true 45°: both axes run
+  // 0..max(any usage or cpu share). Percent-formatted ticks.
+  const dots = ec.dots;
+  const scale = Math.max(1e-9, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
+  const points = dots.map(d => ({
+    x: d.usageShare || 0, y: d.cpuShare || 0, r: d.rosterSize || 0,
+    color: tiltColor(d), label: d.modName, id: d.modId,
+  }));
+  const chart = scatter({
+    points, w: 440, h: 300, xMax: scale, yMax: scale, diag: true,
+    xLabel: 'usage share →', yLabel: 'cpu share →',
+    fmt: v => (v * 100).toFixed(1) + '%',
   });
+  const key = legend([
+    { color: COST, label: 'cost-heavy (above the line)' },
+    { color: USE,  label: 'usage-heavy (below)' },
+    { color: BAL,  label: 'balanced' },
+  ], { inline: true });
+  setHTML(body, chart + `<div class='sc-foot'>${key}</div>`);
 
-  // A true scatter (usage axis × cpu axis) is deferred — there is no scatter
-  // component and building one blind would be fragile. The relationship is made
-  // legible in-place instead: each row carries a usage bar and a cpu bar on a
-  // SHARED axis (both scaled to the max share across all mods), so a long usage
-  // bar over a short cpu bar reads as usage-heavy at a glance, and the inverse as
-  // cost-heavy — the same split the tilt chip names, now visible per row.
-  const maxShare = Math.max(1e-6, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
-
-  const cols = [
-    { key: 'modName',    label: 'mod',         l: true },
-    { key: 'usageShare', label: 'usage share', l: true, title: 'share of all engagement attributed to this mod (bar scaled to the busiest mod)' },
-    { key: 'cpuShare',   label: 'cpu share',   l: true, title: 'share of all measured cpu attributed to this mod (bar scaled to the busiest mod)' },
-    { key: 'rosterSize', label: 'roster' },
-  ];
-  const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
-    .replace('</tr>', `<th class='l'>tilt</th></tr>`);
-
-  const rows = dots.map(d => {
-    const tl = tilt(d);
-    const chipCls = tl.cls ? ` ${tl.cls}` : '';
-    const uPct = ((d.usageShare||0)*100).toFixed(1);
-    const cPct = ((d.cpuShare||0)*100).toFixed(1);
-    // Usage rides the engagement teal, cpu the ramp green: two distinguishable
-    // data colours on one shared axis so the bars are directly comparable.
-    const usageCell = `<div class='ins-usage'>${cellBar((d.usageShare||0)/maxShare, 'var(--good-bar)')}<span class='ins-pct'>${uPct}%</span></div>`;
-    const cpuCell   = `<div class='ins-usage'>${cellBar((d.cpuShare||0)/maxShare, 'var(--cpu)')}<span class='ins-pct'>${cPct}%</span></div>`;
-    return `<tr title='${escapeHtml(d.modName + ' — usage ' + uPct + '% · cpu ' + cPct + '% · roster ' + fmtInt(d.rosterSize))}'>
-      <td class='l'>${escapeHtml(d.modName)}</td>
-      <td class='l'>${usageCell}</td>
-      <td class='l'>${cpuCell}</td>
-      <td>${fmtInt(d.rosterSize)}</td>
-      <td class='l'><span class='chip${chipCls}'>${tl.label}</span></td>
-    </tr>`;
-  }).join('');
-
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead>${headRow}</thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  // Bubbles open the mod card, same as the donut / observatory.
+  body.querySelectorAll('.sc-dot.hit').forEach(el => {
+    el.addEventListener('click', () => { if (typeof openModCard === 'function') openModCard(parseInt(el.dataset.mod, 10)); });
+  });
 }
 
 // ----- I7 mod-pair cost correlation ----------------------------------

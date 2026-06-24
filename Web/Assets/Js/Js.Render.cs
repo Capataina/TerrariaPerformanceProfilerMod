@@ -20,6 +20,7 @@ function renderSummary() {
   renderKpiStrip();
   renderFrameChart();
   renderDonut();
+  renderCostFlow();
   renderTrendSparklines();
   renderHeatmap();
   renderNowPlaying();

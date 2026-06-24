@@ -49,6 +49,28 @@ internal static partial class DashboardAssets
 /* Optional reference tick on a gauge arc (e.g. an overhead budget threshold). */
 .gauge-ref { stroke: var(--text-bright); stroke-width: 1.5; opacity: 0.85; }
 
+/* ===== Scatter / bubble =========================================== */
+.chart-scatter { display: block; width: 100%; height: auto; }
+.chart-scatter .sc-axis { stroke: var(--border); stroke-width: 1; }
+.chart-scatter .sc-grid { stroke: var(--border-soft); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6; }
+.chart-scatter .sc-diag { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+.chart-scatter .sc-dot { opacity: 0.78; stroke: var(--bg-page); stroke-width: 0.6; }
+.chart-scatter .sc-dot.hit { cursor: pointer; transition: opacity 0.12s; }
+.chart-scatter .sc-dot.hit:hover { opacity: 1; stroke: var(--accent); stroke-width: 1.2; }
+.chart-scatter .sc-lbl { fill: var(--muted); font-family: var(--ui); font-size: 9px; }
+.chart-scatter .sc-tick { fill: var(--dim); font-family: var(--mono); font-size: 8.5px; }
+
+/* ===== Waffle: unit-grid composition ============================== */
+.chart-waffle { display: grid; gap: 2px; }
+.chart-waffle .wf-cell { aspect-ratio: 1; border-radius: 1px; }
+
+/* ===== Sankey: two-layer flow ===================================== */
+.chart-sankey { display: block; width: 100%; height: auto; }
+.chart-sankey .sk-link { opacity: 0.3; transition: opacity 0.12s; }
+.chart-sankey .sk-link:hover { opacity: 0.6; }
+.chart-sankey .sk-node { rx: 1; }
+.chart-sankey .sk-lbl { fill: var(--text); font-family: var(--mono); font-size: 8.5px; }
+
 /* ===== Bar chart: vertical column strip ========================== */
 .bar-strip { display: flex; align-items: flex-end; gap: 1px; height: 100%;
   width: max-content; min-width: 100%; }

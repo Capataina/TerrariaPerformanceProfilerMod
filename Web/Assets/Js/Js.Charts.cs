@@ -210,6 +210,131 @@ function gauge(o) {
   return `<svg viewBox='0 0 ${size} ${vbH}' class='chart-gauge' width='${size}' height='${vbH}'>${svg}</svg>`;
 }
 
+// ---- Scatter / bubble: x vs y relationship, optional radius -----------
+// The encoding for a relationship (two shared-axis quantities), with an optional
+// third dimension as bubble area and an optional y=x reference line. opts:
+//   { points:[{x,y,r?,color?,label?,id?}], w, h, xMax, yMax, rMax,
+//     xLabel, yLabel, fmt, diag?:bool }
+// A datum with an id becomes a click target (data-mod / .slice.hit), matching donut.
+function scatter(o) {
+  o = o || {};
+  const w = o.w || 420, h = o.h || 300;
+  const padL = 40, padR = 14, padT = 12, padB = 30;
+  const pw = w - padL - padR, ph = h - padT - padB;
+  const pts = (o.points || []).filter(p => p && isFinite(p.x) && isFinite(p.y));
+  const xMax = o.xMax || Math.max(1e-9, ...pts.map(p => p.x));
+  const yMax = o.yMax || Math.max(1e-9, ...pts.map(p => p.y));
+  const rMax = o.rMax || Math.max(1e-9, ...pts.map(p => p.r || 0));
+  const X = v => padL + (v / xMax) * pw;
+  const Y = v => padT + ph - (v / yMax) * ph;
+  const R = v => rMax > 0 ? 3 + Math.sqrt(Math.max(0, v) / rMax) * 12 : 4;
+  const fmt = o.fmt || (v => v.toFixed(0));
+
+  // Frame: left + bottom axes, faint gridlines at the mid + max.
+  let g = `<line class='sc-axis' x1='${padL}' y1='${padT}' x2='${padL}' y2='${padT + ph}'></line>` +
+          `<line class='sc-axis' x1='${padL}' y1='${padT + ph}' x2='${padL + pw}' y2='${padT + ph}'></line>` +
+          `<line class='sc-grid' x1='${padL}' y1='${(padT + ph / 2).toFixed(1)}' x2='${padL + pw}' y2='${(padT + ph / 2).toFixed(1)}'></line>` +
+          `<line class='sc-grid' x1='${(padL + pw / 2).toFixed(1)}' y1='${padT}' x2='${(padL + pw / 2).toFixed(1)}' y2='${padT + ph}'></line>`;
+  // Optional y=x balance reference (only meaningful when axes share a scale).
+  if (o.diag) {
+    const m = Math.min(xMax, yMax);
+    g += `<line class='sc-diag' x1='${X(0).toFixed(1)}' y1='${Y(0).toFixed(1)}' x2='${X(m).toFixed(1)}' y2='${Y(m).toFixed(1)}'></line>`;
+  }
+  // Bubbles, largest first so small ones stay clickable on top.
+  const ordered = pts.slice().sort((a, b) => (b.r || 0) - (a.r || 0));
+  for (const p of ordered) {
+    const hit = p.id != null ? ` data-mod='${p.id}' class='sc-dot hit'` : ` class='sc-dot'`;
+    const tip = escapeHtml((p.label || '') + ' · ' + fmt(p.x) + ' / ' + fmt(p.y) + (p.r != null ? ' · ' + fmtInt(p.r) : ''));
+    g += `<circle${hit} cx='${X(p.x).toFixed(1)}' cy='${Y(p.y).toFixed(1)}' r='${R(p.r || 0).toFixed(1)}' fill='${p.color || 'var(--cpu)'}'><title>${tip}</title></circle>`;
+  }
+  // Axis labels + max ticks.
+  const xl = o.xLabel ? `<text class='sc-lbl' x='${(padL + pw / 2).toFixed(0)}' y='${h - 4}' text-anchor='middle'>${escapeHtml(o.xLabel)}</text>` : '';
+  const yl = o.yLabel ? `<text class='sc-lbl' x='${-(padT + ph / 2).toFixed(0)}' y='11' text-anchor='middle' transform='rotate(-90)'>${escapeHtml(o.yLabel)}</text>` : '';
+  const ticks = `<text class='sc-tick' x='${padL + pw}' y='${padT + ph + 12}' text-anchor='end'>${escapeHtml(fmt(xMax))}</text>` +
+                `<text class='sc-tick' x='${padL - 4}' y='${padT + 8}' text-anchor='end'>${escapeHtml(fmt(yMax))}</text>` +
+                `<text class='sc-tick' x='${padL - 4}' y='${padT + ph}' text-anchor='end'>0</text>`;
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-scatter' preserveAspectRatio='xMidYMid meet'>${g}${xl}${yl}${ticks}</svg>`;
+}
+
+// ---- Waffle: unit grid, cells coloured by category --------------------
+// Part-to-whole as a grid of unit squares (one cell per unit), so composition
+// reads as countable area, not just a number. opts:
+//   { cells:[{count,color,label}], cols?, total? }
+function waffle(o) {
+  o = o || {};
+  const cells = (o.cells || []).filter(c => c && c.count > 0);
+  const total = o.total || cells.reduce((s, c) => s + c.count, 0);
+  if (total <= 0) return emptyState('no composition data');
+  const cols = o.cols || Math.min(20, Math.max(8, Math.ceil(Math.sqrt(total))));
+  // Flatten the category counts into a per-cell colour list.
+  const seq = [];
+  for (const c of cells) for (let i = 0; i < c.count; i++) seq.push(c.color);
+  let squares = '';
+  for (let i = 0; i < seq.length; i++) {
+    squares += `<span class='wf-cell' style='background:${seq[i]}'></span>`;
+  }
+  // The caller renders the key via legend(); this returns just the cell grid.
+  return `<div class='chart-waffle' style='grid-template-columns:repeat(${cols},1fr)'>${squares}</div>`;
+}
+
+// ---- Sankey: two-layer flow (source category -> target mod) -----------
+// Where a quantity flows: left nodes -> right nodes, ribbon width = flow value.
+// The asked-for new capability (cost flowing category -> mod). opts:
+//   { left:[{label,value,color?}], right:[{label,value,color?}],
+//     links:[{l:leftIdx, r:rightIdx, value}], w, h, fmt }
+function sankey(o) {
+  o = o || {};
+  const w = o.w || 460, h = o.h || 320;
+  const nodeW = 10, padT = 6, padB = 6, gap = 6;
+  const colX = { l: 2, r: w - nodeW - 2 };
+  const left = o.left || [], right = o.right || [], links = (o.links || []).filter(k => k && k.value > 0);
+  const fmt = o.fmt || (v => v.toFixed(2));
+  if (!left.length || !right.length || !links.length) return emptyState('no flow data');
+
+  // Node heights proportional to value, stacked top->bottom with gaps.
+  function layout(nodes, x) {
+    const tot = nodes.reduce((s, n) => s + (n.value || 0), 0) || 1;
+    const usable = h - padT - padB - gap * (nodes.length - 1);
+    let y = padT;
+    return nodes.map(n => {
+      const nh = Math.max(2, (n.value || 0) / tot * usable);
+      const box = { x, y, h: nh, cy: y + nh / 2, value: n.value, label: n.label, color: n.color, off: 0 };
+      y += nh + gap;
+      return box;
+    });
+  }
+  const L = layout(left, colX.l), Rr = layout(right, colX.r);
+
+  // Track a running offset on each node so stacked ribbons don't overlap.
+  const Loff = L.map(() => 0), Roff = Rr.map(() => 0);
+  // Draw widest links first (under), thin on top.
+  const sorted = links.slice().sort((a, b) => b.value - a.value);
+  let ribbons = '';
+  for (const k of sorted) {
+    const a = L[k.l], b = Rr[k.r];
+    if (!a || !b) continue;
+    const aTot = left[k.l].value || 1, bTot = right[k.r].value || 1;
+    const wA = a.h * (k.value / aTot), wB = b.h * (k.value / bTot);
+    const y0 = a.y + Loff[k.l], y1 = b.y + Roff[k.r];
+    Loff[k.l] += wA; Roff[k.r] += wB;
+    const x0 = colX.l + nodeW, x1 = colX.r, xm = (x0 + x1) / 2;
+    // Filled ribbon: top edge curves x0->x1, bottom edge curves back.
+    const d = `M ${x0} ${y0.toFixed(1)} C ${xm} ${y0.toFixed(1)}, ${xm} ${y1.toFixed(1)}, ${x1} ${y1.toFixed(1)} ` +
+              `L ${x1} ${(y1 + wB).toFixed(1)} C ${xm} ${(y1 + wB).toFixed(1)}, ${xm} ${(y0 + wA).toFixed(1)}, ${x0} ${(y0 + wA).toFixed(1)} Z`;
+    ribbons += `<path class='sk-link' d='${d}' fill='${a.color || 'var(--cpu)'}'><title>${escapeHtml(a.label + ' → ' + b.label + ' · ' + fmt(k.value))}</title></path>`;
+  }
+  // Node rectangles + labels (left labels right-anchored inside, right labels left).
+  function nodes(boxes, side) {
+    return boxes.map(n => {
+      const lblX = side === 'l' ? n.x + nodeW + 4 : n.x - 4;
+      const anchor = side === 'l' ? 'start' : 'end';
+      return `<rect class='sk-node' x='${n.x}' y='${n.y.toFixed(1)}' width='${nodeW}' height='${n.h.toFixed(1)}' fill='${n.color || 'var(--muted)'}'></rect>` +
+        (n.h > 9 ? `<text class='sk-lbl' x='${lblX}' y='${(n.cy + 3).toFixed(1)}' text-anchor='${anchor}'>${escapeHtml(n.label)}</text>` : '');
+    }).join('');
+  }
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-sankey' preserveAspectRatio='xMidYMid meet'>${ribbons}${nodes(L, 'l')}${nodes(Rr, 'r')}</svg>`;
+}
+
 // ---- Heatmap: 2D categorical matrix (.rheat) ------------------------
 // opts: { rows:[label], cols:[label], cellAt:(r,c)=>{value,tip}, max, fmt }
 function heatmapMatrix(o) {
