@@ -151,14 +151,18 @@ function renderLagHeatmap() {
     }
     const rows = causes.map(cause => ({ cause, ...(agg.get(cause) || { eventCount: 0, totalMs: 0 }) }))
                        .sort((a, b) => b.eventCount - a.eventCount);
-    const ctxNote = realContexts.length === 1 ? ' · ' + realContexts[0] : '';
+    // Only one context exists, so the cross-tab degenerates to a single column.
+    // Label the body for what it actually shows — lag events ranked by cause —
+    // rather than presenting a 'single context · —' degenerate matrix frame. The
+    // sole context (when one is named) goes in the sub-label, not the title.
+    const ctxSub = realContexts.length === 1 ? realContexts[0] : 'one context this session';
     const bars = rows.map(r => ({
       value: r.eventCount,
-      label: r.cause || '—',
+      label: humanizeLabel(r.cause) || '—',
       valueLabel: fmtInt(r.eventCount),
       color: 'var(--accent)',
     }));
-    root.innerHTML = sectionHeader('single context' + ctxNote, 'ranked by events') +
+    root.innerHTML = sectionHeader('lag events by cause', ctxSub) +
       barChart({ horizontal: true, bars });
     return;
   }
@@ -225,9 +229,14 @@ function renderLagGalaxy() {
   const p95s = clusters.map(c => c.p95Ms || 0).sort((a, b) => a - b);
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
+  // The context column is dead width when no cluster carries any context, so
+  // it is dropped from both the header and the rows in that case.
+  const anyContext = clusters.some(c => c.primaryBiome || c.weatherFlags || c.hardmode);
+  const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
+
   const head = `<thead><tr>
     ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagGalaxySort')}
-    <th class='l'>context</th>
+    ${ctxTh}
     ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagGalaxySort')}
     ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagGalaxySort')}
     ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagGalaxySort')}
@@ -236,11 +245,15 @@ function renderLagGalaxy() {
 
   const body = sorted.map(c => {
     const sel = c.fingerprintId === lagGalaxySelected ? ' sel' : '';
-    let ctxChips = '';
-    if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-    if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
-    if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
-    if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
+    let ctxCell = '';
+    if (anyContext) {
+      let ctxChips = '';
+      if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
+      if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
+      ctxCell = `<td class='l'>${ctxChips}</td>`;
+    }
 
     const tint = tintClass(medianP95 > 0 ? (c.p95Ms || 0) / medianP95 : 0);
     const colour = modColor(c.topModId || 0);
@@ -258,7 +271,7 @@ function renderLagGalaxy() {
     const causeTip = fpId ? (c.causeClass || '—') + ' · id ' + fpId : (c.causeClass || '—');
     return `<tr class='clickable${sel}' onclick='lagGalaxyPick(""${escapeHtml(fpId)}"")'>
       <td class='l' title='${escapeHtml(causeTip)}'>${escapeHtml(c.causeClass || '—')}</td>
-      <td class='l'>${ctxChips}</td>
+      ${ctxCell}
       <td>${fmtInt(c.eventCount)}</td>
       <td class='${tint}'>${fmtMs(c.p95Ms)}</td>
       <td>${fmtMs(c.totalMs)}</td>
@@ -274,12 +287,19 @@ function renderLagGalaxy() {
     if (pick.primaryBiome) subBits.push(pick.primaryBiome);
     if (pick.weatherFlags) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
-    const causeChip = `<span class='chip cool'>${escapeHtml(pick.causeClass || '—')}</span>`;
+    const ctxText = subBits.join(' · ') || 'no context';
+    // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
+    // built from the cause class, the dominant mod, and the surrounding context.
+    // The raw fingerprint key ('Spike|m0|—||h0') is kept only as a small dim tag
+    // for debugging, never as the prominent label the player reads.
+    const headline = [humanizeLabel(pick.causeClass) || '—', pick.topModName || '—', ctxText]
+      .filter(Boolean).join(' · ');
+    const causeChip = `<span class='chip cool'>${escapeHtml(headline)}</span>`;
     const fpLine = pick.fingerprintId
-      ? `<span class='muted' title='fingerprint id'>id ${escapeHtml(pick.fingerprintId)}</span>` : '';
+      ? `<span class='muted' style='font-size:0.7rem' title='internal fingerprint key'>${escapeHtml(pick.fingerprintId)}</span>` : '';
     const detailBody =
       `<div style='display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;margin-bottom:0.4rem'>${causeChip}${fpLine}</div>` +
-      statLine('context', subBits.join(' · ') || '—') +
+      statLine('context', ctxText) +
       statLine('events', fmtInt(pick.eventCount)) +
       statLine('p95', fmtMs(pick.p95Ms) + ' ms') +
       statLine('total', fmtMs(pick.totalMs) + ' ms') +
@@ -299,10 +319,16 @@ function lagGalaxyPick(fp) {
 }
 
 // ---------------------------------------------------------------- Density table
-// Shared sortable .dtable. Columns: segment, spikes/stalls (per-row split bar
-// spike=var(--spike) / stall=var(--stall) + the two counts), events/min,
-// vsBaseline x (perf-tinted via tintClass). The session baseline goes in the
-// panel sub-header; a splitLegend keys the spike/stall colours.
+// Shared sortable .dtable. Columns: segment, events (raw count), density (a
+// split bar whose TOTAL length scales to the row's events/min relative to the
+// busiest segment, with the spike=var(--spike) / stall=var(--stall) split
+// living inside that length), vsBaseline x (perf-tinted via tintClass). The
+// session baseline goes in the panel sub-header; a splitLegend keys the colours.
+//
+// The bar length encodes magnitude (which segment is worst reads at a glance);
+// the spike/stall split inside it encodes the mix. events/min was previously a
+// numeric column too, but it is the un-normalised twin of vs base, so it now
+// lives only as the bar length + the caption rather than as a second number.
 function lagDensitySortBy(key) {
   if (lagDensitySort.key === key) lagDensitySort.dir *= -1;
   else lagDensitySort = { key, dir: -1 };
@@ -326,11 +352,15 @@ function renderLagDensity() {
 
   const baseline = (snap && snap.sessionBaselinePerMin) || 0;
   const sorted = lagApplySort(entries, lagDensitySort);
+  // Busiest segment sets the bar's full extent so the lengths read comparably.
+  let maxPerMin = 0;
+  for (const e of entries) { if ((e.eventsPerMin || 0) > maxPerMin) maxPerMin = e.eventsPerMin; }
+  if (maxPerMin <= 0) maxPerMin = 1;
 
   const head = `<thead><tr>
     ${lagSortTh(lagDensitySort, 'name', 'segment', true, 'lagDensitySortBy')}
-    <th class='l'>spikes / stalls</th>
-    ${lagSortTh(lagDensitySort, 'eventsPerMin', 'events/min', false, 'lagDensitySortBy')}
+    ${lagSortTh(lagDensitySort, 'eventCount', 'events', false, 'lagDensitySortBy')}
+    ${lagSortTh(lagDensitySort, 'eventsPerMin', 'density', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'vsBaseline', 'vs base', false, 'lagDensitySortBy')}
   </tr></thead>`;
 
@@ -338,20 +368,26 @@ function renderLagDensity() {
     const spikes = e.spikeCount || 0;
     const stalls = e.stallCount || 0;
     const total = spikes + stalls;
-    const spikeFrac = total > 0 ? spikes / total : 0;
-    const stallFrac = total > 0 ? stalls / total : 0;
+    const events = e.eventCount != null ? e.eventCount : total;
+    // Total bar length = this row's events/min as a fraction of the busiest
+    // segment; the spike/stall split divides THAT length, so the bar answers
+    // both 'which segment is worst' (length) and 'what kind' (split) at once.
+    const lenFrac = Math.max(0, Math.min(1, (e.eventsPerMin || 0) / maxPerMin));
+    const spikeFrac = total > 0 ? lenFrac * (spikes / total) : 0;
+    const stallFrac = total > 0 ? lenFrac * (stalls / total) : 0;
     const bar = splitBar([
       { frac: spikeFrac, color: 'var(--spike)', label: 'spikes', value: fmtInt(spikes) },
       { frac: stallFrac, color: 'var(--stall)', label: 'stalls', value: fmtInt(stalls) },
     ], { thin: true });
-    const tip = (e.name || '—') + ' · ' + fmtInt(spikes) + ' spikes · ' + fmtInt(stalls) + ' stalls';
-    const countsCell = `<div title='${escapeHtml(tip)}'>${bar}<span class='muted' style='font-size:0.7rem'><span style='color:var(--spike)'>${fmtInt(spikes)}</span> / <span style='color:var(--stall)'>${fmtInt(stalls)}</span></span></div>`;
+    const perMin = (e.eventsPerMin || 0).toFixed(1);
+    const tip = (e.name || '—') + ' · ' + perMin + ' events/min · ' + fmtInt(spikes) + ' spikes · ' + fmtInt(stalls) + ' stalls';
+    const densityCell = `<div class='lag-density-cell' title='${escapeHtml(tip)}'>${bar}<span class='cap'><span style='color:var(--spike)'>${fmtInt(spikes)}</span> / <span style='color:var(--stall)'>${fmtInt(stalls)}</span> · ${perMin}/min</span></div>`;
     const vsTint = tintClass(e.vsBaseline);
     const vsTxt = (isFinite(e.vsBaseline) && e.vsBaseline > 0) ? e.vsBaseline.toFixed(2) + '×' : '—';
     return `<tr>
       <td class='l' title='${escapeHtml((e.family || '') + ' · ' + fmtDuration(e.durationMs))}'>${escapeHtml(e.name || '—')}</td>
-      <td class='l'>${countsCell}</td>
-      <td>${(e.eventsPerMin || 0).toFixed(1)}</td>
+      <td>${fmtInt(events)}</td>
+      <td class='l'>${densityCell}</td>
       <td class='${vsTint}'>${vsTxt}</td>
     </tr>`;
   }).join('');
@@ -386,10 +422,13 @@ function renderLagGcPressure() {
   const gb = v => (v / 1024).toFixed(2) + ' GB';
   // Peak rule (horizontal) labels the peak heap value on the auto-scaled axis;
   // a marker (vertical) pins the sample index where it occurred.
+  // padTop + a wider niceScale headroom (pad) push the peak rule down off the
+  // plot's top edge so its 'N GB peak' label reads as an annotation on the line
+  // rather than colliding with the top-right corner of the frame.
   const chart = n > 0
     ? lineChart({
         series: [{ values: series, color: 'var(--gc)', area: true }],
-        h: 130, axis: true, fmt: gb,
+        h: 138, padTop: 22, pad: 0.2, axis: true, fmt: gb,
         rules: [{ value: maxHeap, color: 'var(--gc)', label: gb(maxHeap) + ' peak' }],
         markers: n > 1 ? [{ index: peakI, color: 'var(--gc)' }] : [],
       })
@@ -460,9 +499,37 @@ function renderLagCausality() {
 }
 
 // ---------------------------------------------------------------- Rhythm
-// A horizontal interval histogram via barChart({horizontal:true}) (one bar per
-// bucket, label = interval seconds, value = count) plus a .dtable of rhythm
-// clusters (centre ± width, events, top mod + share, share of session).
+// Two clearly-headed sub-sections side by side: a coarse interval histogram
+// (the raw ~60 micro-buckets are re-binned into a handful of legible, taller
+// buckets, the modal one highlighted) and a .dtable of rhythm clusters (centre
+// ± width, events, top mod + share, share of session). Each half carries its
+// own sectionHeader so the two row systems read as distinct, not one confused
+// table, and the coarser histogram closes the height mismatch with the table.
+
+// Re-bin the fine interval histogram into at most `target` equal-width buckets
+// spanning the observed interval range, summing counts. Returns
+// [{lo, hi, count}] ordered by interval. Fewer than `target` distinct intervals
+// pass through unchanged (one bucket each).
+function lagRebinHist(hist, target) {
+  const pts = hist.filter(b => b && isFinite(b.intervalSeconds));
+  if (pts.length === 0) return [];
+  let lo = Infinity, hi = -Infinity;
+  for (const b of pts) { if (b.intervalSeconds < lo) lo = b.intervalSeconds; if (b.intervalSeconds > hi) hi = b.intervalSeconds; }
+  if (pts.length <= target || hi <= lo) {
+    return pts.slice().sort((a, b) => a.intervalSeconds - b.intervalSeconds)
+              .map(b => ({ lo: b.intervalSeconds, hi: b.intervalSeconds, count: b.count || 0 }));
+  }
+  const span = hi - lo, n = Math.max(1, target);
+  const bins = [];
+  for (let i = 0; i < n; i++) bins.push({ lo: lo + span * i / n, hi: lo + span * (i + 1) / n, count: 0 });
+  for (const b of pts) {
+    let idx = Math.floor((b.intervalSeconds - lo) / span * n);
+    if (idx < 0) idx = 0; if (idx >= n) idx = n - 1;
+    bins[idx].count += b.count || 0;
+  }
+  return bins.filter(b => b.count > 0);
+}
+
 function renderLagRhythm() {
   const histRoot = document.getElementById('lag-rhythm-hist');
   const clusterRoot = document.getElementById('lag-rhythm-clusters');
@@ -477,23 +544,35 @@ function renderLagRhythm() {
     return;
   }
 
-  // Horizontal histogram: interval bucket label + bar + count.
-  const histHtml = hist.length === 0
+  // Coarse, legible histogram: re-bin to ~12 buckets, highlight the modal one.
+  const bins = lagRebinHist(hist, 12);
+  let modalI = -1, modalC = -1;
+  for (let i = 0; i < bins.length; i++) { if (bins[i].count > modalC) { modalC = bins[i].count; modalI = i; } }
+  const histInner = bins.length === 0
     ? emptyState('no interval histogram yet')
     : barChart({
         horizontal: true,
-        bars: hist.map(b => ({
-          value: b.count || 0,
-          label: b.intervalSeconds.toFixed(2) + 's',
-          valueLabel: fmtInt(b.count),
-          color: 'var(--accent)',
-        })),
+        bars: bins.map((b, i) => {
+          const label = (b.hi > b.lo)
+            ? b.lo.toFixed(2) + '–' + b.hi.toFixed(2) + 's'
+            : b.lo.toFixed(2) + 's';
+          return {
+            value: b.count || 0,
+            label,
+            valueLabel: fmtInt(b.count),
+            // The modal bucket is the periodicity the panel is about, so it reads
+            // on the bright accent; the rest sit on the dimmer muted tone. Both
+            // are monochrome — magnitude/emphasis, not category.
+            color: i === modalI ? 'var(--accent)' : 'var(--muted)',
+          };
+        }),
       });
+  const histHtml = sectionHeader('interval distribution', 'time between repeated events') + histInner;
 
   // Cluster table.
-  let clusterTable;
+  let clusterInner;
   if (clusters.length === 0) {
-    clusterTable = emptyState('no rhythm clusters detected');
+    clusterInner = emptyState('no rhythm clusters detected');
   } else {
     const rows = clusters.map(c => {
       const colour = modColor(c.topModId || 0);
@@ -507,13 +586,14 @@ function renderLagRhythm() {
         <td>${(share * 100).toFixed(1)}%</td>
       </tr>`;
     }).join('');
-    clusterTable = `<table class='dtable'>
+    clusterInner = `<table class='dtable'>
       <thead><tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
   }
+  const clusterHtml = sectionHeader('rhythm clusters', 'periodic signatures') + clusterInner;
 
   histRoot.innerHTML = histHtml;
-  setHTML(clusterRoot, clusterTable);
+  setHTML(clusterRoot, clusterHtml);
 }
 ";
 }

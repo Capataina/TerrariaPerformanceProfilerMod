@@ -32,8 +32,12 @@ internal static partial class DashboardAssets
 .self-hero { grid-column: 1 / -1; }
 .self-span { grid-column: 1 / -1; }
 
-.self-hero-body { display: grid; grid-template-columns: 14rem 1fr; gap: 1.2rem; align-items: center; }
+/* Gauge column is sized to the 200px (~12.5rem) gauge SVG, not a padded 14rem,
+   so the SEVERITY tile starts close and the hero reads as one band rather than
+   leaving dead space around a centred gauge. */
+.self-hero-body { display: grid; grid-template-columns: 12.5rem 1fr; gap: 1rem; align-items: center; }
 @media (max-width: 700px) { .self-hero-body { grid-template-columns: 1fr; } }
-.self-gauge { width: 100%; max-width: 14rem; margin: 0 auto; }
+.self-gauge { width: 100%; max-width: 12.5rem; }
+@media (max-width: 700px) { .self-gauge { margin: 0 auto; } }
 ";
 }

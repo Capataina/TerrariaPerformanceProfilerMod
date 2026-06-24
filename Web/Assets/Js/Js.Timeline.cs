@@ -45,6 +45,7 @@ let lastAttendance      = null;
 let lastDeaths          = null;
 let lastChronicle       = null;
 let selectedSegmentKey  = null;   // 'family|key|startTick'
+let chronicleFilter     = 'all';  // 'all' or a chronicle kind group (see CR_KINDS)
 
 // Render-signature cache — skip rebuild when input didn't change.
 const _tlSig = {
@@ -171,7 +172,10 @@ function renderTimelineHeatstrip() {
            b.segmentCount + ' segs, ' + b.spikeCount + ' spikes, ' + b.stallCount + ' stalls'
     };
   });
-  root.innerHTML = barChart({ bars, max: maxFrame, colWidth: 5, scrollx: true });
+  // colWidth is a floor only — the local .tl-heatstrip CSS lets the columns
+  // flex-grow to fill the panel so a short session spans the strip instead of
+  // stranding it in the left corner; scrollx kicks in only once the floor is hit.
+  root.innerHTML = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
 }
 
 // ---- T3: transitions track — time-placed labelled chips -------------
@@ -219,22 +223,36 @@ function renderTimelineTransitions() {
     root.innerHTML = emptyState('no transitions' + (timelineFilter !== 'all' ? ' for ' + timelineFilter.toLowerCase() : '') + ' yet');
     return;
   }
-  const chips = list.map(t => {
+  // The track is a fixed-width time domain; too many chips collide and clip. Cap
+  // the count to the most-recent TL_TX_CAP and surface the rest as a '+N' token
+  // anchored to the left edge so nothing is silently dropped.
+  const TL_TX_CAP = 16;
+  const ordered = list.slice().sort((a, b) => a.unixMs - b.unixMs);
+  const hidden = Math.max(0, ordered.length - TL_TX_CAP);
+  const shown = hidden > 0 ? ordered.slice(ordered.length - TL_TX_CAP) : ordered;
+
+  const chips = shown.map((t, i) => {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
     // Edge-anchor: chips near the left/right edge anchor to that edge so the
     // (clipped) track never cuts the label; the rest centre on their tick.
     const tx = leftPct < 14 ? '0' : leftPct > 86 ? '-100%' : '-50%';
+    // Vertical stagger: alternate chips onto two stacked bands so two closely-
+    // timed transitions sit above/below each other instead of overprinting.
+    const band = i % 2 === 0 ? 'lo' : 'hi';
     const cls = transitionChipClass(t.type);
     const word = transitionKindWord(t.type);
     const arrow = (t.from || t.to)
       ? `${escapeHtml(t.from || '?')} → ${escapeHtml(t.to || '?')}`
       : escapeHtml(t.type || word);
     const tip = `${word}: ${t.from || '?'} → ${t.to || '?'} (tick ${t.tickIndex})`;
-    return `<span class='chip ${cls} tx-chip' style='left:${leftPct.toFixed(2)}%;transform:translate(${tx},-50%)' title='${escapeHtml(tip)}'>
+    return `<span class='chip ${cls} tx-chip tx-${band}' style='left:${leftPct.toFixed(2)}%;transform:translateX(${tx})' title='${escapeHtml(tip)}'>
       <span class='tx-kind'>${escapeHtml(word)}</span> ${arrow}
     </span>`;
   }).join('');
-  root.innerHTML = `<div class='tx-track'><span class='tx-rail'></span>${chips}</div>`;
+  const overflow = hidden > 0
+    ? `<span class='chip tx-chip tx-more' title='${hidden} earlier transition${hidden === 1 ? '' : 's'} not shown'>+${hidden}</span>`
+    : '';
+  root.innerHTML = `<div class='tx-track'><span class='tx-rail'></span>${overflow}${chips}</div>`;
 }
 
 // ---- T1+T2: swimlanes ------------------------------------------------
@@ -297,7 +315,12 @@ function renderTimelineSwimlanes() {
     if (!lane) continue;
     if (!familyVisible(f)) { lane.innerHTML = ''; continue; }
     const arr = byFamily[f];
-    if (arr.length === 0) { lane.innerHTML = ''; continue; }
+    if (arr.length === 0) {
+      // Legitimately empty lane: a muted idle line, so a blank Boss/Invasion/
+      // Subworld row reads as 'nothing happened' rather than 'unfinished'.
+      lane.innerHTML = `<span class='tl-lane-empty'>none this session</span>`;
+      continue;
+    }
     lane.innerHTML = arr.map(s => {
       const left = pctOf(s.startUnixMs, win);
       const right = pctOf(s.endUnixMs, win);
@@ -308,6 +331,12 @@ function renderTimelineSwimlanes() {
       const delta = lifetime ? lifetime.deltaFraction : null;
       const outlier = (delta != null && Math.abs(delta) > 0.25) ? 'outlier' : '';
       const selected = (k === selectedSegmentKey) ? 'selected' : '';
+      // Fill = cost intensity: perf ramp of the segment's avg frame time vs the
+      // 16.6 ms (60 fps) reference. Open/unmeasured segments (avgFrameMs 0) fall
+      // through perfColor to the healthy end; the inline --seg-fill drives .bg.
+      const fill = (s.avgFrameMs > 0)
+        ? perfColor(s.avgFrameMs / 16.6)
+        : 'var(--surface-2)';
       let waterfall = '';
       if (attr && attr.perMod && attr.perMod.length > 0) {
         let total = 0;
@@ -328,7 +357,7 @@ function renderTimelineSwimlanes() {
       }
       const tip = `${s.name} — ${fmtDuration(s.durationMs)} · ${fmtMs(s.avgFrameMs)} ms/t`;
       return `<div class='tl-segment ${outlier} ${selected}' data-family='${s.family}' data-key='${escapeHtml(k)}'
-        style='left:${left.toFixed(2)}%;width:${width.toFixed(2)}%' title='${escapeHtml(tip)}'>
+        style='left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;--seg-fill:${fill}' title='${escapeHtml(tip)}'>
         <span class='lbl'>${escapeHtml(s.name)}</span>
         ${waterfall}
         ${badge}
@@ -454,11 +483,21 @@ function renderTimelineAttendance() {
     return;
   }
   const a = lastAttendance;
-  const sig = (a.totalBiomeTicks||0) + ':' + (a.moddedBiomeTicks||0) + ':' + a.byMod.length + ':' + (a.byMod.length ? a.byMod[0].biomeTicks : 0);
+  // All-zero readout (no biome-tick attribution yet) reads as broken under a
+  // populated-looking table shell. Show an explicit idle state instead of the
+  // zero-grid + headerless table.
+  const totalTicks = a.totalBiomeTicks || 0;
+  if (totalTicks <= 0) {
+    if (_tlSig.attendance === 'idle') return;
+    _tlSig.attendance = 'idle';
+    setHTML(root, emptyState('no biome-tick attribution captured this session'));
+    return;
+  }
+  const sig = totalTicks + ':' + (a.moddedBiomeTicks||0) + ':' + a.byMod.length + ':' + (a.byMod.length ? a.byMod[0].biomeTicks : 0);
   if (sig === _tlSig.attendance) return;
   _tlSig.attendance = sig;
 
-  const total = Math.max(1, a.totalBiomeTicks || 0);
+  const total = Math.max(1, totalTicks);
   const modded = Math.max(0, Math.min(total, a.moddedBiomeTicks || 0));
   const vanilla = Math.max(0, total - modded);
 
@@ -481,9 +520,16 @@ function renderTimelineAttendance() {
       value: fmtInt(m.biomeTicks) + ' (' + ((m.biomeTicks/total)*100).toFixed(1) + '%)' });
   }
 
-  // Legend: vanilla + the top contributors (cap to keep it readable).
-  const legendSegs = segsArr.slice(0, 9).map(s => ({ color: s.color, label: s.label, value: s.value }));
-  const barHtml = `<div class='tm-bar'>${splitBar(segsArr, { tall: true })}${splitLegend(legendSegs)}</div>`;
+  // The bar only encodes proportion once there are >=2 series to split; a single
+  // flat fill (vanilla-only) is decoration, so in that degenerate case drop the
+  // bar and keep just the legend line stating the share.
+  let barHtml = '';
+  if (segsArr.length >= 2) {
+    const legendSegs = segsArr.slice(0, 9).map(s => ({ color: s.color, label: s.label, value: s.value }));
+    barHtml = `<div class='tm-bar'>${splitBar(segsArr, { tall: true })}${splitLegend(legendSegs)}</div>`;
+  } else if (segsArr.length === 1) {
+    barHtml = `<div class='tm-bar'>${splitLegend(segsArr.map(s => ({ color: s.color, label: s.label, value: s.value })))}</div>`;
+  }
 
   const rows = sorted.map(m => {
     const share = (m.biomeTicks / total) * 100;
@@ -496,12 +542,17 @@ function renderTimelineAttendance() {
     </tr>`;
   }).join('');
 
-  const tableHtml = `<table class='dtable tm-table'>
+  // Only render the per-mod table when there are contributing mods — a header
+  // row over an empty body reads as a broken table, so replace it with a muted
+  // idle line in the vanilla-only case.
+  const tableHtml = sorted.length > 0
+    ? `<table class='dtable tm-table'>
     <thead><tr>
       <th class='l'>mod</th><th>biome ticks</th><th>share</th><th>invasions</th><th>boss segs</th>
     </tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table>`
+    : `<div class='tm-idle'>no per-mod biome attribution this session</div>`;
 
   setHTML(root, totalsBand + barHtml + tableHtml);
 }
@@ -565,24 +616,50 @@ function renderTimelineDeaths() {
 // A tokenised block list inside a bounded scrollRegion; each line is a
 // timestamp + kind + text block, left-accented by kind via the .chip colour
 // classes. setHTML keeps the reader's scroll position across the poll.
+// Colour the kind badge by SEVERITY only — death is the alarm (red), spikes and
+// boss bounds are warnings (amber). The non-severity event types (transition,
+// weather, summary, join) stay neutral so the perf-ramp green keeps its single
+// meaning ('within budget') and one hue never means two things across panes.
 function chronicleKindClass(kind) {
   switch (kind) {
     case 'death':       return 'bad';
     case 'spike':       return 'warn';
     case 'boss-start':
     case 'boss-end':    return 'warn';
-    case 'weather':     return 'cool';
-    case 'transition':  return 'good';
-    case 'summary':     return 'cool';
     default:            return '';
   }
+}
+
+// Collapse the raw kinds onto the filter groups the chip row offers, so e.g.
+// boss-start and boss-end both fall under 'boss'. 'all' matches everything.
+function chronicleKindGroup(kind) {
+  switch (kind) {
+    case 'boss-start':
+    case 'boss-end':   return 'boss';
+    default:           return kind || 'other';
+  }
+}
+
+const CR_KINDS = ['death','spike','boss','weather','transition','summary'];
+
+// Filter setter wired by the sticky chip row; resets the cache so the next
+// render rebuilds the filtered list.
+function setChronicleFilter(f) {
+  const next = (f === chronicleFilter && f !== 'all') ? 'all' : f;
+  if (next === chronicleFilter) return;
+  chronicleFilter = next;
+  _tlSig.chronicle = '';
+  renderTimelineChronicle();
 }
 
 function renderTimelineChronicle() {
   const scroll = document.getElementById('tl-chronicle-scroll');
   if (!scroll) return;
   const lines = (lastChronicle && lastChronicle.lines) || [];
-  const sig = lines.length + ':' + (lines.length ? (lines[0].unixMs + ',' + lines[lines.length-1].unixMs) : '');
+  // Which filter groups actually occur — so the chip row only offers live ones.
+  const present = new Set(lines.map(l => chronicleKindGroup(l.kind)));
+  const sig = lines.length + ':' + chronicleFilter + ':' +
+    (lines.length ? (lines[0].unixMs + ',' + lines[lines.length-1].unixMs) : '');
   if (sig === _tlSig.chronicle) return;
   _tlSig.chronicle = sig;
 
@@ -590,20 +667,38 @@ function renderTimelineChronicle() {
     setHTML(scroll, emptyState('no chronicle lines yet'));
     return;
   }
+
+  // Sticky type filter at the top of the scroll body — a segmented() control of
+  // 'all' + each kind group that occurs this session. It stays pinned while the
+  // list scrolls, giving the long log a per-type filter consistent with the
+  // swimlane family filter above.
+  const opts = [{ value: 'all', label: 'all' }].concat(
+    CR_KINDS.filter(k => present.has(k)).map(k => ({ value: k, label: k })));
+  const filterBar = `<div class='cr-filter'>` +
+    segmented({ id: 'cr-filter-seg', attr: 'data-crfilter', active: chronicleFilter, options: opts }) +
+    `</div>`;
+
   // Oldest -> newest so the column reads top-to-bottom in session order. Each
   // line is a single-column row() (so it inherits the shared hover + left-bar)
-  // whose cell stacks a meta line (kind chip + timestamp) over the text.
-  const sorted = lines.slice().sort((a,b) => a.unixMs - b.unixMs);
+  // whose cell lays the kind chip, timestamp and text on ONE dense baseline so a
+  // long session shows more of its arc without heavy scrolling.
+  let sorted = lines.slice().sort((a,b) => a.unixMs - b.unixMs);
+  if (chronicleFilter !== 'all') {
+    sorted = sorted.filter(l => chronicleKindGroup(l.kind) === chronicleFilter);
+  }
+  if (sorted.length === 0) {
+    setHTML(scroll, filterBar + emptyState('no ' + chronicleFilter + ' events this session'));
+    wireChronicleFilter(scroll);
+    return;
+  }
   const blocks = sorted.map(l => {
     const t = l.unixMs ? new Date(l.unixMs).toLocaleTimeString() : '—';
     const cls = chronicleKindClass(l.kind);
     const cell =
       `<div class='cr-cell'>` +
-        `<div class='cr-meta'>` +
-          `<span class='chip ${cls}'>${escapeHtml(l.kind)}</span>` +
-          `<span class='cr-time muted'>${escapeHtml(t)}</span>` +
-        `</div>` +
-        `<div class='cr-text'>${escapeHtml(l.text)}</div>` +
+        `<span class='chip ${cls}'>${escapeHtml(l.kind)}</span>` +
+        `<span class='cr-time muted'>${escapeHtml(t)}</span>` +
+        `<span class='cr-text'>${escapeHtml(l.text)}</span>` +
       `</div>`;
     return row({
       cols: '1fr',
@@ -613,7 +708,14 @@ function renderTimelineChronicle() {
     });
   });
   // tl-chronicle-scroll is the overflow:auto container; setHTML keeps scroll.
-  setHTML(scroll, rowList(blocks));
+  setHTML(scroll, filterBar + rowList(blocks));
+  wireChronicleFilter(scroll);
+}
+
+function wireChronicleFilter(scroll) {
+  scroll.querySelectorAll('[data-crfilter]').forEach(b => {
+    b.addEventListener('click', () => setChronicleFilter(b.getAttribute('data-crfilter')));
+  });
 }
 
 // ---- Top-level dispatch --------------------------------------------

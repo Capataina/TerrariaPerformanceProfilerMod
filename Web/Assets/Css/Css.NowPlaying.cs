@@ -29,5 +29,13 @@ internal static partial class DashboardAssets
 .now-name .now-sub { font-family: var(--mono); color: var(--muted); font-size: 0.75rem; }
 .now-meta { font-family: var(--mono); font-size: 0.78rem; text-align: right; line-height: 1.3; }
 .now-meta .now-mod { color: var(--accent); font-weight: 500; }
+
+/* Muted closing line under the open-segment rows. Earns the panel's lower edge
+   so a short list no longer reads as a tall empty void; descriptive, not a CTA. */
+.now-foot {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--dim);
+  padding: 0.5rem 0.2rem 0.2rem; border-top: 1px solid var(--border-soft);
+  margin-top: 0.35rem; line-height: 1.35;
+}
 ";
 }

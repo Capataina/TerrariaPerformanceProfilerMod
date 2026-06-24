@@ -57,8 +57,23 @@ internal static partial class DashboardAssets
   padding: 0.4rem 0.9rem 0.5rem;
   gap: 0.3rem;
 }
-.chart { width: 100%; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 130px; }
+.chart { width: 100%; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 130px; position: relative; }
 .chart .chart-svg { flex: 1 1 auto; min-height: 0; height: 100%; }
+
+/* Reference-rule key. The 60fps + median rules are drawn as unlabelled dashed
+   lines (their SVG text would sit on the trace); this compact inset names them
+   in the top-right gutter, clear of the plotting area. */
+.chart-keys {
+  position: absolute; top: 0; right: 0;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0.1rem;
+  font-family: var(--mono); font-size: 0.62rem; color: var(--dim);
+  pointer-events: none; line-height: 1.2;
+}
+.chart-key { display: inline-flex; align-items: center; gap: 0.32em; white-space: nowrap; }
+.chart-key .ck-rule {
+  display: inline-block; width: 0.9em; height: 0;
+  border-top-width: 1px; border-top-style: dashed; opacity: 0.7;
+}
 
 /* Centered note overlaying a panel body that has no live trace (db mode).
    Fills its positioned parent and centres the canonical .empty inside it; the
@@ -94,9 +109,16 @@ internal static partial class DashboardAssets
 .tr-spark .spark-svg { height: 100%; }
 
 /* ====== Now playing (rowList of row()) ====== */
+/* The panel hugs its content instead of stretching to match the taller events
+   panel beside it (the grid row defaults to align stretch, which is what left
+   ~70% of this panel as dead void with only two open segments). align-self:start
+   lets it size to the rows + footer; the footer closes the list off cleanly. */
+.grid-summary > [style*='grid-area: now'] { align-self: start; }
+
 /* Scroll container; each segment is a shared row(). The per-row detail (family
-   swatch + two-line name block + meta) is styled in Css.NowPlaying. */
-.now-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }
+   swatch + two-line name block + meta) is styled in Css.NowPlaying. The list
+   hugs its content (flex: 0 1 auto); a long list still scrolls within max-height. */
+.now-scroll { overflow-y: auto; flex: 0 1 auto; min-height: 0; max-height: 22rem; }
 
 /* ====== Events feed (rowList of row()) ====== */
 .events-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }

@@ -135,10 +135,19 @@ function renderModTree(mod) {
   const blank = `<span></span>`;
   // Group hook records by mod, then by category.
   if (!lastHooks || !lastHooks.hooks) {
-    return `<div class='mod-tree'>` + row({
-      cols: MODTABLE_COLS, cls: 'cat-row',
-      cells: [blank, `<span class='nm muted'>loading…</span>`, blank, blank, blank, blank, blank],
-    }) + `</div>`;
+    // In-flight state: two muted skeleton category-rows (name + cost-bar shimmer)
+    // aligned to the tree grid, so the load reads as a designed placeholder in the
+    // component vocabulary rather than a bare left-flush 'loading…' string.
+    const skelRow = w => row({
+      cols: MODTABLE_COLS, cls: 'cat-row sk-row',
+      cells: [
+        blank,
+        `<span class='sk-bar' style='width:${w}'></span>`,
+        `<span class='sk-bar' style='width:70%'></span>`,
+        blank, blank, blank, blank,
+      ],
+    });
+    return `<div class='mod-tree' aria-busy='true'>` + skelRow('55%') + skelRow('40%') + `</div>`;
   }
   const cats = lastMods.categories || [];
   // Build categoryId → hooks[] for this mod.

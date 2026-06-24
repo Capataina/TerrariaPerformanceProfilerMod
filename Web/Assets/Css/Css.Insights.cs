@@ -28,6 +28,12 @@ internal static partial class DashboardAssets
   display: flex; flex-direction: column; gap: 0.6rem;
   padding: 0.6rem 0.9rem 1rem;
 }
+/* The KPI strip is a fixed-height header row, not a flex casualty. Without an
+   explicit flex basis the column's other children (the tall observatory + lower
+   grids) starved it down to a ~40px sliver where only fragments of the rings
+   showed. flex:none + a min-height keep the four 64px ring gauges + their label
+   rows at full natural height under the tab bar. */
+.ins-shell > #ins-kpi { flex: 0 0 auto; min-height: 92px; }
 
 /* Mid section: 2-column observatory | detail. Each column owns its height via
    the explicit max-height on its inner scroll regions (the dormant table, the
@@ -115,6 +121,14 @@ internal static partial class DashboardAssets
 .ins-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
 .ins-usage .split-bar { flex: 1; }
 .ins-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
+/* Zero-engagement rows render no green segment, so the bar is just its track. A
+   faint surface track on the near-black row read as a blank cell. Lift the track
+   contrast and seat a hairline at the origin so a 0.0% row still reads as 'bar
+   present, empty' rather than 'nothing here'. */
+.ins-usage .split-bar {
+  background: var(--surface-2);
+  box-shadow: inset 1px 0 0 var(--border);
+}
 
 /* Observatory card internals (the middle cell of each row()). Stacks the mod
    name, the usage micro-stats, the cpu cost bar, and the (quieted) roster
@@ -128,10 +142,14 @@ internal static partial class DashboardAssets
 }
 .obs-cost { margin-top: 0.3rem; }
 .obs-comp { margin-top: 0.28rem; opacity: 0.55; }
+/* The ms cost is the headline number of each row, so it leads the eye over the
+   rank index: a larger, brighter, heavier value with the unit kept quiet. */
 .obs-ms {
-  font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
+  font-family: var(--mono); font-size: 1rem; font-weight: 600;
+  color: var(--text-bright); text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.obs-ms .u { font-size: 0.65rem; color: var(--dim); margin-left: 0.15rem; }
+.obs-ms .u { font-size: 0.62rem; font-weight: 400; color: var(--dim); margin-left: 0.15rem; }
 
 /* Detail pane: the scroll-region is flush, so the body insets here. */
 .det-pad { padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.2rem; }
@@ -143,5 +161,11 @@ internal static partial class DashboardAssets
 .ins-caption {
   font-size: 0.74rem; color: var(--dim); line-height: 1.35; margin-bottom: 0.45rem;
 }
+
+/* Mod-pair correlation has TWO name columns (mod A x mod B) sharing a half-width
+   panel, so the shared 20rem td.l cap is too generous — two long names would
+   still overflow. Cap each name column tighter here; the ellipsis (shared td.l
+   rule) then engages and the title= tooltip carries the full pair name. */
+#ins-matrix .dtable td.l, #ins-matrix .dtable th.l { max-width: 9rem; }
 ";
 }

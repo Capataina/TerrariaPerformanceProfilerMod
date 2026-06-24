@@ -41,12 +41,32 @@ function renderHeatmap() {
     return null;
   }
 
+  // Band edges shared by bandClass + the within-band shade. Each minute tile gets
+  // its categorical band (p0..p4) AND a 0..1 position within that band's ms range,
+  // so even an all-smooth session (every tile p0) still shows minute-to-minute
+  // texture — a faster minute reads lighter, a slower one darker, keeping the tile
+  // an honest magnitude encoding rather than a flat status block.
+  const bandEdges = [0, 17, 25, 40, 60];
   function bandClass(avgMs) {
     if (avgMs <= 17)  return 'p0';
     if (avgMs <= 25)  return 'p1';
     if (avgMs <= 40)  return 'p2';
     if (avgMs <= 60)  return 'p3';
     return 'p4';
+  }
+  // 0 = at the cool edge of the band, 1 = at the hot edge. The top band (>60ms)
+  // has no upper bound, so we span it across the next 40ms and clamp.
+  function bandShade(avgMs) {
+    let lo = 0, hi = 60 + 40;
+    for (let i = 0; i < bandEdges.length; i++) {
+      if (avgMs <= bandEdges[i] || i === bandEdges.length - 1) {
+        lo = bandEdges[i - 1] != null ? bandEdges[i - 1] : 0;
+        hi = bandEdges[i] != null && avgMs <= bandEdges[i] ? bandEdges[i] : 60 + 40;
+        break;
+      }
+    }
+    const span = (hi - lo) || 1;
+    return Math.max(0, Math.min(1, (avgMs - lo) / span));
   }
 
   sub.textContent = buckets.length + ' minute(s) · ' + (lastHeatmap.bossOverlays?.length || 0) + ' boss segment(s)';
@@ -55,7 +75,7 @@ function renderHeatmap() {
     const boss = bossLabelFor(b);
     const time = new Date(b.startUnixMs).toLocaleTimeString();
     const tip = (boss ? boss.name + ' · ' : '') + time + ' · avg ' + fmtMs(b.avgMs) + 'ms · worst ' + fmtMs(b.worstMs) + 'ms';
-    return `<div class='hm-cell ${cls} ${boss ? 'boss' : ''}' data-tip='${escapeHtml(tip)}'></div>`;
+    return `<div class='hm-cell ${cls} ${boss ? 'boss' : ''}' style='--hm-t:${bandShade(b.avgMs).toFixed(3)}' data-tip='${escapeHtml(tip)}'></div>`;
   }).join('');
 }
 
@@ -129,16 +149,26 @@ function renderFrameChart() {
     }
   }
 
+  // Rules carry NO inline label: lineChart draws rule labels as SVG text at the
+  // right edge, on top of the trace + spike bars, so they collide with the data.
+  // We draw the dashed lines unlabelled and annotate them with a compact inset
+  // key in the top-right gutter (.chart-keys) instead, clear of the plot.
+  const fmtRule = showFps ? (v => v.toFixed(0) + ' fps') : (v => fmtMs(v) + 'ms');
+  const keys =
+    `<div class='chart-keys'>` +
+      `<span class='chart-key'><span class='ck-rule' style='border-color:var(--muted)'></span>60 fps · ${fmtRule(sixtyVal)}</span>` +
+      `<span class='chart-key'><span class='ck-rule' style='border-color:var(--dim)'></span>median · ${fmtRule(medianVal)}</span>` +
+    `</div>`;
   chart.innerHTML = lineChart({
     series: [{ values: series, color: 'var(--accent)', area: true }],
     rules: [
-      { value: sixtyVal, color: 'var(--muted)', label: '60fps' },
-      { value: medianVal, color: 'var(--dim)', label: 'median' },
+      { value: sixtyVal, color: 'var(--muted)' },
+      { value: medianVal, color: 'var(--dim)' },
     ],
     markers: marks,
     axis: true,
     fmt: showFps ? (v => v.toFixed(0)) : fmtMs,
-  });
+  }) + keys;
 }
 
 // Frame-chart mode toggle (delegated; the segmented control is re-rendered).
@@ -274,10 +304,10 @@ function renderNowPlaying() {
     sub.textContent = '0 open';
     return;
   }
-  sub.textContent = lastSegments.open.length + ' open';
+  const open = lastSegments.open.slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family));
+  sub.textContent = open.length + ' open';
   const cols = '0.32rem minmax(0, 1.4fr) auto';
-  root.innerHTML = rowList(lastSegments.open
-    .slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family))
+  const rowsHtml = rowList(open
     .map(s => {
       const meta = s.topModName
         ? `<span class='now-mod'>${escapeHtml(truncate(s.topModName, 16))}</span> · ${fmtMs(s.topModMsPerTick)}ms/t`
@@ -294,6 +324,10 @@ function renderNowPlaying() {
         ],
       });
     }));
+  // Muted footer so a short open-segment list earns its panel height rather than
+  // leaving a tall void: a quiet 'nothing else open' line closes the list off.
+  const foot = `<div class='now-foot'>no further encounters open · new segments appear as you enter biomes, bosses, weather</div>`;
+  root.innerHTML = rowsHtml + foot;
 }
 function familyWeight(f) {
   const order = ['Boss', 'Invasion', 'UserBookmark', 'Weather', 'Subworld', 'Combat', 'Hardmode', 'DeathBracket', 'Biome'];

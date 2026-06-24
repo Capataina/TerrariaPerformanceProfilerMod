@@ -34,24 +34,45 @@ function openModCard(modId) {
   const totalAvg = lastNow && lastNow.avg30sMs ? lastNow.avg30sMs : 0;
   const withoutNow = Math.max(0.1, totalNow - mod.cpuMs);
   const withoutAvg = Math.max(0.1, totalAvg - mod.avgCpuMs);
+  // The 1000/60 floor models the vsync cap: when a frame already fits the 16.67ms
+  // budget, removing a mod's slice can't raise fps past 60. That makes the two fps
+  // figures collapse to '60 vs 60' whenever both frame times sit under the cap, so
+  // we only quote an fps clause when the two genuinely differ (see fpsClause below).
   const fpsNow = totalNow > 0 ? 1000 / Math.max(1000/60, totalNow) : 0;
   const fpsWithoutNow = totalNow > 0 ? 1000 / Math.max(1000/60, withoutNow) : 0;
   const fpsAvg = totalAvg > 0 ? 1000 / Math.max(1000/60, totalAvg) : 0;
   const fpsWithoutAvg = totalAvg > 0 ? 1000 / Math.max(1000/60, withoutAvg) : 0;
 
+  // Build an honest fps clause for one with/without pair. When the two fps figures
+  // round to the same integer the 'N vs N' template is meaningless, so we drop it
+  // and state the cost in the ms delta the line above already carries. Two ways
+  // this happens: the frame already fits the 16.67ms budget (the 60fps cap absorbs
+  // the saving), or the slice is too small to move a whole frame per second.
+  function fpsClause(withMod, withoutMod, msDelta, frameMs) {
+    const a = Math.round(withoutMod), b = Math.round(withMod);
+    if (a === b) {
+      const capped = frameMs > 0 && frameMs <= 1000 / 60 + 0.001;
+      return capped
+        ? `no measurable fps change — the frame already fits the 60 fps budget, so the ${fmtMs(msDelta)} ms shows up as headroom rather than lost fps`
+        : `under 1 fps of difference — the ${fmtMs(msDelta)} ms is too small to move the frame rate by a whole frame per second`;
+    }
+    return `the difference between <strong>${a} fps</strong> and <strong>${b} fps</strong>`;
+  }
+
   // Category breakdown.
   const cats = lastMods.categories || [];
-  const catMax = Math.max(...mod.categories);
+  const catVals = mod.categories.map((v, i) => ({ v, i })).filter(c => c.v > 0.001).sort((a, b) => b.v - a.v);
+  const catMax = catVals.length ? catVals[0].v : 1;
+  // Median of the active categories — the perf-ramp reference, matching the
+  // cascading tree's magnitude bar so cost reads with one colour idiom across
+  // both surfaces (calm green at the median, hot toward the outliers).
+  const catMedian = catVals.length ? catVals[Math.floor(catVals.length / 2)].v : 0;
   // Ordered by cost, biggest first — the breakdown should read top-down by impact.
-  const catRows = mod.categories
-    .map((v, i) => ({ v, i }))
-    .filter(c => c.v > 0.001)
-    .sort((a, b) => b.v - a.v)
-    .map(({ v, i }) => row({
+  const catRows = catVals.map(({ v, i }) => row({
       cols: 'minmax(0, 1fr) minmax(0, 2fr) 5em',
       cells: [
         `<span class='nm'>${escapeHtml(cats[i] || 'cat:' + i)}</span>`,
-        cellBar(v / catMax, 'var(--cpu)'),
+        cellBar(v / catMax, perfColor(catMedian > 0 ? v / catMedian : 0)),
         `<span class='mc-catv'>${fmtMs(v)} ms</span>`,
       ],
     }));
@@ -71,10 +92,9 @@ function openModCard(modId) {
 
     sectionBlock('frame impact · marginal contribution', callout(
       `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
-      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). At your current frame time that is the ` +
-      `difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and ` +
-      `<strong>${fpsAvg.toFixed(0)} fps</strong> on average, ` +
-      `and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.` +
+      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). At your current frame time that is ` +
+      `${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg)} on average, ` +
+      `and ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow)} live.` +
       `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',

@@ -17,8 +17,28 @@ internal static partial class DashboardAssets
 //           'overhead' = the profiler's hook-scaffolding we hold per mod.
 let memBasis = 'modlist';
 let memSelected = null;   // selected modId for the breakdown drawer
+let memFilter = '';       // per-mod table search term
+// Sort state for the per-mod table (mirrors the Insights sortableHead model).
+// Defaults to the value column descending — the costliest-first ordering the
+// strip already uses. 'val' tracks whichever metric the basis exposes.
+let memSort = { key: 'val', dir: -1 };
 
 function memValue(m) { return memBasis === 'overhead' ? (m.hookBytes || 0) : (m.tmlTotal || 0); }
+
+// Footprint composition encoding. The four tML categories (code / textures /
+// sounds / managed) are a fixed ROLE set, not per-mod categories, so they get a
+// fixed encoding that never collides with the chromatic per-mod hues (modColor's
+// full-wheel L0.72/C0.11 palette). A monochrome luminance ramp does that: it is
+// orthogonal to every per-mod hue (no chroma to clash with CalamityMod's lilac),
+// it is consistent across every row (segment N is always the same shade), and it
+// fits the neutral chrome the way the heatmap's opacity ramp does. Order is fixed
+// brightest->dimmest so the legend below the column keys it once for all rows.
+const MEM_FP_CATS = [
+  { key: 'tmlCode',     label: 'code',     color: 'oklch(0.90 0 0)' },
+  { key: 'tmlTextures', label: 'textures', color: 'oklch(0.72 0 0)' },
+  { key: 'tmlSounds',   label: 'sounds',   color: 'oklch(0.54 0 0)' },
+  { key: 'tmlManaged',  label: 'managed',  color: 'oklch(0.38 0 0)' },
+];
 
 // tML code/textures/sounds/managed split as a SECONDARY hint (thin bar). Kept
 // quiet by design: the full composition lives in the breakdown drawer on click,
@@ -27,12 +47,16 @@ function memValue(m) { return memBasis === 'overhead' ? (m.hookBytes || 0) : (m.
 function memFootprintSegs(m) {
   const t = m.tmlTotal || 0;
   if (t <= 0) return null;
-  return [
-    { frac: m.tmlCode/t,     color: 'var(--cpu)',   label: 'code',     value: fmtBytes(m.tmlCode) },
-    { frac: m.tmlTextures/t, color: 'var(--spike)', label: 'textures', value: fmtBytes(m.tmlTextures) },
-    { frac: m.tmlSounds/t,   color: 'var(--cyan)',  label: 'sounds',   value: fmtBytes(m.tmlSounds) },
-    { frac: m.tmlManaged/t,  color: 'var(--gc)',    label: 'managed',  value: fmtBytes(m.tmlManaged) },
-  ];
+  return MEM_FP_CATS.map(c => ({
+    frac: (m[c.key] || 0) / t, color: c.color, label: c.label, value: fmtBytes(m[c.key]),
+  }));
+}
+
+// Static key for the footprint column: a splitLegend over the role colours (no
+// per-mod data), so the monochrome ramp reads as 'code | textures | sounds |
+// managed' once for the whole column instead of unexplained shades per row.
+function memFootprintLegend() {
+  return splitLegend(MEM_FP_CATS.map(c => ({ color: c.color, label: c.label })));
 }
 
 function renderMemory() {
@@ -63,7 +87,7 @@ function renderMemory() {
     legendEl.innerHTML = '';
     sumEl.innerHTML = '';
     tableEl.innerHTML = emptyState('no data yet');
-    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
 
@@ -85,7 +109,7 @@ function renderMemory() {
     stripEl.innerHTML = '';
     legendEl.innerHTML = '';
     tableEl.innerHTML = emptyState(memBasis === 'overhead' ? 'profiler not installed yet' : 'no per-mod memory estimate yet');
-    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
   const total = rows.reduce((s, r) => s + r.v, 0) || 1;
@@ -119,22 +143,66 @@ function renderMemory() {
     return r ? `<span class='lg' data-mod='${r.m.id}'>` : `<span class='lg'>`;
   });
 
-  // Per-mod table — same order as the strip. The RAM/scaffold column LEADS: a
-  // wide magnitude bar (share of the visible total) sits beside its figure as
-  // one unit, so scanning the column tracks size. The footprint composition is a
-  // SECONDARY hint — a thin, narrow split confined to its own slim column; the
-  // full breakdown is one click away in the drawer. tr.sel drives the drawer.
+  // Per-mod table view. Independent of the strip: a 29-mod roster needs to be
+  // navigable, so the table carries its own search filter + click-to-sort while
+  // the strip stays size-sorted. The magnitude cellbar shares the strip's total
+  // so bar lengths read the same in both. tr.sel drives the breakdown drawer.
   const valHead = memBasis === 'overhead' ? 'scaffold' : 'RAM';
-  let th = `<table class='dtable'><thead><tr>`
-    + `<th class='l'>mod</th>`
-    + `<th class='mem-col-val'>${valHead}</th>`
-    + `<th class='l mem-col-fp'>footprint</th><th>hooks</th><th>alloc/s</th>`
+  // Sort keys -> comparable scalar. 'name' is alpha; the rest are numeric and
+  // tie-break on name so the order is deterministic when figures match (idle/db
+  // mode where every alloc reads 0). The footprint column is composition, not a
+  // scalar, so it is presentational only (not a sort key).
+  const memSortVal = {
+    name:  m => null,
+    val:   m => memValue(m),
+    hooks: m => m.hookCount || 0,
+    alloc: m => (mem.tracksAllocations ? (m.allocBytes || 0) : 0),
+  };
+  const q = memFilter.trim().toLowerCase();
+  let view = rows.slice();
+  if (q) view = view.filter(r => r.m.name.toLowerCase().includes(q));
+  view.sort((a, b) => {
+    if (memSort.key === 'name') return memSort.dir * a.m.name.localeCompare(b.m.name);
+    const fn = memSortVal[memSort.key] || memSortVal.val;
+    return memSort.dir * ((fn(a.m) - fn(b.m)) || a.m.name.localeCompare(b.m.name));
+  });
+
+  // Sortable header cell: the shared .dtable th.sortable / .sorted idiom with a
+  // direction caret on the active column. data-msort is the delegated click key;
+  // extra carries any column-width class (e.g. mem-col-val).
+  function memTh(key, label, leftAlign, extra) {
+    const on = memSort.key === key;
+    const arrow = on ? (memSort.dir === 1 ? ' ▲' : ' ▼') : '';
+    const cls = (leftAlign ? 'l ' : '') + (extra ? extra + ' ' : '') + 'sortable' + (on ? ' sorted' : '');
+    return `<th class='${cls}' data-msort='${key}'>${escapeHtml(label)}${arrow}</th>`;
+  }
+
+  // A search box + a footprint key live in a sticky control bar above the table,
+  // so a 29-mod roster is filterable and the monochrome footprint ramp is keyed
+  // once. The bar re-emits each poll; bindMemory() restores the input's focus.
+  let html = `<div class='mem-controls'>`
+    + `<input class='filter-input' id='mem-search' placeholder='search mods…' value='${escapeHtml(memFilter)}'>`
+    + `<div class='mem-fp-key'><span class='mem-fp-key-lbl'>footprint</span>${memFootprintLegend()}</div>`
+    + `</div>`;
+  if (view.length === 0) {
+    html += emptyState('no mods match “' + memFilter + '”');
+    setHTML(tableEl, html);
+    memRestoreSearchFocus();
+    renderMemoryDrawer();
+    return;
+  }
+  html += `<table class='dtable'><thead><tr>`
+    + memTh('name', 'mod', true)
+    + memTh('val', valHead, false, 'mem-col-val')
+    + `<th class='l mem-col-fp'>footprint</th>`
+    + memTh('hooks', 'hooks', false)
+    + memTh('alloc', 'alloc/s', false)
     + `</tr></thead><tbody>`;
-  for (const r of rows) {
+  for (const r of view) {
     const m = r.m;
     const sel = memSelected === m.id ? ' sel' : '';
     const segs = memFootprintSegs(m);
-    th += `<tr class='clickable${sel}' data-mod='${m.id}'>`
+    html += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
       + `<td class='mem-col-val'><span class='mem-val-cell'>`
         + cellBar(r.v / total, modColor(m.id))
@@ -145,10 +213,21 @@ function renderMemory() {
       + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
       + `</tr>`;
   }
-  th += `</tbody></table>`;
-  setHTML(tableEl, th);   // preserve scroll on poll-driven re-render
+  html += `</tbody></table>`;
+  setHTML(tableEl, html);   // preserve scroll on poll-driven re-render
+  memRestoreSearchFocus();
 
   renderMemoryDrawer();
+}
+
+// Breakdown empty-state. A bare centred line read as dead space, so this primes
+// the slot: the prompt plus a one-line note of what a selection reveals (the tML
+// footprint split + the profiler instrumentation figures). Compact, not a skeleton.
+function memBreakdownPrompt() {
+  return `<div class='mem-bd-empty'>`
+    + `<div class='mem-bd-prompt'>select a mod slice or row</div>`
+    + `<div class='mem-bd-hint'>its tModLoader footprint split and profiler instrumentation appear here</div>`
+    + `</div>`;
 }
 
 function renderMemoryDrawer() {
@@ -156,11 +235,11 @@ function renderMemoryDrawer() {
   const mem = lastMemory;
   if (!drawerEl) return;
   if (memSelected == null || !mem) {
-    drawerEl.innerHTML = emptyState('select a mod slice or row for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
   const m = mem.mods.find(x => x.id === memSelected);
-  if (!m) { drawerEl.innerHTML = emptyState('select a mod for its breakdown'); return; }
+  if (!m) { drawerEl.innerHTML = memBreakdownPrompt(); return; }
 
   // Header: name + total (the tML number is an estimate — sub-label keeps that
   // honesty badge in the section header, not a normative judgement).
@@ -191,12 +270,37 @@ function renderMemoryDrawer() {
   drawerEl.innerHTML = h;
 }
 
+// The search input lives inside #mem-table, which setHTML() rewrites every poll,
+// so a focused box would lose focus + caret mid-keystroke. We track focus/caret
+// as the user types and restore them after each re-render. memSearchActive flips
+// false on blur so a re-render never steals focus back once the user clicks away.
+let memSearchActive = false, memSearchCaret = 0;
+function memRestoreSearchFocus() {
+  if (!memSearchActive) return;
+  const s = document.getElementById('mem-search');
+  if (!s) return;
+  s.focus();
+  const c = Math.min(memSearchCaret, s.value.length);
+  try { s.setSelectionRange(c, c); } catch (e) { /* unsupported */ }
+}
+
 // Delegated interactions — bound once to the stable containers.
 (function bindMemory() {
   ['mem-strip', 'mem-legend', 'mem-table'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', e => {
+      // A sort header is not a selection target — handle it first and bail.
+      const sortTh = e.target.closest('th[data-msort]');
+      if (sortTh) {
+        const k = sortTh.dataset.msort;
+        // Toggle direction on the active column; a new column starts descending
+        // (name starts ascending — A→Z reads as the natural default for a name).
+        if (memSort.key === k) memSort.dir = -memSort.dir;
+        else { memSort.key = k; memSort.dir = (k === 'name') ? 1 : -1; }
+        if (activeTab === 'memory') renderMemory();
+        return;
+      }
       const t = e.target.closest('[data-mod]');
       if (!t) return;
       const mid = parseInt(t.dataset.mod, 10);
@@ -204,6 +308,21 @@ function renderMemoryDrawer() {
       if (activeTab === 'memory') renderMemory();
     });
   });
+
+  // Search box: delegated input/focus/blur on the stable #mem-table container so
+  // the listeners survive every poll-driven innerHTML rewrite of the table.
+  const table = document.getElementById('mem-table');
+  if (table) {
+    table.addEventListener('input', e => {
+      if (e.target.id !== 'mem-search') return;
+      memFilter = e.target.value;
+      memSearchCaret = e.target.selectionStart || 0;
+      if (activeTab === 'memory') renderMemory();
+    });
+    table.addEventListener('focusin', e => { if (e.target.id === 'mem-search') memSearchActive = true; });
+    table.addEventListener('focusout', e => { if (e.target.id === 'mem-search') memSearchActive = false; });
+  }
+
   const basis = document.getElementById('mem-basis');
   if (basis) basis.addEventListener('click', e => {
     const b = e.target.closest('button');

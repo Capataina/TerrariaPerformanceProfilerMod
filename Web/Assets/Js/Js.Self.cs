@@ -35,6 +35,10 @@ function renderSelf() {
       { to: 2.5 / 3.5, color: 'var(--orange)' },
       { to: 1, color: 'var(--danger)' },
     ],
+    // Reference tick at the healthy->concerning boundary (1.5x baseline on the
+    // 0..3.5 scale), so the fill is read as 'how far into budget' against the
+    // same threshold the bands already use, not a free-floating arc.
+    ref: 1.5 / 3.5,
     color: s.severity === 'Severe' ? 'var(--danger)' : s.severity === 'Concerning' ? 'var(--orange)' : 'var(--good)',
     centerValue: ratio.toFixed(2) + '×', centerSub: s.severity.toLowerCase(),
   });
@@ -67,11 +71,14 @@ function renderSelf() {
     statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB')) +
     statLine('managed share', dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'));
   const ws = s.processWorkingSetMb || 1, managed = s.processManagedHeapMb || 0, native = Math.max(0, ws - managed);
+  // managed = near-white accent fill; native = a clear mid-grey (--muted), not
+  // the near-panel --surface-2 that vanishes against the dark panel and reads as
+  // 'one bright swatch' next to managed. Two distinct neutrals on the mono ramp.
   document.getElementById('self-split').innerHTML = splitBar([
     { frac: managed / ws, color: 'var(--accent)', label: 'managed', value: fmtInt(Math.round(managed)) + ' MB' },
-    { frac: native / ws, color: 'var(--surface-2)', label: 'native', value: fmtInt(Math.round(native)) + ' MB' },
+    { frac: native / ws, color: 'var(--muted)', label: 'native', value: fmtInt(Math.round(native)) + ' MB' },
   ], { tall: true }) + splitLegend([
-    { color: 'var(--accent)', label: 'managed' }, { color: 'var(--surface-2)', label: 'native' },
+    { color: 'var(--accent)', label: 'managed' }, { color: 'var(--muted)', label: 'native' },
   ]);
 
   // ---- backend ----
@@ -97,15 +104,20 @@ function renderHookDistribution() {
   }
   const sorted = [...perMod.values()].sort((a, b) => b.count - a.count).slice(0, 12);
   const max = sorted.length ? sorted[0].count : 1;
+  const maxMs = sorted.reduce((m, e) => Math.max(m, e.ms), 0) || 1;
   sub.textContent = perMod.size + ' mods · ' + lastHooks.hooks.length + ' active hooks shown';
-  const cols = '2em minmax(0,1.4fr) minmax(0,3fr) 7em 6em';
+  // The count bar is sorted-by (the primary metric); ms gets its own faint
+  // secondary cellBar on an independent scale so where cost and hook count
+  // diverge is visible instead of two bare number columns parsed by eye.
+  const cols = '2em minmax(0,1.4fr) minmax(0,2.4fr) 6em minmax(0,1fr) 5.5em';
   root.innerHTML = rowList(sorted.map((m, i) => row({
     cols,
     cells: [
       `<span class='rk'>${i + 1}</span>`,
       `<span class='nm'>${escapeHtml(m.name)}</span>`,
-      cellBar(m.count / max, 'var(--accent)'),
+      cellBar(m.count / max, modColor(m.id)),
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
+      cellBar(m.ms / maxMs, 'var(--surface-2)'),
       `<span style='text-align:right;color:var(--muted)'>${fmtMs(m.ms)} ms</span>`,
     ],
   })));

@@ -23,14 +23,15 @@ internal static partial class DashboardAssets
 }
 .heatmap-grid {
   display: grid;
-  /* Columns adapt to available width: every cell is at least 12px wide,
-     fluid above that. The Y axis is implicit (1 row), since per the user's
-     intent each cell is one minute of play.  */
-  grid-template-columns: repeat(auto-fill, minmax(1.1rem, 1fr));
-  gap: 2px;
+  /* Columns adapt to available width, fluid above the minimum. The Y axis is
+     implicit (1 row): each cell is one minute of play. The min is generous so a
+     short session (8 tiles) reads as chunky data the legend defers to, rather
+     than a thin strip the full 6-item key out-sizes. */
+  grid-template-columns: repeat(auto-fill, minmax(1.7rem, 1fr));
+  grid-auto-rows: 1.7rem;
+  gap: 3px;
 }
 .hm-cell {
-  aspect-ratio: 1;
   border-radius: 2px;
   background: var(--surface);
   position: relative;
@@ -44,6 +45,12 @@ internal static partial class DashboardAssets
 .hm-cell.p2 { background: var(--perf-2); }
 .hm-cell.p3 { background: var(--perf-3); }
 .hm-cell.p4 { background: var(--perf-4); }
+/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge.
+   A faster minute lifts toward 1.16 brightness, a slower one drops toward 0.84,
+   so an all-smooth session still shows minute-to-minute texture instead of a flat
+   block — the colour still ENCODES exact ms within the band, never decorates. */
+.hm-cell { filter: brightness(calc(1.16 - 0.32 * var(--hm-t, 0.5))); }
+.hm-cell:hover { filter: none; }
 /* State overlay — boss fight cells get a red glow halo around them */
 .hm-cell.boss::after {
   content: ''; position: absolute; inset: -2px;
@@ -51,14 +58,17 @@ internal static partial class DashboardAssets
   border-radius: 3px; pointer-events: none;
   box-shadow: 0 0 6px rgba(247, 118, 142, 0.45);
 }
+/* A compact inline key, deliberately lighter than the tiles so the data leads:
+   smaller swatches + dim text + tight spacing keep the 6-item legend from
+   out-weighing the heatmap it explains. */
 .heatmap-legend {
-  display: flex; flex-wrap: wrap; gap: 0.4em 1.2em;
-  font-family: var(--mono); font-size: 0.75rem;
-  color: var(--muted);
+  display: flex; flex-wrap: wrap; gap: 0.2em 0.85em;
+  font-family: var(--mono); font-size: 0.66rem;
+  color: var(--dim);
 }
 .heatmap-legend .lg-sw {
-  display: inline-block; width: 0.8em; height: 0.8em;
-  border-radius: 2px; margin-right: 0.4em; vertical-align: middle;
+  display: inline-block; width: 0.6em; height: 0.6em;
+  border-radius: 2px; margin-right: 0.3em; vertical-align: middle;
 }
 .heatmap-legend .lg-boss {
   border: 1px solid var(--danger); background: var(--surface);

@@ -26,6 +26,13 @@ internal static partial class DashboardAssets
 /* =================================================== LAG TAB */
 .lag-layout { display: flex; flex-direction: column; gap: 0.75rem; }
 
+/* Per-segment density cell: the magnitude-scaled split bar with its spike/stall
+   + events-per-minute caption centred beneath it, so the count and the geometry
+   it labels share a vertical axis instead of the caption floating left. */
+.lag-density-cell { display: flex; flex-direction: column; gap: 0.15rem; min-width: 9rem; }
+.lag-density-cell .cap { font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  text-align: center; }
+
 /* GC pressure: stat block beside the heap line chart. */
 .lag-gc-body { display: grid; grid-template-columns: minmax(13rem, 16rem) 1fr; gap: 0.9rem; align-items: start; }
 @media (max-width: 760px) { .lag-gc-body { grid-template-columns: 1fr; } }

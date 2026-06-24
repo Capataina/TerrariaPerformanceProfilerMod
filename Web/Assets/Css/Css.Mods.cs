@@ -67,5 +67,17 @@ internal static partial class DashboardAssets
 .cat-row .nm { color: var(--accent); display: flex; gap: 0.4em; align-items: center; min-width: 0; }
 .hook-row { margin-left: 3rem; color: var(--muted); font-size: 0.78rem; }
 .hook-row .nm { user-select: text; }
+
+/* Loading skeleton for a freshly-expanded mod whose hooks haven't arrived yet.
+   Muted greyscale bars on the tree grid (chrome, not data — no perf colour), with
+   a slow shimmer so the in-flight state matches the component vocabulary. */
+.sk-row { pointer-events: none; }
+.sk-bar {
+  display: block; height: 0.7rem; border-radius: 3px;
+  background: var(--surface-2);
+  animation: sk-pulse 1.1s ease-in-out infinite;
+}
+.sk-row:nth-child(2) .sk-bar { animation-delay: 0.18s; }
+@keyframes sk-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.8; } }
 ";
 }

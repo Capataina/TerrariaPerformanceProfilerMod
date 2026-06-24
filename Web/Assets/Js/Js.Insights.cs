@@ -147,13 +147,16 @@ function renderInsightsKpiStrip() {
       `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
   }
 
+  // dormant rides a neutral muted ring, not the lone categorical pink it used to:
+  // hue is reserved for the per-mod series, so a single magnitude KPI uses a
+  // neutral fill. active/under-5% sit on the perf ramp (green / amber).
   const body = `<div class='kpi-grid'>` +
     kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session',                              'var(--accent)') +
     kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster',    'var(--good)') +
-    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--magenta)') +
+    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--muted)') +
     kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%',      'var(--amber)') +
     `</div>`;
-  root.innerHTML = panel({ body });
+  root.innerHTML = panel({ title: 'modlist overview', body });
 }
 
 // ----- I2 dormant surface --------------------------------------------
@@ -489,11 +492,15 @@ function renderCrossCutting() {
   const sections = groups.map(g => {
     const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
     const maxApp = Math.max(1, leaders[0] && leaders[0].appearances || 1);
+    // The bar width encodes share-of-class (appearances / class max); its colour
+    // is a data token (--cpu, the calm ramp green), not the near-white --accent.
+    // Solid white was decorative — the brightest thing in monochrome chrome — and
+    // colour here must encode, not decorate.
     const rows = leaders.map((l, i) => `<tr title='${escapeHtml(l.modName + ' — ' + fmtInt(l.appearances) + ' appearances in ' + g.signalClass)}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(l.modName)}</td>
       <td>${fmtInt(l.appearances)}</td>
-      <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
+      <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--cpu)')}</td>
     </tr>`).join('');
     return sectionBlock(
       humanizeLabel(g.signalClass),
@@ -564,10 +571,18 @@ function renderEngagementScatter() {
     return 0;
   });
 
+  // A true scatter (usage axis × cpu axis) is deferred — there is no scatter
+  // component and building one blind would be fragile. The relationship is made
+  // legible in-place instead: each row carries a usage bar and a cpu bar on a
+  // SHARED axis (both scaled to the max share across all mods), so a long usage
+  // bar over a short cpu bar reads as usage-heavy at a glance, and the inverse as
+  // cost-heavy — the same split the tilt chip names, now visible per row.
+  const maxShare = Math.max(1e-6, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
+
   const cols = [
     { key: 'modName',    label: 'mod',         l: true },
-    { key: 'usageShare', label: 'usage share', title: 'share of all engagement attributed to this mod' },
-    { key: 'cpuShare',   label: 'cpu share',   title: 'share of all measured cpu attributed to this mod' },
+    { key: 'usageShare', label: 'usage share', l: true, title: 'share of all engagement attributed to this mod (bar scaled to the busiest mod)' },
+    { key: 'cpuShare',   label: 'cpu share',   l: true, title: 'share of all measured cpu attributed to this mod (bar scaled to the busiest mod)' },
     { key: 'rosterSize', label: 'roster' },
   ];
   const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
@@ -576,10 +591,16 @@ function renderEngagementScatter() {
   const rows = dots.map(d => {
     const tl = tilt(d);
     const chipCls = tl.cls ? ` ${tl.cls}` : '';
-    return `<tr title='${escapeHtml(d.modName + ' — usage ' + ((d.usageShare||0)*100).toFixed(1) + '% · cpu ' + ((d.cpuShare||0)*100).toFixed(1) + '% · roster ' + fmtInt(d.rosterSize))}'>
+    const uPct = ((d.usageShare||0)*100).toFixed(1);
+    const cPct = ((d.cpuShare||0)*100).toFixed(1);
+    // Usage rides the engagement teal, cpu the ramp green: two distinguishable
+    // data colours on one shared axis so the bars are directly comparable.
+    const usageCell = `<div class='ins-usage'>${cellBar((d.usageShare||0)/maxShare, 'var(--good-bar)')}<span class='ins-pct'>${uPct}%</span></div>`;
+    const cpuCell   = `<div class='ins-usage'>${cellBar((d.cpuShare||0)/maxShare, 'var(--cpu)')}<span class='ins-pct'>${cPct}%</span></div>`;
+    return `<tr title='${escapeHtml(d.modName + ' — usage ' + uPct + '% · cpu ' + cPct + '% · roster ' + fmtInt(d.rosterSize))}'>
       <td class='l'>${escapeHtml(d.modName)}</td>
-      <td>${((d.usageShare||0)*100).toFixed(1)}%</td>
-      <td>${((d.cpuShare||0)*100).toFixed(1)}%</td>
+      <td class='l'>${usageCell}</td>
+      <td class='l'>${cpuCell}</td>
       <td>${fmtInt(d.rosterSize)}</td>
       <td class='l'><span class='chip${chipCls}'>${tl.label}</span></td>
     </tr>`;
@@ -630,16 +651,26 @@ function renderModInteractionMatrix() {
   if (subEl) subEl.textContent = `${N} mods (Pearson r)`;
 
   const pairs = mi.topCoupled.slice(0, 12);
-  const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
+  // Strong-correlation clusters (e.g. every |r| in 0.99..1.0) make a 0..max bar
+  // read as uniformly full, so it adds nothing over the r column. Scale the bar to
+  // the VISIBLE range instead: baseline at the lowest |r| shown, full at the
+  // highest, so small differences between strong correlations stay separable. The
+  // numeric r column carries the absolute value; the bar carries the spread.
+  const absVals = pairs.map(p => Math.abs(p.pearson || 0));
+  const loAbs = Math.min(...absVals), hiAbs = Math.max(...absVals);
+  const spanAbs = hiAbs - loAbs;
   const rows = pairs.map((p, i) => {
     const r = p.pearson || 0;
     const tint = r >= 0 ? 'var(--good)' : 'var(--danger)';
+    // Map |r| onto [0.08 .. 1] of the visible range so even the weakest shown row
+    // keeps a readable stub; a degenerate all-equal set falls back to full.
+    const frac = spanAbs > 1e-9 ? 0.08 + 0.92 * ((Math.abs(r) - loAbs) / spanAbs) : 1;
     return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(p.modNameA)}</td>
       <td class='l'>${escapeHtml(p.modNameB)}</td>
       <td style='color:${tint}'>${r.toFixed(3)}</td>
-      <td class='l ins-cell'>${cellBar(Math.abs(r) / maxAbs, tint)}</td>
+      <td class='l ins-cell'>${cellBar(frac, tint)}</td>
       <td>${fmtInt(p.samplesUsed)}</td>
     </tr>`;
   }).join('');
