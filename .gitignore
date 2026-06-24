@@ -22,3 +22,9 @@ obj/
 
 # Python bytecode from the preview tool.
 tools/preview/__pycache__/
+
+# Dashboard testing suite: the venv + the Playwright-managed browser binary are
+# large and machine-local; recreate them via tools/testing/README.md. The suite
+# source under tools/testing/ (audit.py, pp_testing/, rubric.md, ...) IS committed.
+tools/testing/.venv/
+tools/testing/**/__pycache__/

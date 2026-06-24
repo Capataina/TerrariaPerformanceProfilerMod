@@ -1,0 +1,171 @@
+"""L4 — deterministic interaction & layout invariants.
+
+These are the true/false properties a machine can assert, encoding the bug classes
+the static screenshot harness kept missing (text leaking past a sticky header, a chip
+off-screen, a scroll region that does not cap, selection with no feedback). They run
+against a frozen scenario so a failure is a real regression, not a data shift.
+
+Every invariant iterates the *discovered* panes; none names a tab. The split with L8
+is the plan's rule: if a finding can be an assertion it lives here; if it needs an eye
+it lives in the audit.
+"""
+TOL = 2.0  # px slack for sub-pixel rounding
+
+# Page-level: nothing should force a horizontal scrollbar on the whole document.
+_PAGE_OVERFLOW_JS = r"""(tol) => {
+  const d = document.documentElement;
+  const over = d.scrollWidth - window.innerWidth;
+  return over > tol
+    ? [{ invariant: 'no-page-horizontal-scroll', detail: 'document scrollWidth ' +
+         d.scrollWidth + 'px exceeds viewport ' + window.innerWidth + 'px by ' +
+         Math.round(over) + 'px' }]
+    : [];
+}"""
+
+# Per-pane: scroll-regions / tables whose content is clipped wider than their box.
+_PANE_OVERFLOW_JS = r"""([key, tol]) => {
+  const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+  if (!pane) return [];
+  const out = [];
+  pane.querySelectorAll('.scroll-region, .dtable, table, .rowlist').forEach(el => {
+    if (el.clientWidth === 0) return;
+    const over = el.scrollWidth - el.clientWidth;
+    const ox = getComputedStyle(el).overflowX;
+    if (over > tol && (ox === 'hidden' || ox === 'clip' || ox === 'auto')) {
+      const panel = el.closest('.panel');
+      out.push({ invariant: 'no-horizontal-content-overflow',
+        panel: (panel?.querySelector('.panel-title')?.textContent || '').trim(),
+        detail: (el.className || el.tagName) + ' content ' + el.scrollWidth +
+                'px overflows its ' + el.clientWidth + 'px box by ' + Math.round(over) + 'px' });
+    }
+  });
+  return out;
+}"""
+
+# Per-pane: scroll a region to the bottom; the sticky header must (a) stay pinned at
+# the top of the region and (b) be OPAQUE so rows scrolling under it cannot bleed
+# through. The bleed bug (the dormant-leak class) is a *paint* property, not geometry:
+# rows sliding under an opaque, stacked header is normal and correct, so we check the
+# header's background alpha — the actual cause — not raw box overlap.
+_STICKY_JS = r"""([key, tol]) => {
+  const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+  if (!pane) return [];
+  const out = [];
+  function alphaOf(c) {
+    c = (c || '').trim();
+    if (c === 'transparent' || c === '') return 0;
+    const rgba = c.match(/rgba?\(([^)]*)\)/i);
+    if (rgba) { const p = rgba[1].split(/[,\s/]+/).filter(Boolean); return p.length >= 4 ? parseFloat(p[3]) : 1; }
+    const slash = c.match(/\/\s*([0-9.]+%?)\s*\)?$/);   // oklch/lab/hsl ... / alpha
+    if (slash) { return slash[1].endsWith('%') ? parseFloat(slash[1]) / 100 : parseFloat(slash[1]); }
+    return 1;  // opaque functional colour with no alpha channel
+  }
+  pane.querySelectorAll('.scroll-region').forEach(sr => {
+    const sticky = [...sr.querySelectorAll('*')].find(e => {
+      const p = getComputedStyle(e).position; return p === 'sticky' || p === 'fixed';
+    });
+    if (!sticky || sr.scrollHeight - sr.clientHeight < 8) return;  // not scrollable
+    sr.scrollTop = sr.scrollHeight;                                // to the extreme
+    const sBox = sticky.getBoundingClientRect();
+    const rBox = sr.getBoundingClientRect();
+    const panel = (sr.closest('.panel')?.querySelector('.panel-title')?.textContent || '').trim();
+    if (sBox.top - rBox.top > 24) {  // a broken sticky scrolls fully out (drift ~ hundreds px)
+      out.push({ invariant: 'sticky-header-stays-pinned', panel,
+        detail: 'sticky header drifted ' + Math.round(sBox.top - rBox.top) + 'px below the region top after scroll' });
+    }
+    const a = alphaOf(getComputedStyle(sticky).backgroundColor);
+    if (a < 0.99) {  // a translucent header lets the rows under it bleed through
+      out.push({ invariant: 'sticky-header-opaque', panel,
+        detail: 'sticky header background is ' + Math.round(a * 100) + '% opaque; rows scrolling under it can bleed through' });
+    }
+    sr.scrollTop = 0;
+  });
+  const seen = new Set();
+  return out.filter(v => { const k = v.invariant + v.panel + v.detail; if (seen.has(k)) return false; seen.add(k); return true; });
+}"""
+
+_DRAWER_CLOSED_JS = r"""() => {
+  const c = document.getElementById('modcard');
+  if (!c) return [];
+  const cls = c.className || '';
+  if (cls.includes('hidden')) return [];
+  const r = c.getBoundingClientRect();
+  const onscreen = r.right > 0 && r.left < window.innerWidth && r.width > 0;
+  return onscreen
+    ? [{ invariant: 'drawer-hidden-when-closed', detail: 'mod card is on-screen without the hidden class at rest' }]
+    : [];
+}"""
+
+
+def _selection_feedback(dash, key, panels):
+    """Clicking a row in a clickable list must visibly change it (class or style)."""
+    out = []
+    for p in panels:
+        if not p["hasRows"]:
+            continue
+        before = dash.evaluate(
+            r"""([key, i]) => {
+              const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+              const panel = pane && pane.querySelectorAll('.panel')[i];
+              const row = panel && panel.querySelector('.row.clickable, .dtable tr.clickable, [data-mod]');
+              if (!row) return null;
+              return { cls: row.className, bg: getComputedStyle(row).backgroundColor };
+            }""", [key, p["index"]])
+        if before is None:
+            continue
+        if not dash.select_first_row(key, p["index"]):
+            continue
+        after = dash.evaluate(
+            r"""([key, i]) => {
+              const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+              const panel = pane && pane.querySelectorAll('.panel')[i];
+              const row = panel && panel.querySelector('.row.clickable, .dtable tr.clickable, [data-mod]');
+              if (!row) return null;
+              return { cls: row.className, bg: getComputedStyle(row).backgroundColor,
+                       drawer: !(document.getElementById('modcard')?.className || '').includes('hidden') };
+            }""", [key, p["index"]])
+        if after is None:
+            continue
+        changed = (after["cls"] != before["cls"]) or (after["bg"] != before["bg"]) or after.get("drawer")
+        if not changed:
+            out.append({"invariant": "selection-has-feedback", "tab": key,
+                        "panel": p["title"],
+                        "detail": "clicking a row changed neither its class, background, nor opened a drawer"})
+        dash.close_drawer()
+    return out
+
+
+def run(dash):
+    """Run every invariant across every discovered tab. Returns a result dict."""
+    violations = []
+    page_over = dash.evaluate(_PAGE_OVERFLOW_JS, TOL)
+    violations += page_over
+
+    tabs = dash.tabs()
+    n_panels = 0
+    for t in tabs:
+        key = t["key"]
+        dash.focus(key)
+        panels = dash.panels(key)
+        n_panels += len(panels)
+        for v in dash.evaluate(_PANE_OVERFLOW_JS, [key, TOL]):
+            v["tab"] = key
+            violations.append(v)
+        for v in dash.evaluate(_STICKY_JS, [key, TOL]):
+            v["tab"] = key
+            violations.append(v)
+        violations += _selection_feedback(dash, key, panels)
+        # Drawer: open one from this tab if it offers a trigger, then assert it
+        # closes off-screen.
+        if dash.open_first_drawer(key):
+            dash.close_drawer()
+        for v in dash.evaluate(_DRAWER_CLOSED_JS):
+            v["tab"] = key
+            violations.append(v)
+
+    return {
+        "tabs": [t["key"] for t in tabs],
+        "panels_checked": n_panels,
+        "violations": violations,
+        "passed": len(violations) == 0,
+    }
