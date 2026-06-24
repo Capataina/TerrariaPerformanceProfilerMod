@@ -19,3 +19,6 @@ obj/
 
 # Tool-generated skill cache (frontend-design / open-design); not project source.
 .od-skills/
+
+# Python bytecode from the preview tool.
+tools/preview/__pycache__/

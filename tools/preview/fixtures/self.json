@@ -1,0 +1,1 @@
+{"installed": true, "installDeltaBytes": 1888995680, "installDeltaMb": 1801.4866638183594, "bytesPerHook": 30368, "bytesPerHookKb": 29.65625, "installedHookCount": 62203, "processWorkingSetMb": 12615.6484375, "processManagedHeapMb": 12414.321311950684, "managedFractionOfWorkingSet": 0.9840414762232219, "severity": "Healthy", "backend": "ILHook"}
