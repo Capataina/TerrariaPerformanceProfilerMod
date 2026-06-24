@@ -80,6 +80,7 @@ public static class InsightRenderer
             PatternKey.ContextConditionalCost => RenderContextConditionalCost(rec, density),
             PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
             PatternKey.CostConcentration => RenderCostConcentration(rec, density),
+            PatternKey.FrameJitter => RenderFrameJitter(rec, density),
             _ => RenderUnsupported(rec),
         };
     }
@@ -254,6 +255,17 @@ public static class InsightRenderer
         if (density == Density.Short)
             return $"{count} of {totalMods} mods account for {share} of measured mod cost.";
         return $"{count} of {totalMods} cost-contributing mods carry {share} of the measured per-mod cost this session; the rest is spread across the remaining {totalMods - count}.";
+    }
+
+    private static string RenderFrameJitter(Insight rec, Density density)
+    {
+        string median = Ms(rec.Magnitude.P50);
+        string spread = Ms(rec.Magnitude.ObservedMs);
+        string cv = Pct(rec.Magnitude.RatioOrDelta);
+
+        if (density == Density.Short)
+            return $"your frame times swing ±{cv} around {median} ms — frequent small hitches.";
+        return $"your median frame is {median} ms but the typical swing is ±{spread} ms ({cv} of the median) — a stutter pattern (many small hitches) rather than a steady-but-slow frame.";
     }
 
     private static string RenderUnsupported(Insight rec) =>

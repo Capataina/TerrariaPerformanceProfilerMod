@@ -92,9 +92,11 @@ public static class RankingScorer
         // contributor held in the K=60 ticks before a GC stall fired.
         PatternKey.GcPauseCulprit         => true,
         // Wave 5: CostConcentration's RatioOrDelta is the lever's share of cost;
-        // FrameHeadroom stores the fraction of the 60 fps budget used (both [0,1]).
+        // FrameHeadroom stores the fraction of the 60 fps budget used; FrameJitter
+        // stores the coefficient of variation (all read as [0,1]-ish shares).
         PatternKey.CostConcentration      => true,
         PatternKey.FrameHeadroom          => true,
+        PatternKey.FrameJitter            => true,
         _                                 => false,
     };
 

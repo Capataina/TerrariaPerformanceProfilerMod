@@ -102,9 +102,10 @@ public sealed class InsightsEngine
             new GcPauseCulpritDetector(),
             // Un-gated in Wave 3 against the ContextBaseline reference frame.
             new ContextConditionalCostDetector(),
-            // Wave 5 family detectors: D (headroom) and E (structure).
+            // Wave 5 family detectors: D (headroom), E (structure), C (distribution).
             new FrameHeadroomDetector(),
             new CostConcentrationDetector(),
+            new FrameJitterDetector(),
 
             // Gated detectors (data not yet exposed; emit nothing today).
             new ContextCorrelatedSpikeDetector(),

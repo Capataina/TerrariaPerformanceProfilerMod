@@ -15,7 +15,7 @@ Mod version `0.18.1 → 0.19.0`.
 | 0 | `5a78ca9` | `InsightRecord → Insight`; shape-tagged `Magnitude` (Deviation/Share/Rate/Scaling/Headroom/Distribution); process-level `SubjectRef` (Session/Runtime/Machine); store gaps G5 (comparer race) + G6 (StableKey collision) closed; frozen `IReferenceFrame`/`IDriver`/`IInsightInput` contracts. |
 | 4 | `6e8ffd3` | **The Flute fix.** Usage axis now active-use ticks (held/worn/in-biome), not creation counts. New `ItemsHeldTicks`/`ArmorEquippedTicks` per-tick counters; `ModMetrics.UsageWeight` reads them; `CreationWeight` keeps the old signal. Dashboard dormant table reworked. Breaking. |
 | 3 | `6f2feca` | `ContextBaseline` reference frame (per-context per-mod Welford, fed 1 Hz off-thread, capped) + `Stats` (CohensD, Welch's t). Un-gated `ContextConditionalCost` with candidate-gating + Bonferroni. |
-| 5 | `6346d31` | Families D (`FrameHeadroom`) + E (`CostConcentration`) detectors + render templates. **Partial** (see below). |
+| 5 | `6346d31` + follow-on | Families D (`FrameHeadroom`), E (`CostConcentration`), C (`FrameJitter`) detectors + render templates. 3 of 5 families; **B not built** (see below). |
 | 6 | `7a80228` | `CrossSessionStore` — per-context baselines persist across sessions, fingerprint-keyed (closes G3: confidence can reach High, LifetimeData truthful). Round-trip tested. |
 | 7 | (this) | SessionSummaryLogger logs the engine's top insights (dual-surface); version bump; this note. |
 
@@ -36,10 +36,12 @@ Mod version `0.18.1 → 0.19.0`.
 
 ## What remains (honest)
 
-- **Wave 5 families B + C** not built: Temporal (leak/warmup/drift) needs the
+- **Wave 5 family B (Temporal) not built:** leak/warmup/drift needs the
   heap/session-age/entity-count Drivers (deferred from Wave 4) to control for workload
-  — building them without that control is the temporal-confound the plan forbids;
-  Distribution (jitter/bimodal/recovery) needs frame-time shape analysis.
+  — building it without that control is the temporal-confound the plan forbids
+  ("heap up AT CONSTANT entity count = a leak; heap up WITH entity count = progression").
+  Family C is now in (FrameJitter — the CV/stutter half; bimodality/recovery, which
+  need the full frame-time distribution not just median+MAD, remain).
 - **Still-gated detectors:** ContextCorrelatedSpike (needs a transition-timed stream),
   SustainedCostShift / NewContributor (need per-tick per-mod history), HookFrequencyTail
   (needs per-hook call counts), LoadoutCombinationCost (cross-session loadout aggregation),
