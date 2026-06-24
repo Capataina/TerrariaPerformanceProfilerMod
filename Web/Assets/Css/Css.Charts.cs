@@ -70,9 +70,10 @@ internal static partial class DashboardAssets
    than hard saturated blocks; the perf-ramp hue still encodes impact. */
 .chart-stream .st-band { stroke: none; fill-opacity: 0.68; }
 .chart-stream .st-band:hover { fill-opacity: 0.92; }
-/* The total envelope + its sample markers (drawn over the stack). */
-.chart-stream .st-line { fill: none; stroke: var(--perf-3); stroke-width: 1.3; opacity: 0.8; }
-.chart-stream .st-dot { fill: var(--bg-deep); stroke: var(--perf-3); stroke-width: 1.3; }
+/* The total envelope + its sample markers (drawn over the stack) — monochrome,
+   a near-white line so the total reads as one bright contour over the grey stack. */
+.chart-stream .st-line { fill: none; stroke: oklch(0.92 0 0); stroke-width: 1.3; opacity: 0.7; }
+.chart-stream .st-dot { fill: var(--bg-deep); stroke: oklch(0.92 0 0); stroke-width: 1.3; }
 
 /* ===== Sankey: two-layer flow ===================================== */
 .chart-sankey { display: block; width: 100%; height: auto; }

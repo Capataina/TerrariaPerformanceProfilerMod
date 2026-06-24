@@ -321,14 +321,13 @@ function sampleModStream() {
   }
   if (activeTab === 'summary') renderModStream();
 }
-// Colour encodes performance impact via the perf ramp: the heaviest mod sits at
-// the base in hot red, lighter contributors stack up toward calm green — so a
-// band's colour AND its thickness both say 'how much frame cost'. The bands are
-// drawn at lower opacity (see .st-band) so the stack reads as a soft, layered
-// gradient rather than hard blocks.
+// Monochrome luminance ramp by impact rank: the heaviest mod sits at the base as
+// the brightest band, lighter contributors fade to dim grey toward the top — so
+// magnitude reads as luminance AND thickness, with no hue. On-brand (the chrome
+// is monochrome), and the lower band opacity layers them softly.
 function streamRamp(i, n) {
-  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base, hot) .. 1 = smallest (top, calm)
-  return `oklch(${(0.64 + 0.08 * t).toFixed(3)} ${(0.17 - 0.07 * t).toFixed(3)} ${(25 + 125 * t).toFixed(0)})`;
+  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base, bright) .. 1 = smallest (top, dim)
+  return `oklch(${(0.80 - 0.34 * t).toFixed(3)} 0 0)`;
 }
 // Build the stream's top-N + window controls once, wired to re-render in place.
 function buildStreamControls() {

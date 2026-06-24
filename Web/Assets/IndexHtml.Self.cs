@@ -44,8 +44,9 @@ internal static partial class DashboardAssets
           </div>
         </div>
 
-        <!-- Backend mode -->
-        <div class=""panel"">
+        <!-- Backend mode (full-width so it doesn't sit narrow-left and leave the
+             right column empty below process-context) -->
+        <div class=""panel self-span"">
           <header class=""panel-h"">
             <span class=""panel-title"">attribution backend</span>
             <span class=""panel-sub"" data-explain=""backend"">how we instrument hooks</span>
