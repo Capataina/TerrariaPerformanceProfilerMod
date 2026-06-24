@@ -37,7 +37,8 @@ context/
 ├── notes/                   Topical inbox (decisions + conventions + posture + future work)
 │   decisions, conventions, philosophy, ui-overhaul-plan,
 │   future-unified-data-interface, future-html-report,
-│   future-settings-design, modlist-pre-upgrade-2026-06-22
+│   future-settings-design, future-insights-rework, compile-gate,
+│   insights-rework-status, modlist-pre-upgrade-2026-06-22
 │
 ├── perf-pass/               v0.5→v0.6 performance-research record
 │   baseline, deferred, verification
