@@ -36,6 +36,11 @@ internal static partial class DashboardAssets
 @media (max-width: 900px) { .self-layout { grid-template-columns: 1fr; } }
 .self-hero { grid-column: 1 / -1; }
 .self-span { grid-column: 1 / -1; }
+/* The install-footprint + process-context pair stretch to a shared height (the
+   taller of the two) instead of hugging content, so the side-by-side row reads as
+   one even band with no step between them. align-self overrides the layout's
+   align-items:start for just these two; the full-width panels still hug. */
+.self-pair { align-self: stretch; }
 
 /* Gauge column shrinks to the arc's actual footprint (auto, not a fixed 12.5rem
    track that resolved wider than the 200px SVG and left the gauge floating left

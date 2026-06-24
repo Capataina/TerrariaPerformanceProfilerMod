@@ -21,7 +21,7 @@ internal static partial class DashboardAssets
         </div>
 
         <!-- Install footprint + delta split bar -->
-        <div class=""panel"">
+        <div class=""panel self-pair"">
           <header class=""panel-h"">
             <span class=""panel-title"">install footprint</span>
             <span class=""panel-sub"" data-explain=""install-delta"">heap delta over baseline</span>
@@ -33,7 +33,7 @@ internal static partial class DashboardAssets
         </div>
 
         <!-- Process context + managed/native split bar -->
-        <div class=""panel"">
+        <div class=""panel self-pair"">
           <header class=""panel-h"">
             <span class=""panel-title"">process context</span>
             <span class=""panel-sub"" data-explain=""process-context"">managed heap vs total working set</span>
