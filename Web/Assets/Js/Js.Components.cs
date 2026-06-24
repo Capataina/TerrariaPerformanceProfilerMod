@@ -123,6 +123,18 @@ function dash(v, fn) {
   return fn ? fn(v) : String(v);
 }
 
+// Split a PascalCase / snake / kebab identifier into spaced words for display
+// (e.g. 'HotHookDominance' -> 'hot hook dominance'). Surfaces that uppercase via
+// CSS then read 'HOT HOOK DOMINANCE' instead of 'HOTHOOKDOMINANCE'.
+function humanizeLabel(s) {
+  return String(s == null ? '' : s)
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 // ====== Structural components ========================================
 // A 'component' here = one CSS class block + one render fn returning an HTML
 // string + an opts contract. No framework. Data is the only variable.
@@ -213,7 +225,10 @@ function legend(items, o) {
   let h = `<div class='${cls}'>`;
   for (const s of items) {
     if (!s) continue;
-    h += `<span class='lg'><span class='sw' style='background:${s.color}'></span>${escapeHtml(s.label)}`;
+    // When an item carries an id it becomes a click target (data-mod); the .hit
+    // class gives it the pointer affordance. Used by the donut legend.
+    const hit = s.id != null ? ` data-mod='${s.id}'` : '';
+    h += `<span class='lg${s.id != null ? ' hit' : ''}'${hit}><span class='sw' style='background:${s.color}'></span>${escapeHtml(s.label)}`;
     if (s.value != null) h += ` <span class='lg-v'>${escapeHtml(String(s.value))}</span>`;
     h += `</span>`;
   }

@@ -31,6 +31,11 @@ internal static partial class DashboardAssets
 .chart-center .cc-mid { font-family: var(--ui); font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem;
   max-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chart-center .cc-bot { font-family: var(--mono); font-size: 0.7rem; color: var(--dim); }
+/* Clickable donut slices + legend rows (wired to open the mod card). */
+.chart-donut .slice.hit { cursor: pointer; transition: opacity 0.12s; }
+.chart-donut .slice.hit:hover { opacity: 0.8; }
+.bar-legend .lg.hit { cursor: pointer; border-radius: 2px; transition: color 0.12s; }
+.bar-legend .lg.hit:hover { color: var(--text-bright); }
 
 /* ===== Gauge ====================================================== */
 .chart-gauge { display: block; max-width: 100%; height: auto; }

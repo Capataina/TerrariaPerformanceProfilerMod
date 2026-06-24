@@ -144,7 +144,9 @@ internal static partial class DashboardAssets
 /* ===== Stat tile / grid: label-over-value card (optional bar) ====== */
 /* Consolidates .mem-card / .mc-stat / .hero-stat into one tile, and the
    severity tint (.good/.warn/.bad) into ONE definition. */
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+/* auto-fit (not auto-fill): collapse the empty tracks so a few tiles stretch to
+   fill the row instead of clustering left with dead space to the right. */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
   gap: 0.5rem; }
 .stat-tile { display: flex; flex-direction: column; gap: 0.15rem;
   background: var(--secondary); border: 1px solid var(--border-soft);
@@ -198,5 +200,14 @@ internal static partial class DashboardAssets
    form the donut used, .inline a wider-gap row the heatmap used. */
 .bar-legend.stack { flex-direction: column; flex-wrap: nowrap; gap: 0.25rem; }
 .bar-legend.inline { gap: 0.4rem 1.2rem; }
+
+/* ===== Sentence-case rule for descriptive text ===================== */
+/* Eyebrow / labels keep their uppercase treatment (they carry acronyms like
+   CPU / GC / MS); this lifts the lowercase PROSE — empty states, callouts,
+   captions, stat sub-captions — to sentence case so the UI no longer reads as
+   a wall of lowercase. */
+.empty::first-letter, .callout::first-letter, .ins-caption::first-letter,
+.comp-empty::first-letter, .stat-tile .sub::first-letter,
+.bar-row .lbl::first-letter { text-transform: uppercase; }
 ";
 }

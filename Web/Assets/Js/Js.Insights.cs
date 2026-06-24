@@ -447,7 +447,7 @@ function renderObservatoryDetail() {
         <div class='det-roster'>roster total ${fmtInt(totalRoster)} entries</div>
       </div>
       ${sectionBlock('roster composition', legendHtml)}
-      ${sectionBlock('headline cost &amp; engagement', statsHtml)}
+      ${sectionBlock('headline cost & engagement', statsHtml)}
       ${sectionBlock('roster vs usage', `
         <table class='dtable'>
           <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
@@ -496,7 +496,7 @@ function renderCrossCutting() {
       <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
     </tr>`).join('');
     return sectionBlock(
-      escapeHtml(g.signalClass),
+      humanizeLabel(g.signalClass),
       `<table class='dtable'>
         <thead><tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr></thead>
         <tbody>${rows}</tbody>

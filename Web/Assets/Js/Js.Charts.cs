@@ -157,7 +157,10 @@ function donut(o) {
     let ang = 0;
     for (const d of data) {
       const sw = d.value / total * 360;
-      paths += `<path d='${_ring(cx, cy, rO, rI, ang, ang + Math.max(0.4, sw))}' fill='${d.color}'><title>${escapeHtml((d.label || '') + (d.valueLabel != null ? ' · ' + d.valueLabel : ''))}</title></path>`;
+      // A datum carrying an id becomes a click target (data-mod); .slice.hit gives
+      // it the pointer affordance + hover feedback. Callers wire the click.
+      const hit = d.id != null ? ` data-mod='${d.id}' class='slice hit'` : ` class='slice'`;
+      paths += `<path${hit} d='${_ring(cx, cy, rO, rI, ang, ang + Math.max(0.4, sw))}' fill='${d.color}'><title>${escapeHtml((d.label || '') + (d.valueLabel != null ? ' · ' + d.valueLabel : ''))}</title></path>`;
       ang += sw;
     }
   }

@@ -42,41 +42,46 @@ function openModCard(modId) {
   // Category breakdown.
   const cats = lastMods.categories || [];
   const catMax = Math.max(...mod.categories);
-  const catRows = mod.categories.map((v, i) => {
-    if (v <= 0.001) return '';
-    return row({
+  // Ordered by cost, biggest first — the breakdown should read top-down by impact.
+  const catRows = mod.categories
+    .map((v, i) => ({ v, i }))
+    .filter(c => c.v > 0.001)
+    .sort((a, b) => b.v - a.v)
+    .map(({ v, i }) => row({
       cols: 'minmax(0, 1fr) minmax(0, 2fr) 5em',
       cells: [
         `<span class='nm'>${escapeHtml(cats[i] || 'cat:' + i)}</span>`,
         cellBar(v / catMax, 'var(--cpu)'),
         `<span class='mc-catv'>${fmtMs(v)} ms</span>`,
       ],
-    });
-  }).filter(Boolean);
+    }));
 
   const sharePct = (mod.cpuMs / (sorted.reduce((s, m) => s + m.cpuMs, 0) || 1) * 100).toFixed(1);
 
   body.innerHTML =
+    `<div class='mc-hero'><span class='mc-swatch' style='background:${modColor(mod.id)}'></span>` +
+      `<div class='mc-hero-meta'><span class='mc-hero-val'>${sharePct}%</span>` +
+      `<span class='mc-hero-lbl'>Of all mod CPU, this tick</span></div></div>` +
     sectionBlock('cost · live', statGrid([
-      statTile({ k: 'cpu now', v: fmtMs(mod.cpuMs) + ' ms/t', big: true, sub: 'this tick' }),
-      statTile({ k: 'cpu avg', v: fmtMs(mod.avgCpuMs) + ' ms/t', big: true, sub: 'session' }),
-      statTile({ k: 'alloc/t', v: lastMods.tracksAllocations ? fmtBytes(mod.allocBytes) : '—', sub: lastMods.tracksAllocations ? 'tracked' : 'off' }),
-      statTile({ k: 'share', v: sharePct + '%', vClass: 'accent', sub: 'of all mods' }),
+      statTile({ k: 'cpu now', v: fmtMs(mod.cpuMs) + ' ms/t', big: true, sub: 'This tick' }),
+      statTile({ k: 'cpu avg', v: fmtMs(mod.avgCpuMs) + ' ms/t', big: true, sub: 'Session' }),
+      statTile({ k: 'alloc/t', v: lastMods.tracksAllocations ? fmtBytes(mod.allocBytes) : '—', sub: lastMods.tracksAllocations ? 'Tracked' : 'Off' }),
+      statTile({ k: 'share', v: sharePct + '%', vClass: 'accent', sub: 'Of all mods' }),
     ], { cols: '1fr 1fr' })) +
 
     sectionBlock('frame impact · marginal contribution', callout(
-      `this mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
-      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). at your current frame time that is the ` +
+      `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
+      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). At your current frame time that is the ` +
       `difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and ` +
       `<strong>${fpsAvg.toFixed(0)} fps</strong> on average, ` +
       `and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.` +
-      `<br/><span class='muted'>caveat: a marginal upper bound. sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. this describes measured cost, not a recommendation.</span>`)) +
+      `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',
-      catRows.length ? rowList(catRows) : `<span class='muted'>no per-category activity yet</span>`) +
+      catRows.length ? rowList(catRows) : `<span class='muted'>No per-category activity yet</span>`) +
 
     sectionBlock('next steps', callout(
-      `click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.`));
+      `Click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.`));
   card.classList.remove('hidden');
 }
 

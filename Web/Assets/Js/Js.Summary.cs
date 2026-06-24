@@ -174,7 +174,7 @@ function renderDonut() {
 
   // Top-6 mod slices + one aggregated 'rest' slice, coloured per-mod.
   const data = top.map(m => ({
-    value: m.cpuMs, label: m.name, color: modColor(m.id),
+    id: m.id, value: m.cpuMs, label: m.name, color: modColor(m.id),
     valueLabel: (m.cpuMs / total * 100).toFixed(1) + '%',
   }));
   if (restSum > 0) data.push({ value: restSum, label: '+ ' + rest.length + ' more', color: 'var(--surface-2)', valueLabel: (restSum / total * 100).toFixed(1) + '%' });
@@ -189,8 +189,22 @@ function renderDonut() {
     },
   });
 
-  legendEl.innerHTML = legend(data.map(d => ({ color: d.color, label: d.label, value: d.valueLabel })), { stack: true });
+  legendEl.innerHTML = legend(data.map(d => ({ color: d.color, label: d.label, value: d.valueLabel, id: d.id })), { stack: true });
 }
+
+// Donut interactivity: clicking a slice or a legend row opens that mod's card
+// (the same drawer the Summary mod tree opens). Bound once on the stable
+// containers; renderDonut only swaps their innerHTML, so the delegation holds.
+(function bindDonutInteractivity() {
+  function pick(e) {
+    const el = e.target.closest('[data-mod]');
+    if (el) openModCard(parseInt(el.dataset.mod, 10));
+  }
+  const chart = document.getElementById('donut-svg');
+  const leg = document.getElementById('donut-legend');
+  if (chart) chart.addEventListener('click', pick);
+  if (leg) leg.addEventListener('click', pick);
+})();
 
 function renderTrendSparklines() {
   const title = document.getElementById('trends-title');

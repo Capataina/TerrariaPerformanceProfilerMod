@@ -70,11 +70,22 @@ internal static partial class DashboardAssets
 .ins-lower > #ins-cross { grid-column: 1 / -1; }
 @media (max-width: 900px) { .ins-lower { grid-template-columns: 1fr; } }
 
-/* Cross-cutting packs one ranked table per signal class into an auto-fit grid
-   inside its panel body. */
+/* Cross-cutting packs one ranked table per signal class into a responsive grid
+   inside its panel body. The track floor is wide enough (28rem) that it always
+   clears a class table's min-content, so a table never spills into its
+   neighbour; min-width:0 lets the track shrink to that floor and min() collapses
+   to a single column on narrow viewports. The sub-tables are short and not in a
+   scroll region, so their headers are static (no sticky overlap), and overflow
+   clipping is the last-resort guard against a pathological long name. */
 .cc-sections {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 0.6rem 0.9rem;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 28rem), 1fr));
+  gap: 0.8rem 0.9rem;
+  align-items: start;
+}
+.cc-sections > .section-block { min-width: 0; overflow: hidden; }
+.cc-sections .dtable thead th { position: static; }
+.cc-sections .section-h > span:first-child {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 /* Width caps for the in-cell magnitude bars so a cellBar in a table column
