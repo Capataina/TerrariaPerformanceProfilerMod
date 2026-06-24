@@ -39,5 +39,6 @@ const expandedSpikes = new Set();
 const expandedStalls = new Set();
 const expandedSegments = new Set();
 const modSparkHistory = new Map();   // modId -> [last N cpu values] for inline mini-spark
+const modStreamHistory = new Map();  // modId -> [last 50 composite samples] for the cost-stream area (sampled ~5s)
 ";
 }

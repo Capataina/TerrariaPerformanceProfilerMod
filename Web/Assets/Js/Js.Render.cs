@@ -18,6 +18,7 @@ internal static partial class DashboardAssets
 // ====== SUMMARY =======================================================
 function renderSummary() {
   renderKpiStrip();
+  renderModStream();
   renderFrameChart();
   renderDonut();
   renderCostFlow();

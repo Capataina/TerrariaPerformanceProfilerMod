@@ -49,6 +49,15 @@ internal static partial class DashboardAssets
           </div>
         </div>
 
+        <!-- Per-mod cost stream: every mod stacked over a rolling ~5s window -->
+        <div class=""panel"" style=""grid-area: stack;"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">per-mod cost stream · every mod, over time</span>
+            <span class=""panel-sub"" id=""stream-sub"">—</span>
+          </header>
+          <div class=""stream-wrap"" id=""mod-stream""></div>
+        </div>
+
         <!-- Frame chart hero -->
         <div class=""panel panel-hero"" style=""grid-area: chart;"">
           <header class=""panel-h"">

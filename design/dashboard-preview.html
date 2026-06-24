@@ -550,6 +550,14 @@ html, body {
 .chart-waffle { display: grid; gap: 2px; }
 .chart-waffle .wf-cell { aspect-ratio: 1; border-radius: 1px; }
 
+/* ===== Stacked-area stream ======================================== */
+.chart-stream { display: block; width: 100%; height: 100%; }
+.chart-stream .st-band { stroke: none; }
+.chart-stream .st-band:hover { filter: brightness(1.12); }
+/* The total envelope + its sample markers (drawn over the stack). */
+.chart-stream .st-line { fill: none; stroke: var(--perf-3); stroke-width: 1.3; opacity: 0.8; }
+.chart-stream .st-dot { fill: var(--bg-deep); stroke: var(--perf-3); stroke-width: 1.3; }
+
 /* ===== Sankey: two-layer flow ===================================== */
 .chart-sankey { display: block; width: 100%; height: auto; }
 .chart-sankey .sk-link { opacity: 0.3; transition: opacity 0.12s; }
@@ -635,6 +643,7 @@ html, body {
   display: grid;
   grid-template-areas:
     'kpi    kpi     kpi'
+    'stack  stack   stack'
     'chart  chart   donut'
     'trends trends  donut'
     'heatmap heatmap heatmap'
@@ -642,7 +651,7 @@ html, body {
     'now    events  events'
     'mods   mods    mods';
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto auto;
+  grid-template-rows: auto auto minmax(170px, 1fr) auto auto auto auto auto;
   gap: 0.75rem;
 }
 
@@ -650,6 +659,7 @@ html, body {
   .grid-summary {
     grid-template-areas:
       'kpi    kpi'
+      'stack  stack'
       'chart  chart'
       'donut  trends'
       'heatmap heatmap'
@@ -661,10 +671,14 @@ html, body {
 }
 @media (max-width: 700px) {
   .grid-summary {
-    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
+    grid-template-areas: 'kpi' 'stack' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
     grid-template-columns: 1fr;
   }
 }
+
+/* ====== Per-mod cost stream (stacked-area banner) ====== */
+.stream-wrap { padding: 0.2rem 0.4rem 0.3rem; height: 9.5rem; }
+.stream-wrap .chart-stream { height: 100%; }
 
 /* ====== Cost-flow sankey ====== */
 .flow-wrap { padding: 0.35rem 0.7rem 0.6rem; }
@@ -1774,6 +1788,15 @@ html, body {
           </div>
         </div>
 
+        <!-- Per-mod cost stream: every mod stacked over a rolling ~5s window -->
+        <div class="panel" style="grid-area: stack;">
+          <header class="panel-h">
+            <span class="panel-title">per-mod cost stream · every mod, over time</span>
+            <span class="panel-sub" id="stream-sub">—</span>
+          </header>
+          <div class="stream-wrap" id="mod-stream"></div>
+        </div>
+
         <!-- Frame chart hero -->
         <div class="panel panel-hero" style="grid-area: chart;">
           <header class="panel-h">
@@ -2197,6 +2220,7 @@ const expandedSpikes = new Set();
 const expandedStalls = new Set();
 const expandedSegments = new Set();
 const modSparkHistory = new Map();   // modId -> [last N cpu values] for inline mini-spark
+const modStreamHistory = new Map();  // modId -> [last 50 composite samples] for the cost-stream area (sampled ~5s)
 
 // ====== Tab routing ==================================================
 function switchTab(name) {
@@ -2993,6 +3017,77 @@ function sankey(o) {
   return `<svg viewBox='0 0 ${w} ${h}' class='chart-sankey' preserveAspectRatio='xMidYMid meet'>${ribbons}${nodes(L, 'l')}${nodes(Rr, 'r')}</svg>`;
 }
 
+// ---- Smooth-curve helpers (Catmull-Rom -> cubic bezier) -------------
+// Turn a list of [x,y] points into smooth bezier segments (no leading M), so
+// stacked-area bands and trend lines flow as soft curves instead of jagged
+// polylines. The tension is the classic 1/6 Catmull-Rom.
+function _catmullSegs(pts) {
+  let d = '';
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+// ---- Stacked-area stream: every series stacked over a rolling x window
+// A streamgraph of per-series magnitude over time: each series is a smooth
+// filled band, stacked, so the TOTAL height is the combined magnitude and each
+// band is one series' contribution. The x axis is normalised to fill the full
+// width regardless of sample count (3 samples stretch across; 50 pack in), and
+// the y axis auto-scales to the tallest stacked total so it never overflows.
+// opts: { series:[{label, values:[], color}], w, h, line?:bool, markers?:bool, maxY? }
+// Series are drawn in the order given (first = bottom of the stack).
+function streamArea(o) {
+  o = o || {};
+  const w = o.w || 1200, h = o.h || 160;
+  const padX = 1, padT = 10, padB = 1;
+  const pw = w - padX * 2, ph = h - padT - padB;
+  let series = (o.series || []).filter(s => s && s.values && s.values.length);
+  if (!series.length) return emptyState('building the cost stream over time…');
+  let n = Math.max(...series.map(s => s.values.length));
+  // Left-pad each series with zeros so all bands share the same x samples (a
+  // mod that appeared late contributed nothing before it existed).
+  series = series.map(s => { const v = s.values.slice(); while (v.length < n) v.unshift(0); return { label: s.label, color: s.color, v }; });
+  // A single sample can't draw a curve — duplicate it into a flat band.
+  if (n < 2) { n = 2; series = series.map(s => ({ label: s.label, color: s.color, v: [s.v[0] || 0, s.v[0] || 0] })); }
+
+  const totals = [];
+  for (let i = 0; i < n; i++) { let t = 0; for (const s of series) t += s.v[i] || 0; totals.push(t); }
+  const maxY = o.maxY || Math.max(1e-9, ...totals) * 1.08;
+  const X = i => padX + (n > 1 ? i / (n - 1) : 0.5) * pw;
+  const Y = v => padT + ph - (v / maxY) * ph;
+
+  const cum = new Array(n).fill(0);
+  let bands = '';
+  for (const s of series) {
+    const bottom = [], top = [];
+    for (let i = 0; i < n; i++) { const y0 = cum[i], y1 = cum[i] + (s.v[i] || 0); bottom.push([X(i), Y(y0)]); top.push([X(i), Y(y1)]); cum[i] = y1; }
+    const bRev = bottom.slice().reverse();
+    const d = `M ${top[0][0].toFixed(1)} ${top[0][1].toFixed(1)}` + _catmullSegs(top) +
+              ` L ${bRev[0][0].toFixed(1)} ${bRev[0][1].toFixed(1)}` + _catmullSegs(bRev) + ' Z';
+    bands += `<path class='st-band' d='${d}' fill='${s.color}'><title>${escapeHtml(s.label)}</title></path>`;
+  }
+
+  let line = '';
+  if (o.line) {
+    const pts = totals.map((t, i) => [X(i), Y(t)]);
+    line = `<path class='st-line' d='M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}${_catmullSegs(pts)}' fill='none' vector-effect='non-scaling-stroke'></path>`;
+    // Subsample the envelope markers to ~14 max so a 50-sample window stays
+    // readable instead of a dotted wall.
+    if (o.markers) {
+      const stride = Math.max(1, Math.ceil(n / 14));
+      for (let i = 0; i < n; i += stride) {
+        line += `<circle class='st-dot' cx='${pts[i][0].toFixed(1)}' cy='${pts[i][1].toFixed(1)}' r='2.4' vector-effect='non-scaling-stroke'></circle>`;
+      }
+      if ((n - 1) % stride !== 0) line += `<circle class='st-dot' cx='${pts[n - 1][0].toFixed(1)}' cy='${pts[n - 1][1].toFixed(1)}' r='2.4' vector-effect='non-scaling-stroke'></circle>`;
+    }
+  }
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-stream' preserveAspectRatio='none'>${bands}${line}</svg>`;
+}
+
 // ---- Heatmap: 2D categorical matrix (.rheat) ------------------------
 // opts: { rows:[label], cols:[label], cellAt:(r,c)=>{value,tip}, max, fmt }
 function heatmapMatrix(o) {
@@ -3168,6 +3263,7 @@ function renderAll() {
 // ====== SUMMARY =======================================================
 function renderSummary() {
   renderKpiStrip();
+  renderModStream();
   renderFrameChart();
   renderDonut();
   renderCostFlow();
@@ -3574,6 +3670,75 @@ function renderCostFlow() {
   root.innerHTML = sankey({ left, right, links, w: 900, h: 240, fmt: v => fmtMs(v) + ' ms' });
   if (sub) sub.textContent = `${left.length} categories → top ${mods.length} mods`;
 }
+
+// ---- Per-mod cost stream (stacked area over a rolling time window) ---
+// Every mod is a stacked band; the stack height at each x is the combined
+// per-mod composite cost at that sample, so you can compare every mod's frame
+// impact at once and watch the whole modlist's cost breathe over time. A new
+// sample lands every ~5s on the right; the window holds the last 50 and flushes
+// the oldest, and the x axis is normalised to fill the width at any count, so it
+// never grows unbounded or looks empty while warming up. Descriptive: it shows
+// measured per-tick cost over time, names no verdict.
+const STREAM_CAP = 50;
+function sampleModStream() {
+  if (!lastMods || !lastMods.mods) return;
+  // Composite per mod = cpuMs*0.7 + avgCpuMs*0.3 — the same blend the Mods tab's
+  // 'composite' sort uses, so 'impact' here means the same thing it does there.
+  const live = new Set();
+  for (const m of lastMods.mods) {
+    const c = (m.cpuMs || 0) * 0.7 + (m.avgCpuMs || 0) * 0.3;
+    live.add(m.id);
+    let arr = modStreamHistory.get(m.id);
+    if (!arr) { arr = []; modStreamHistory.set(m.id, arr); }
+    arr.push(c);
+    if (arr.length > STREAM_CAP) arr.shift();
+  }
+  // A mod that dropped out this sample keeps the window aligned by recording 0,
+  // and is forgotten once it has been gone for the whole window.
+  for (const [id, arr] of modStreamHistory) {
+    if (!live.has(id)) {
+      arr.push(0);
+      if (arr.length > STREAM_CAP) arr.shift();
+      if (arr.every(v => v === 0)) modStreamHistory.delete(id);
+    }
+  }
+  if (activeTab === 'summary') renderModStream();
+}
+// Warm-coloured ramp across the stack by rank: the heaviest mod sits at the base
+// in deep warm red, lighter contributors stack up toward pale yellow — so the
+// gradient itself encodes magnitude rank, distinct from the per-mod categorical
+// hues used elsewhere (here the question is 'how big', not 'which mod').
+function streamRamp(i, n) {
+  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base) .. 1 = smallest (top)
+  return `oklch(${(0.55 + 0.34 * t).toFixed(3)} ${(0.15 - 0.07 * t).toFixed(3)} ${(25 + 60 * t).toFixed(0)})`;
+}
+function renderModStream() {
+  const root = document.getElementById('mod-stream');
+  const sub = document.getElementById('stream-sub');
+  if (!root) return;
+  const ids = [...modStreamHistory.keys()];
+  if (ids.length === 0 || !lastMods || !lastMods.mods) {
+    root.innerHTML = emptyState('building the per-mod cost stream… (a sample lands every ~5s)');
+    if (sub) sub.textContent = '—';
+    return;
+  }
+  const nameById = new Map(lastMods.mods.map(m => [m.id, m.name]));
+  const arr = ids
+    .map(id => { const v = modStreamHistory.get(id) || []; return { id, name: nameById.get(id) || ('mod ' + id), values: v, total: v.reduce((a, b) => a + b, 0) }; })
+    .filter(s => s.total > 0)
+    .sort((a, b) => b.total - a.total);
+  if (arr.length === 0) {
+    root.innerHTML = emptyState('no per-mod cost recorded yet');
+    if (sub) sub.textContent = '—';
+    return;
+  }
+  const n = arr.length;
+  const series = arr.map((s, i) => ({ label: s.name, values: s.values, color: streamRamp(i, n) }));
+  const samples = Math.max(...arr.map(s => s.values.length));
+  root.innerHTML = streamArea({ series, w: 1200, h: 150, line: true, markers: true });
+  if (sub) sub.textContent = `${n} mods · last ${samples} sample${samples === 1 ? '' : 's'} (~5s each)`;
+}
+setInterval(sampleModStream, 5000);
 
 function renderTrendSparklines() {
   const title = document.getElementById('trends-title');
@@ -6615,6 +6780,23 @@ window.addEventListener('load', function () {
       try { if (typeof switchTab === 'function') switchTab(t); } catch (e) {}
       pollFns.forEach(function (p) { try { window[p](); } catch (e) {} });
     });
+    /* PREVIEW-ONLY: the per-mod cost-stream chart fills from a ~5s sampler in-game.
+       Seed its rolling history here with synthetic time variation over the REAL
+       per-mod magnitudes, so the offline preview shows the chart immediately
+       instead of an empty 'building over time' state. Shipped assets do not do this. */
+    try {
+      if (typeof modStreamHistory !== 'undefined' && typeof lastMods !== 'undefined' && lastMods && lastMods.mods) {
+        modStreamHistory.clear();
+        for (var mi = 0; mi < lastMods.mods.length; mi++) {
+          var m = lastMods.mods[mi];
+          var base = (m.cpuMs || 0) * 0.7 + (m.avgCpuMs || 0) * 0.3;
+          if (base <= 0) continue;
+          var arr = [];
+          for (var i = 0; i < 40; i++) arr.push(base * (0.45 + 0.55 * Math.abs(Math.sin(i * 0.38 + m.id * 0.7))));
+          modStreamHistory.set(m.id, arr);
+        }
+      }
+    } catch (e) {}
     try { if (typeof switchTab === 'function') switchTab('summary'); } catch (e) {}
     var ov = document.getElementById('empty'); if (ov) ov.classList.add('hidden');
   }, 150);

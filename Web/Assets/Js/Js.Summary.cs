@@ -288,6 +288,75 @@ function renderCostFlow() {
   if (sub) sub.textContent = `${left.length} categories → top ${mods.length} mods`;
 }
 
+// ---- Per-mod cost stream (stacked area over a rolling time window) ---
+// Every mod is a stacked band; the stack height at each x is the combined
+// per-mod composite cost at that sample, so you can compare every mod's frame
+// impact at once and watch the whole modlist's cost breathe over time. A new
+// sample lands every ~5s on the right; the window holds the last 50 and flushes
+// the oldest, and the x axis is normalised to fill the width at any count, so it
+// never grows unbounded or looks empty while warming up. Descriptive: it shows
+// measured per-tick cost over time, names no verdict.
+const STREAM_CAP = 50;
+function sampleModStream() {
+  if (!lastMods || !lastMods.mods) return;
+  // Composite per mod = cpuMs*0.7 + avgCpuMs*0.3 — the same blend the Mods tab's
+  // 'composite' sort uses, so 'impact' here means the same thing it does there.
+  const live = new Set();
+  for (const m of lastMods.mods) {
+    const c = (m.cpuMs || 0) * 0.7 + (m.avgCpuMs || 0) * 0.3;
+    live.add(m.id);
+    let arr = modStreamHistory.get(m.id);
+    if (!arr) { arr = []; modStreamHistory.set(m.id, arr); }
+    arr.push(c);
+    if (arr.length > STREAM_CAP) arr.shift();
+  }
+  // A mod that dropped out this sample keeps the window aligned by recording 0,
+  // and is forgotten once it has been gone for the whole window.
+  for (const [id, arr] of modStreamHistory) {
+    if (!live.has(id)) {
+      arr.push(0);
+      if (arr.length > STREAM_CAP) arr.shift();
+      if (arr.every(v => v === 0)) modStreamHistory.delete(id);
+    }
+  }
+  if (activeTab === 'summary') renderModStream();
+}
+// Warm-coloured ramp across the stack by rank: the heaviest mod sits at the base
+// in deep warm red, lighter contributors stack up toward pale yellow — so the
+// gradient itself encodes magnitude rank, distinct from the per-mod categorical
+// hues used elsewhere (here the question is 'how big', not 'which mod').
+function streamRamp(i, n) {
+  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base) .. 1 = smallest (top)
+  return `oklch(${(0.55 + 0.34 * t).toFixed(3)} ${(0.15 - 0.07 * t).toFixed(3)} ${(25 + 60 * t).toFixed(0)})`;
+}
+function renderModStream() {
+  const root = document.getElementById('mod-stream');
+  const sub = document.getElementById('stream-sub');
+  if (!root) return;
+  const ids = [...modStreamHistory.keys()];
+  if (ids.length === 0 || !lastMods || !lastMods.mods) {
+    root.innerHTML = emptyState('building the per-mod cost stream… (a sample lands every ~5s)');
+    if (sub) sub.textContent = '—';
+    return;
+  }
+  const nameById = new Map(lastMods.mods.map(m => [m.id, m.name]));
+  const arr = ids
+    .map(id => { const v = modStreamHistory.get(id) || []; return { id, name: nameById.get(id) || ('mod ' + id), values: v, total: v.reduce((a, b) => a + b, 0) }; })
+    .filter(s => s.total > 0)
+    .sort((a, b) => b.total - a.total);
+  if (arr.length === 0) {
+    root.innerHTML = emptyState('no per-mod cost recorded yet');
+    if (sub) sub.textContent = '—';
+    return;
+  }
+  const n = arr.length;
+  const series = arr.map((s, i) => ({ label: s.name, values: s.values, color: streamRamp(i, n) }));
+  const samples = Math.max(...arr.map(s => s.values.length));
+  root.innerHTML = streamArea({ series, w: 1200, h: 150, line: true, markers: true });
+  if (sub) sub.textContent = `${n} mods · last ${samples} sample${samples === 1 ? '' : 's'} (~5s each)`;
+}
+setInterval(sampleModStream, 5000);
+
 function renderTrendSparklines() {
   const title = document.getElementById('trends-title');
   const rows = document.getElementById('trend-rows');

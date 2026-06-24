@@ -64,6 +64,14 @@ internal static partial class DashboardAssets
 .chart-waffle { display: grid; gap: 2px; }
 .chart-waffle .wf-cell { aspect-ratio: 1; border-radius: 1px; }
 
+/* ===== Stacked-area stream ======================================== */
+.chart-stream { display: block; width: 100%; height: 100%; }
+.chart-stream .st-band { stroke: none; }
+.chart-stream .st-band:hover { filter: brightness(1.12); }
+/* The total envelope + its sample markers (drawn over the stack). */
+.chart-stream .st-line { fill: none; stroke: var(--perf-3); stroke-width: 1.3; opacity: 0.8; }
+.chart-stream .st-dot { fill: var(--bg-deep); stroke: var(--perf-3); stroke-width: 1.3; }
+
 /* ===== Sankey: two-layer flow ===================================== */
 .chart-sankey { display: block; width: 100%; height: auto; }
 .chart-sankey .sk-link { opacity: 0.3; transition: opacity 0.12s; }

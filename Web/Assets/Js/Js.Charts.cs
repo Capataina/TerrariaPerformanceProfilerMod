@@ -335,6 +335,77 @@ function sankey(o) {
   return `<svg viewBox='0 0 ${w} ${h}' class='chart-sankey' preserveAspectRatio='xMidYMid meet'>${ribbons}${nodes(L, 'l')}${nodes(Rr, 'r')}</svg>`;
 }
 
+// ---- Smooth-curve helpers (Catmull-Rom -> cubic bezier) -------------
+// Turn a list of [x,y] points into smooth bezier segments (no leading M), so
+// stacked-area bands and trend lines flow as soft curves instead of jagged
+// polylines. The tension is the classic 1/6 Catmull-Rom.
+function _catmullSegs(pts) {
+  let d = '';
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+  }
+  return d;
+}
+
+// ---- Stacked-area stream: every series stacked over a rolling x window
+// A streamgraph of per-series magnitude over time: each series is a smooth
+// filled band, stacked, so the TOTAL height is the combined magnitude and each
+// band is one series' contribution. The x axis is normalised to fill the full
+// width regardless of sample count (3 samples stretch across; 50 pack in), and
+// the y axis auto-scales to the tallest stacked total so it never overflows.
+// opts: { series:[{label, values:[], color}], w, h, line?:bool, markers?:bool, maxY? }
+// Series are drawn in the order given (first = bottom of the stack).
+function streamArea(o) {
+  o = o || {};
+  const w = o.w || 1200, h = o.h || 160;
+  const padX = 1, padT = 10, padB = 1;
+  const pw = w - padX * 2, ph = h - padT - padB;
+  let series = (o.series || []).filter(s => s && s.values && s.values.length);
+  if (!series.length) return emptyState('building the cost stream over time…');
+  let n = Math.max(...series.map(s => s.values.length));
+  // Left-pad each series with zeros so all bands share the same x samples (a
+  // mod that appeared late contributed nothing before it existed).
+  series = series.map(s => { const v = s.values.slice(); while (v.length < n) v.unshift(0); return { label: s.label, color: s.color, v }; });
+  // A single sample can't draw a curve — duplicate it into a flat band.
+  if (n < 2) { n = 2; series = series.map(s => ({ label: s.label, color: s.color, v: [s.v[0] || 0, s.v[0] || 0] })); }
+
+  const totals = [];
+  for (let i = 0; i < n; i++) { let t = 0; for (const s of series) t += s.v[i] || 0; totals.push(t); }
+  const maxY = o.maxY || Math.max(1e-9, ...totals) * 1.08;
+  const X = i => padX + (n > 1 ? i / (n - 1) : 0.5) * pw;
+  const Y = v => padT + ph - (v / maxY) * ph;
+
+  const cum = new Array(n).fill(0);
+  let bands = '';
+  for (const s of series) {
+    const bottom = [], top = [];
+    for (let i = 0; i < n; i++) { const y0 = cum[i], y1 = cum[i] + (s.v[i] || 0); bottom.push([X(i), Y(y0)]); top.push([X(i), Y(y1)]); cum[i] = y1; }
+    const bRev = bottom.slice().reverse();
+    const d = `M ${top[0][0].toFixed(1)} ${top[0][1].toFixed(1)}` + _catmullSegs(top) +
+              ` L ${bRev[0][0].toFixed(1)} ${bRev[0][1].toFixed(1)}` + _catmullSegs(bRev) + ' Z';
+    bands += `<path class='st-band' d='${d}' fill='${s.color}'><title>${escapeHtml(s.label)}</title></path>`;
+  }
+
+  let line = '';
+  if (o.line) {
+    const pts = totals.map((t, i) => [X(i), Y(t)]);
+    line = `<path class='st-line' d='M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}${_catmullSegs(pts)}' fill='none' vector-effect='non-scaling-stroke'></path>`;
+    // Subsample the envelope markers to ~14 max so a 50-sample window stays
+    // readable instead of a dotted wall.
+    if (o.markers) {
+      const stride = Math.max(1, Math.ceil(n / 14));
+      for (let i = 0; i < n; i += stride) {
+        line += `<circle class='st-dot' cx='${pts[i][0].toFixed(1)}' cy='${pts[i][1].toFixed(1)}' r='2.4' vector-effect='non-scaling-stroke'></circle>`;
+      }
+      if ((n - 1) % stride !== 0) line += `<circle class='st-dot' cx='${pts[n - 1][0].toFixed(1)}' cy='${pts[n - 1][1].toFixed(1)}' r='2.4' vector-effect='non-scaling-stroke'></circle>`;
+    }
+  }
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-stream' preserveAspectRatio='none'>${bands}${line}</svg>`;
+}
+
 // ---- Heatmap: 2D categorical matrix (.rheat) ------------------------
 // opts: { rows:[label], cols:[label], cellAt:(r,c)=>{value,tip}, max, fmt }
 function heatmapMatrix(o) {

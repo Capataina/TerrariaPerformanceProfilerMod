@@ -20,6 +20,7 @@ internal static partial class DashboardAssets
   display: grid;
   grid-template-areas:
     'kpi    kpi     kpi'
+    'stack  stack   stack'
     'chart  chart   donut'
     'trends trends  donut'
     'heatmap heatmap heatmap'
@@ -27,7 +28,7 @@ internal static partial class DashboardAssets
     'now    events  events'
     'mods   mods    mods';
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto auto;
+  grid-template-rows: auto auto minmax(170px, 1fr) auto auto auto auto auto;
   gap: 0.75rem;
 }
 
@@ -35,6 +36,7 @@ internal static partial class DashboardAssets
   .grid-summary {
     grid-template-areas:
       'kpi    kpi'
+      'stack  stack'
       'chart  chart'
       'donut  trends'
       'heatmap heatmap'
@@ -46,10 +48,14 @@ internal static partial class DashboardAssets
 }
 @media (max-width: 700px) {
   .grid-summary {
-    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
+    grid-template-areas: 'kpi' 'stack' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
     grid-template-columns: 1fr;
   }
 }
+
+/* ====== Per-mod cost stream (stacked-area banner) ====== */
+.stream-wrap { padding: 0.2rem 0.4rem 0.3rem; height: 9.5rem; }
+.stream-wrap .chart-stream { height: 100%; }
 
 /* ====== Cost-flow sankey ====== */
 .flow-wrap { padding: 0.35rem 0.7rem 0.6rem; }

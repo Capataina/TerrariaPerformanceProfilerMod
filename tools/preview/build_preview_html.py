@@ -134,6 +134,23 @@ window.addEventListener('load', function () {
       try { if (typeof switchTab === 'function') switchTab(t); } catch (e) {}
       pollFns.forEach(function (p) { try { window[p](); } catch (e) {} });
     });
+    /* PREVIEW-ONLY: the per-mod cost-stream chart fills from a ~5s sampler in-game.
+       Seed its rolling history here with synthetic time variation over the REAL
+       per-mod magnitudes, so the offline preview shows the chart immediately
+       instead of an empty 'building over time' state. Shipped assets do not do this. */
+    try {
+      if (typeof modStreamHistory !== 'undefined' && typeof lastMods !== 'undefined' && lastMods && lastMods.mods) {
+        modStreamHistory.clear();
+        for (var mi = 0; mi < lastMods.mods.length; mi++) {
+          var m = lastMods.mods[mi];
+          var base = (m.cpuMs || 0) * 0.7 + (m.avgCpuMs || 0) * 0.3;
+          if (base <= 0) continue;
+          var arr = [];
+          for (var i = 0; i < 40; i++) arr.push(base * (0.45 + 0.55 * Math.abs(Math.sin(i * 0.38 + m.id * 0.7))));
+          modStreamHistory.set(m.id, arr);
+        }
+      }
+    } catch (e) {}
     try { if (typeof switchTab === 'function') switchTab('summary'); } catch (e) {}
     var ov = document.getElementById('empty'); if (ov) ov.classList.add('hidden');
   }, 150);
