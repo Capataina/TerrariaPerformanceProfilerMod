@@ -6194,33 +6194,59 @@ function renderSelf() {
 function renderHookDistribution() {
   const root = document.getElementById('self-hookdist');
   const sub = document.getElementById('hookdist-sub');
-  if (!lastHooks || !lastHooks.hooks || lastHooks.hooks.length === 0) {
-    root.innerHTML = emptyState('expand a mod on Summary to load /api/hooks — the full hook list appears here');
-    sub.textContent = 'not yet loaded';
+  // Per-mod hook COUNTS come straight from /api/memory (m.hookCount), which is
+  // polled regardless of the active tab — so this populates the moment the Self
+  // tab opens, with no click and no Summary mod-expand. It used to aggregate the
+  // heavy per-hook /api/hooks payload (gated to Summary+expand), which is why it
+  // sat in a 'not yet loaded' state until you went and triggered it elsewhere.
+  // The full per-hook list still loads lazily on the Summary mod tree, where the
+  // hook-level detail belongs; this panel only needs the top mods by count.
+  const mods = lastMemory && lastMemory.mods;
+  if (!mods || mods.length === 0) {
+    root.innerHTML = emptyState('loading hook distribution…');
+    sub.textContent = 'loading';
     return;
   }
-  const perMod = new Map();
-  for (const h of lastHooks.hooks) {
-    if (!perMod.has(h.modId)) perMod.set(h.modId, { id: h.modId, name: h.modName, count: 0, ms: 0 });
-    const e = perMod.get(h.modId); e.count++; e.ms += h.cpuMs;
+  // Join per-mod cost (ms) from /api/mods when present, so the secondary bar shows
+  // where hook count and cost diverge; absent that, the panel still stands on the
+  // hook-count bar alone.
+  const cpuById = new Map();
+  if (lastMods && lastMods.mods) for (const m of lastMods.mods) cpuById.set(m.id, m.cpuMs || 0);
+
+  const entries = mods
+    .filter(m => (m.hookCount || 0) > 0)
+    .map(m => ({ id: m.id, name: m.name, count: m.hookCount || 0, ms: cpuById.get(m.id) || 0 }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 12);
+  if (entries.length === 0) {
+    root.innerHTML = emptyState('no installed hooks recorded yet');
+    sub.textContent = '0 mods';
+    return;
   }
-  const sorted = [...perMod.values()].sort((a, b) => b.count - a.count).slice(0, 12);
-  const max = sorted.length ? sorted[0].count : 1;
-  const maxMs = sorted.reduce((m, e) => Math.max(m, e.ms), 0) || 1;
-  sub.textContent = perMod.size + ' mods · ' + lastHooks.hooks.length + ' active hooks shown';
+  const max = entries[0].count || 1;
+  const maxMs = entries.reduce((m, e) => Math.max(m, e.ms), 0);
+  const hasMs = maxMs > 0;
+  sub.textContent = mods.length + ' mods · top ' + entries.length + ' by hook count';
   // The count bar is sorted-by (the primary metric); ms gets its own faint
   // secondary cellBar on an independent scale so where cost and hook count
   // diverge is visible instead of two bare number columns parsed by eye.
-  const cols = '2em minmax(0,1.4fr) minmax(0,2.4fr) 6em minmax(0,1fr) 5.5em';
-  root.innerHTML = rowList(sorted.map((m, i) => row({
+  const cols = hasMs
+    ? '2em minmax(0,1.4fr) minmax(0,2.4fr) 6em minmax(0,1fr) 5.5em'
+    : '2em minmax(0,1.6fr) minmax(0,3fr) 6em';
+  root.innerHTML = rowList(entries.map((m, i) => row({
     cols,
-    cells: [
+    cells: hasMs ? [
       `<span class='rk'>${i + 1}</span>`,
       `<span class='nm'>${escapeHtml(m.name)}</span>`,
       cellBar(m.count / max, modColor(m.id)),
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
       cellBar(m.ms / maxMs, 'var(--surface-2)'),
       `<span style='text-align:right;color:var(--muted)'>${fmtMs(m.ms)} ms</span>`,
+    ] : [
+      `<span class='rk'>${i + 1}</span>`,
+      `<span class='nm'>${escapeHtml(m.name)}</span>`,
+      cellBar(m.count / max, modColor(m.id)),
+      `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
     ],
   })));
 }
