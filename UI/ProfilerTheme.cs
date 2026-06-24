@@ -22,7 +22,7 @@ namespace PerformanceProfiler.UI;
 
 /// <summary>
 /// The profiler overlay's visual language: the dark palette taken from
-/// design/Mockups.html, and the low-level custom-drawing helpers the overlay
+/// design/mockups/Mockups.html, and the low-level custom-drawing helpers the overlay
 /// draws with instead of stock tModLoader widget chrome.
 ///
 /// Stock UIPanel / UIText give tModLoader's default grey look; everything the

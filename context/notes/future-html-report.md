@@ -11,7 +11,7 @@ a separate "generate HTML report" tool that:
 
 1. Reads from the LiteDB file
 2. Templates the data into a self-contained HTML file (CSS + JS embedded)
-3. Looks similar to `design/Mockups.html` — the visual mockup we already have
+3. Looks similar to `design/mockups/Mockups.html` — the visual mockup we already have
 4. Saves to a known location (probably alongside the LiteDB file or in a
    `reports/` subdir)
 

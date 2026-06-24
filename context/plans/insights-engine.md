@@ -374,7 +374,7 @@ change and must be atomic with its dashboard consumer.
 - **Sibling plans:** `context/plans/extensive-testing-infrastructure.md` (L1/L6
   exercise this rework), `context/plans/ui-component-library.md` (the same
   anti-drift move on the UI layer; insights are its logic-layer analogue).
-- **Design mockup:** `design/Mockups.html` (cross-mod chains, dormant cost,
+- **Design mockup:** `design/mockups/Mockups.html` (cross-mod chains, dormant cost,
   event-triggered attribution, session retrospective — all subsumed as detectors).
 - **Memories:** `wave-based-agent-parallelisation`, `contract-decoupling-pattern`
   (the Wave-0-freeze mechanics this migration reuses).
