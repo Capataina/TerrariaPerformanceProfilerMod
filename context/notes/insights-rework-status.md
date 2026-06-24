@@ -15,7 +15,7 @@ Mod version `0.18.1 → 0.19.0`.
 | 0 | `5a78ca9` | `InsightRecord → Insight`; shape-tagged `Magnitude` (Deviation/Share/Rate/Scaling/Headroom/Distribution); process-level `SubjectRef` (Session/Runtime/Machine); store gaps G5 (comparer race) + G6 (StableKey collision) closed; frozen `IReferenceFrame`/`IDriver`/`IInsightInput` contracts. |
 | 4 | `6e8ffd3` | **The Flute fix.** Usage axis now active-use ticks (held/worn/in-biome), not creation counts. New `ItemsHeldTicks`/`ArmorEquippedTicks` per-tick counters; `ModMetrics.UsageWeight` reads them; `CreationWeight` keeps the old signal. Dashboard dormant table reworked. Breaking. |
 | 3 | `6f2feca` | `ContextBaseline` reference frame (per-context per-mod Welford, fed 1 Hz off-thread, capped) + `Stats` (CohensD, Welch's t). Un-gated `ContextConditionalCost` with candidate-gating + Bonferroni. |
-| 5 | `6346d31` + follow-on | Families D (`FrameHeadroom`), E (`CostConcentration`), C (`FrameJitter`) detectors + render templates. 3 of 5 families; **B not built** (see below). |
+| 5 | `6346d31`, `56cae13`, `398da95`, `036fa1a` | **All five families.** C (`FrameJitter`), D (`FrameHeadroom`), E (`CostConcentration`); B (`HeapLeak` with workload control + `SustainedCostShift` + `NewContributor`, on the `TemporalBaseline` + Drivers); A's second detector (`ContextCorrelatedSpike`). Five of six gated detectors un-gated. |
 | 6 | `7a80228` | `CrossSessionStore` — per-context baselines persist across sessions, fingerprint-keyed (closes G3: confidence can reach High, LifetimeData truthful). Round-trip tested. |
 | 7 | (this) | SessionSummaryLogger logs the engine's top insights (dual-surface); version bump; this note. |
 
@@ -34,21 +34,31 @@ Mod version `0.18.1 → 0.19.0`.
   The mechanisms under each are unit-tested and the runtime calls are guarded so a
   failure degrades the feature, never crashes a run (Invariants 1/4).
 
-## What remains (honest)
+## What remains (honest) — three items, each blocked on a prerequisite the plan itself names
 
-- **Wave 5 family B (Temporal) not built:** leak/warmup/drift needs the
-  heap/session-age/entity-count Drivers (deferred from Wave 4) to control for workload
-  — building it without that control is the temporal-confound the plan forbids
-  ("heap up AT CONSTANT entity count = a leak; heap up WITH entity count = progression").
-  Family C is now in (FrameJitter — the CV/stutter half; bimodality/recovery, which
-  need the full frame-time distribution not just median+MAD, remain).
-- **Still-gated detectors:** ContextCorrelatedSpike (needs a transition-timed stream),
-  SustainedCostShift / NewContributor (need per-tick per-mod history), HookFrequencyTail
-  (needs per-hook call counts), LoadoutCombinationCost (cross-session loadout aggregation),
-  and cross-mod chains. The Wave 6 persistence is half their substrate.
-- **Frozen contracts with no implementer yet:** `IReferenceFrame`, `IDriver`,
-  `IInsightInput` — their single-frame implementers land with the Family B/C detectors
-  that consume them (via an adapter, to avoid Profiling→Insights layering inversion).
+- **HookFrequencyTail** (still gated): needs the p99/median of *per-call* hook timing,
+  which requires a per-hook call-time histogram — genuinely new per-call measurement on
+  the hot path. Shipping it unmeasured would break Invariant 2 (an unmeasured hot-path
+  change is incomplete); a count-only proxy can't see the *tail* the pattern is about,
+  so it would be a different, mislabelled detector. Honestly blocked on in-game-measured
+  instrumentation.
+- **LoadoutCombinationCost / super-additivity** (still gated): the plan's own gate note
+  says a single session has too few distinct loadout fingerprints to triangulate a
+  synergy; it needs cross-session loadout aggregation (a substantial new persistence
+  feature parallel to the Wave 6 baselines). Cost-coupling between mods is meanwhile
+  already covered by the I7 ModInteraction Pearson matrix.
+- **Cross-mod event chains** ("A's projectile → B's status → C's accessory"): the plan's
+  explicitly *research-gated* item. Needs event-sequence mining over the interaction-event
+  DB plus validation that the "chains" are real, not coincidence — shipping it unvalidated
+  would manufacture spurious patterns (Invariant 3). Left research-gated.
+
+Also partial: **Family C** has the jitter/CV detector; bimodality + recovery-time need
+the full frame-time distribution (not just baseline median+MAD) and are not built.
+
+- **Frozen contracts now implemented:** `IInsightInput` (via `CollectorInsightInput`),
+  `IDriver` (via the three Drivers). `IReferenceFrame` remains a contract — the
+  ContextBaseline/TemporalBaseline are richer multi-distribution accumulators, not
+  single-frame comparisons, so nothing implements the single-frame interface yet.
 - **Doc drift:** `context/systems/insights-engine.md` still describes the engine at
   `Data/Detectors/Insights/` and pre-rework. A full `upkeep-context` pass is the right
   tool — this rework is large enough to warrant it rather than hand-patching.
