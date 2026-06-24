@@ -48,10 +48,14 @@ function openModCard(modId) {
   // and state the cost in the ms delta the line above already carries. Two ways
   // this happens: the frame already fits the 16.67ms budget (the 60fps cap absorbs
   // the saving), or the slice is too small to move a whole frame per second.
-  function fpsClause(withMod, withoutMod, msDelta, frameMs) {
+  // `full` controls verbosity: the average is the primary sentence and carries the
+  // full explanation; the live figure reuses this helper with full=false for a
+  // terse secondary clause, so the explanation appears once, not twice.
+  function fpsClause(withMod, withoutMod, msDelta, frameMs, full) {
     const a = Math.round(withoutMod), b = Math.round(withMod);
     if (a === b) {
       const capped = frameMs > 0 && frameMs <= 1000 / 60 + 0.001;
+      if (!full) return capped ? `no measurable fps change` : `under 1 fps of difference`;
       return capped
         ? `no measurable fps change — the frame already fits the 60 fps budget, so the ${fmtMs(msDelta)} ms shows up as headroom rather than lost fps`
         : `under 1 fps of difference — the ${fmtMs(msDelta)} ms is too small to move the frame rate by a whole frame per second`;
@@ -91,17 +95,16 @@ function openModCard(modId) {
     ], { cols: '1fr 1fr' })) +
 
     sectionBlock('frame impact · marginal contribution', callout(
-      `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
-      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). At your current frame time that is ` +
-      `${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg)} on average, ` +
-      `and ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow)} live.` +
+      `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame, ` +
+      `which is ${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg, true)}. ` +
+      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>, ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false)}.</span>` +
       `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',
       catRows.length ? rowList(catRows) : `<span class='muted'>No per-category activity yet</span>`) +
 
     sectionBlock('next steps', callout(
-      `Click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.`));
+      `Expand this mod in the cascading tree below to see which specific hooks inside it are doing the work.`));
   card.classList.remove('hidden');
 }
 

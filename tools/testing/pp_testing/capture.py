@@ -73,7 +73,12 @@ def capture(dash, scenario, out_root, doc_dir, rubric_rel, design_bar_rel, repor
                 if dash.hover_interactive(key, i, 0):
                     crop("hover", "--hover")
                     dash.reset_mouse()
-                if dash.click_interactive(key, i, 0) is not None:
+                # Click the SECOND target when there is one: the first row is often
+                # already the default selection, so clicking it shows no delta and
+                # reads as "no selection feedback" when there is some. The second row
+                # makes the selection change visible.
+                sel_n = 1 if icounts[i] > 1 else 0
+                if dash.click_interactive(key, i, sel_n) is not None:
                     crop("selected", "--selected")
                     dash.close_drawer()
 

@@ -175,25 +175,34 @@ function renderTimelineHeatstrip() {
   // colWidth is a floor only — the local .tl-heatstrip CSS lets the columns
   // flex-grow to fill the panel so a short session spans the strip instead of
   // stranding it in the left corner; scrollx kicks in only once the floor is hit.
-  root.innerHTML = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
+  const strip = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
+
+  // Legend: the bar fill is the perf ramp (healthy -> busy) keyed to the busiest
+  // minute, and the marker dots flag spike/stall minutes. Both were unlabelled,
+  // so a reader saw 'red dots' with no key and a colour ramp with no reference.
+  // The legend names the marks and anchors the ramp to its min..max ms/t.
+  const minFrame = buckets.reduce((m, b) => Math.min(m, b.avgFrameMs || 0), maxFrame);
+  const legend =
+    `<div class='hs-legend'>` +
+      `<span class='hs-ramp'>` +
+        `<span class='hs-ramp-label'>${fmtMs(minFrame)}</span>` +
+        `<span class='hs-ramp-bar'></span>` +
+        `<span class='hs-ramp-label'>${fmtMs(maxFrame)} ms/t</span>` +
+      `</span>` +
+      `<span class='hs-key'><span class='bar-mark spike'></span>spike min</span>` +
+      `<span class='hs-key'><span class='bar-mark stall'></span>stall min</span>` +
+    `</div>`;
+  root.innerHTML = `<div class='hs-strip'>${strip}</div>${legend}`;
 }
 
 // ---- T3: transitions track — time-placed labelled chips -------------
 // type strings look like 'weather:BloodMoon' / 'biome:Jungle' / 'hardmode' /
-// 'invasion:Goblin' / 'subworld:...'. We split on ':' to route the chip
-// colour-class by the head and word the label in full. Genuine time-domain
-// layout: chips are absolutely placed at their tick fraction (KEPT bespoke).
-function transitionChipClass(type) {
-  const head = (type || '').split(':')[0].toLowerCase();
-  switch (head) {
-    case 'weather':  return 'warn';     // amber
-    case 'biome':    return 'good';      // green
-    case 'hardmode': return 'bad';       // danger
-    case 'invasion': return 'warn';      // amber/orange family
-    case 'subworld': return 'cool';      // accent
-    default:         return 'cool';
-  }
-}
+// 'invasion:Goblin' / 'subworld:...'. We split on ':' to word the label in full.
+// Genuine time-domain layout: chips are absolutely placed at their tick fraction
+// (KEPT bespoke). Transitions carry NO colour encoding — a transition is a
+// time-domain event, not an ordered magnitude or a perf reading. Tinting the
+// chip green/amber/red collided with the perf ramp (green = within budget), so
+// these chips stay neutral chrome; the perf-ramp hues are reserved for cost.
 function transitionKindWord(type) {
   const head = (type || '').split(':')[0].toLowerCase();
   switch (head) {
@@ -225,8 +234,10 @@ function renderTimelineTransitions() {
   }
   // The track is a fixed-width time domain; too many chips collide and clip. Cap
   // the count to the most-recent TL_TX_CAP and surface the rest as a '+N' token
-  // anchored to the left edge so nothing is silently dropped.
-  const TL_TX_CAP = 16;
+  // anchored to the left edge so nothing is silently dropped. Two stagger bands
+  // hold the cap; a lower cap keeps each band sparse enough that adjacent chips
+  // on the same band don't overprint.
+  const TL_TX_CAP = 10;
   const ordered = list.slice().sort((a, b) => a.unixMs - b.unixMs);
   const hidden = Math.max(0, ordered.length - TL_TX_CAP);
   const shown = hidden > 0 ? ordered.slice(ordered.length - TL_TX_CAP) : ordered;
@@ -234,18 +245,19 @@ function renderTimelineTransitions() {
   const chips = shown.map((t, i) => {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
     // Edge-anchor: chips near the left/right edge anchor to that edge so the
-    // (clipped) track never cuts the label; the rest centre on their tick.
-    const tx = leftPct < 14 ? '0' : leftPct > 86 ? '-100%' : '-50%';
+    // (clipped + inset) track never cuts the label; the rest centre on their
+    // tick. Wider edge bands than before so a chip whose tick sits at the very
+    // right anchors inward rather than overhanging the clip boundary.
+    const tx = leftPct < 18 ? '0' : leftPct > 82 ? '-100%' : '-50%';
     // Vertical stagger: alternate chips onto two stacked bands so two closely-
     // timed transitions sit above/below each other instead of overprinting.
     const band = i % 2 === 0 ? 'lo' : 'hi';
-    const cls = transitionChipClass(t.type);
     const word = transitionKindWord(t.type);
     const arrow = (t.from || t.to)
       ? `${escapeHtml(t.from || '?')} → ${escapeHtml(t.to || '?')}`
       : escapeHtml(t.type || word);
     const tip = `${word}: ${t.from || '?'} → ${t.to || '?'} (tick ${t.tickIndex})`;
-    return `<span class='chip ${cls} tx-chip tx-${band}' style='left:${leftPct.toFixed(2)}%;transform:translateX(${tx})' title='${escapeHtml(tip)}'>
+    return `<span class='chip tx-chip tx-${band}' style='left:${leftPct.toFixed(2)}%;transform:translateX(${tx})' title='${escapeHtml(tip)}'>
       <span class='tx-kind'>${escapeHtml(word)}</span> ${arrow}
     </span>`;
   }).join('');

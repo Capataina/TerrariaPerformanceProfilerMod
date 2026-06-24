@@ -37,11 +37,42 @@ internal static partial class DashboardAssets
 /* The per-minute bars themselves are barChart()'s .bar-strip/.bar-col; this
    only gives them a modest fixed height to grow into and the panel-2 surface. */
 .tl-heatstrip {
-  height: 68px;
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
   padding: 6px 8px;
+  /* Column layout: the bar strip keeps its own fixed height and the marker /
+     ramp legend sits beneath it inside the same panel (the page markup is a
+     single div, so the legend is rendered into this container, not a sibling). */
+  display: flex; flex-direction: column; gap: 5px;
+}
+/* The bar strip keeps the original fixed height so a flat-but-busy session still
+   reads as variation; the legend below is intrinsic-height. */
+.tl-heatstrip .hs-strip { height: 56px; }
+
+/* ---- Heat strip legend: marker key + cost-ramp reference --------------- */
+/* Names the spike/stall marker dots (previously unlabelled 'red dots') and
+   anchors the perf-ramp fill to its min..max ms/t so the colour ramp is
+   readable rather than a bare gradient. Pure chrome — no data colour here
+   except the swatch dots and the ramp swatch, which mirror the data encoding. */
+.tl-heatstrip .hs-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem 0.8rem;
+  font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
+}
+.tl-heatstrip .hs-ramp { display: inline-flex; align-items: center; gap: 0.3rem; }
+.tl-heatstrip .hs-ramp-label { font-variant-numeric: tabular-nums; }
+/* Ramp swatch mirrors the bar fill ramp (healthy -> busy) so the reader maps the
+   min..max labels onto the same green->amber gradient the bars use. */
+.tl-heatstrip .hs-ramp-bar {
+  width: 3rem; height: 0.5rem; border-radius: 2px;
+  background: linear-gradient(to right, var(--perf-0), var(--perf-2), var(--perf-3));
+}
+.tl-heatstrip .hs-key { display: inline-flex; align-items: center; gap: 0.3rem; }
+/* The marker dots are absolutely positioned over a bar in the strip; in the
+   legend they sit inline as a static swatch, so reset the shared positioning. */
+.tl-heatstrip .hs-key .bar-mark {
+  position: static; display: inline-block; transform: none;
+  width: 5px; height: 5px;
 }
 /* Let the per-minute columns flex-grow to fill the panel so a short session
    spans the full strip instead of stranding it in the left corner. The inline
@@ -70,9 +101,12 @@ internal static partial class DashboardAssets
 }
 .tl-transitions .tx-track {
   /* Two stacked chip bands: closely-timed transitions alternate onto the lo/hi
-     band so they sit above/below each other instead of overprinting. */
+     band so they sit above/below each other instead of overprinting. A small
+     side inset keeps an edge-anchored chip clear of the clip boundary so the
+     right-most label is never sheared by the panel edge. */
   position: relative;
-  min-height: 3rem;
+  min-height: 3.6rem;
+  margin: 0 0.35rem;
 }
 .tl-transitions .tx-rail {
   position: absolute; left: 0; right: 0; top: 50%;
@@ -93,14 +127,20 @@ internal static partial class DashboardAssets
   text-overflow: ellipsis;
   justify-content: flex-start;
 }
-.tl-transitions .tx-chip.tx-lo { top: calc(50% + 0.15rem); }
-.tl-transitions .tx-chip.tx-hi { top: calc(50% - 1.45rem); }
+/* Bands are separated by a full chip-height plus a gap so a chip on the lo band
+   never overprints one on the hi band even when both labels run wide. */
+.tl-transitions .tx-chip.tx-lo { top: calc(50% + 0.5rem); }
+.tl-transitions .tx-chip.tx-hi { top: calc(50% - 1.9rem); }
 /* '+N earlier' overflow token: pinned to the left edge, neutral, above the bands. */
 .tl-transitions .tx-chip.tx-more {
   left: 0; top: 50%; transform: translateY(-50%);
   min-width: 0; z-index: 2;
   color: var(--muted);
 }
+/* Transition chips carry no colour encoding (see Js.Timeline transitionKindWord):
+   the word, arrow and kind all read in neutral chrome so the perf-ramp green
+   keeps its single meaning. */
+.tl-transitions .tx-chip { color: var(--text); }
 .tl-transitions .tx-chip .tx-kind {
   color: var(--muted);
   text-transform: lowercase;
@@ -163,9 +203,13 @@ internal static partial class DashboardAssets
   font-family: var(--mono); font-size: 0.7rem;
 }
 .tl-segment .lbl {
-  position: absolute; left: 4px; right: 4px; top: 1px;
+  position: absolute; left: 4px; right: 4px; top: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: 0.7rem; line-height: 1.2;
+  /* Cap the label band to the glyph box and centre its line so descenders on a
+     short lane (e.g. the Weather 'Day' block) are not sheared at the bottom.
+     line-height equals the band height, so the single line sits fully inside. */
+  height: 0.92rem; line-height: 0.92rem;
+  font-size: 0.7rem;
   /* Label reads on any fill: light text over a localised scrim. The shadow is
      a tight dark halo so the glyphs survive the bright (red) end of the ramp;
      no rainbow gradient sits behind the text any more. */
@@ -251,6 +295,12 @@ internal static partial class DashboardAssets
    chip, timestamp and text on ONE dense baseline so a long session shows more
    of its arc per screen. The timestamp sits in a fixed-width gutter so the
    times align into a scannable column. */
+/* Row-tracking hover for the chronicle log: a faint background wash so the
+   cursor's current line stands out while scanning a long session, WITHOUT the
+   accent left-bar of .row.clickable (these rows are not selectable, so they must
+   not signal clickability). Subtle by design — it aids tracking, not selection. */
+.cr-block { transition: background 0.12s; }
+.cr-block:hover { background: var(--hover); }
 .cr-block .cr-cell {
   display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
 }

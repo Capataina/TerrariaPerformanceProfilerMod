@@ -53,16 +53,34 @@ internal static partial class DashboardAssets
    drawer on click. Header + cell share the cap so the column stays narrow. */
 .mem-col-fp { width: 7rem; }
 .mem-col-fp .split-bar { max-width: 6rem; }
+/* Composition, not magnitude: this bar is always full-width (a normalised 100%
+   split) so without a cue it can read as a magnitude bar like the RAM cellbar
+   next to it. Two cheap signals separate the two readings: hairline dividers
+   between slices (a 'parts of a whole' look the solid RAM bar lacks) and a faint
+   inset frame so it reads as a fixed gauge rather than a value that fills a track.
+   Pure chrome — no colour, no width change, the composition data is untouched. */
+.mem-col-fp .split-bar { box-shadow: inset 0 0 0 1px var(--border); }
+.mem-col-fp .split-bar > span + span { box-shadow: inset 1px 0 0 var(--bg-page); }
 
 /* Strip slice selection: the shared .split-bar carries no selection hook, so the
-   renderer tags the active slice with .sel. A bright inset ring + a touch of
-   lift marks it without an extra colour (the slice keeps its per-mod hue); the
-   bar clips overflow, so the ring reads as a crisp edge inside the strip. The
-   per-slice hover-brighten + pointer signals each slice is independently
+   renderer tags the active slice with .sel and the #mem-strip container with
+   .has-sel. A bright inset ring + a touch of lift marks the active slice without
+   an extra colour (the slice keeps its per-mod hue); the bar clips overflow, so
+   the ring reads as a crisp edge inside the strip. When a selection exists, the
+   container dims + desaturates every OTHER slice so the picked one stands out by
+   contrast too — the inset ring alone is a thin border on a wide slice and easy
+   to miss, so the dim-the-rest cue makes the selection unmistakable at any width.
+   The per-slice hover-brighten + pointer signals each slice is independently
    clickable, matching the 'click one for its breakdown' affordance in copy. */
-#mem-strip .split-bar > span { cursor: pointer; transition: filter 0.12s, box-shadow 0.12s; }
+#mem-strip .split-bar > span { cursor: pointer;
+  transition: filter 0.12s, box-shadow 0.12s, opacity 0.12s; }
 #mem-strip .split-bar > span:hover { filter: brightness(1.12); }
-#mem-strip .split-bar > span.sel { box-shadow: inset 0 0 0 2px var(--text-bright); filter: brightness(1.18); }
+#mem-strip.has-sel .split-bar > span { opacity: 0.32; filter: saturate(0.55); }
+#mem-strip.has-sel .split-bar > span:hover { opacity: 0.62; }
+#mem-strip .split-bar > span.sel,
+#mem-strip.has-sel .split-bar > span.sel {
+  opacity: 1; filter: brightness(1.18);
+  box-shadow: inset 0 0 0 2px var(--text-bright); }
 
 /* Breakdown empty-state: primes the slot instead of reading as dead space. The
    prompt names the action; the hint names what a selection reveals. Centred,

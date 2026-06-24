@@ -37,8 +37,21 @@ internal static partial class DashboardAssets
 .lag-gc-body { display: grid; grid-template-columns: minmax(13rem, 16rem) 1fr; gap: 0.9rem; align-items: start; }
 @media (max-width: 760px) { .lag-gc-body { grid-template-columns: 1fr; } }
 
-/* Lag rhythm: interval histogram beside the cluster table. */
-.lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: start; }
-@media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; } }
+/* Allocation -> gc -> freed: when no stall has been observed the body holds a
+   single 'no gc stalls observed' line. The canonical .empty reserves 4.5rem of
+   breathing room, which reads as a tall hollow panel for one centred line here,
+   so the causality empty-state is tightened to size to its own content. */
+#lag-causality-body > .empty { min-height: 0; padding: 0.75rem 1rem; }
+
+/* Lag rhythm: interval histogram beside the cluster table. The two halves
+   carry different row counts (a coarse ~handful-bucket histogram on the left, a
+   taller cluster table on the right), so they are stretched to a shared height
+   and the shorter side's bar group is centred within it. That closes the dead
+   space that opened under whichever half is shorter, in either direction,
+   without forcing artificial inter-row gaps. */
+.lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: stretch; }
+.lag-rhythm-body > #lag-rhythm-hist { display: flex; flex-direction: column; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: center; }
+@media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; align-items: start; } }
 ";
 }

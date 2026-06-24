@@ -311,9 +311,17 @@ html, body {
   border-bottom: 1px solid var(--border-soft); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
 .dtable tbody td.l { text-align: left; }
+/* Name/label cells truncate instead of pushing the table wider than its scroll
+   region: a long mod name ellipsises here rather than overflowing horizontally
+   (the class of bug the edge-long-names fixture surfaces). Numeric cells are
+   short + nowrap, so this only ever bites the left text columns. */
+.dtable th.l, .dtable td.l { max-width: 20rem; overflow: hidden; text-overflow: ellipsis; }
 .dtable tbody tr.clickable { cursor: pointer; }
 .dtable tbody tr:hover { background: var(--hover); }
-.dtable tbody tr.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+/* Selection: a clearly visible wash + a 3px accent edge + brightened text, so a
+   selected row reads at a glance (the faint 9% wash alone was imperceptible). */
+.dtable tbody tr.sel { background: oklch(1 0 0 / 0.14); box-shadow: inset 3px 0 0 var(--accent); }
+.dtable tbody tr.sel td { color: var(--text-bright); }
 .dtable td.muted, .dtable .muted { color: var(--muted); }
 .dtable td.dim, .dtable .dim { color: var(--dim); }
 
@@ -393,11 +401,19 @@ html, body {
 .row { display: grid; align-items: center; gap: 0.5rem; padding: 0.28rem 0.6rem;
   border-left: 2px solid transparent; border-bottom: 1px solid var(--border-soft);
   font-family: var(--mono); font-size: 0.84rem; }
+/* Grid children must be allowed to shrink below their content, or the .nm
+   ellipsis never engages and a long name forces the row (and its scroll region)
+   wider than the panel. min-width:0 is the universal enabler for that. */
+.row > * { min-width: 0; }
 .rowlist .row:last-child { border-bottom: 0; }
 .row.clickable { cursor: pointer; user-select: none;
   transition: background 0.12s, border-color 0.12s; }
 .row.clickable:hover { background: var(--hover); border-left-color: var(--accent); }
-.row.sel { background: var(--accent-soft); border-left-color: var(--accent); }
+/* Selection: visible wash + accent edge + brighter text (was a near-invisible
+   9% wash with a thin bar). One treatment for every clickable list. */
+.row.sel { background: oklch(1 0 0 / 0.14); border-left-color: var(--accent);
+  box-shadow: inset 1px 0 0 var(--accent); }
+.row.sel .nm, .row.sel .rk { color: var(--text-bright); }
 .row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .row .rk { color: var(--dim); text-align: right; font-size: 0.78rem; }
 /* Outlier marker: gold at rest, resolves to the accent on hover (no second bar). */
@@ -511,8 +527,13 @@ html, body {
 .chart-gauge { display: block; max-width: 100%; height: auto; }
 .gauge-track { fill: none; stroke: var(--surface); }
 .gauge-val { fill: none; }
-.gauge-text { font-family: var(--mono); fill: var(--text-bright); text-anchor: middle; }
-.gauge-sub  { font-family: var(--ui); fill: var(--muted); text-anchor: middle; }
+/* dominant-baseline:central so the value/sub are vertically CENTRED on their y
+   anchor instead of sitting on the baseline (which pushed the number up into the
+   arc stroke and read as off-centre). */
+.gauge-text { font-family: var(--mono); fill: var(--text-bright); text-anchor: middle; dominant-baseline: central; }
+.gauge-sub  { font-family: var(--ui); fill: var(--muted); text-anchor: middle; dominant-baseline: central; }
+/* Optional reference tick on a gauge arc (e.g. an overhead budget threshold). */
+.gauge-ref { stroke: var(--text-bright); stroke-width: 1.5; opacity: 0.85; }
 
 /* ===== Bar chart: vertical column strip ========================== */
 .bar-strip { display: flex; align-items: flex-end; gap: 1px; height: 100%;
@@ -629,8 +650,23 @@ html, body {
   padding: 0.4rem 0.9rem 0.5rem;
   gap: 0.3rem;
 }
-.chart { width: 100%; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 130px; }
+.chart { width: 100%; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 130px; position: relative; }
 .chart .chart-svg { flex: 1 1 auto; min-height: 0; height: 100%; }
+
+/* Reference-rule key. The 60fps + median rules are drawn as unlabelled dashed
+   lines (their SVG text would sit on the trace); this compact inset names them
+   in the top-right gutter, clear of the plotting area. */
+.chart-keys {
+  position: absolute; top: 0; right: 0;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 0.1rem;
+  font-family: var(--mono); font-size: 0.62rem; color: var(--dim);
+  pointer-events: none; line-height: 1.2;
+}
+.chart-key { display: inline-flex; align-items: center; gap: 0.32em; white-space: nowrap; }
+.chart-key .ck-rule {
+  display: inline-block; width: 0.9em; height: 0;
+  border-top-width: 1px; border-top-style: dashed; opacity: 0.7;
+}
 
 /* Centered note overlaying a panel body that has no live trace (db mode).
    Fills its positioned parent and centres the canonical .empty inside it; the
@@ -666,15 +702,26 @@ html, body {
 .tr-spark .spark-svg { height: 100%; }
 
 /* ====== Now playing (rowList of row()) ====== */
+/* The panel hugs its content instead of stretching to match the taller events
+   panel beside it (the grid row defaults to align stretch, which is what left
+   ~70% of this panel as dead void with only two open segments). align-self:start
+   lets it size to the rows + footer; the footer closes the list off cleanly. */
+.grid-summary > [style*='grid-area: now'] { align-self: start; }
+
 /* Scroll container; each segment is a shared row(). The per-row detail (family
-   swatch + two-line name block + meta) is styled in Css.NowPlaying. */
-.now-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }
+   swatch + two-line name block + meta) is styled in Css.NowPlaying. The list
+   hugs its content (flex: 0 1 auto); a long list still scrolls within max-height. */
+.now-scroll { overflow-y: auto; flex: 0 1 auto; min-height: 0; max-height: 22rem; }
 
 /* ====== Events feed (rowList of row()) ====== */
 .events-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }
 .ev-row { align-items: baseline; }
-.ev-glyph { text-align: center; color: var(--muted); }
-.ev-when  { color: var(--dim); font-size: 0.72rem; }
+/* The kind glyph is the row's scan anchor — it is the one element coloured per
+   event kind, so we size it up a touch to lead the eye down the list rather than
+   leaving every row the same weight. The timestamp recedes (already dim) so the
+   glyph + text carry the row and the relative time stays a secondary figure. */
+.ev-glyph { text-align: center; color: var(--muted); font-size: 0.92rem; }
+.ev-when  { color: var(--dim); font-size: 0.72rem; opacity: 0.85; }
 .ev-row[data-kind='boss-kill'] .ev-glyph { color: var(--good); }
 .ev-row[data-kind='death']     .ev-glyph { color: var(--danger); }
 .ev-row[data-kind='spike']     .ev-glyph { color: var(--amber); }
@@ -734,6 +781,18 @@ html, body {
 .hook-row { margin-left: 3rem; color: var(--muted); font-size: 0.78rem; }
 .hook-row .nm { user-select: text; }
 
+/* Loading skeleton for a freshly-expanded mod whose hooks haven't arrived yet.
+   Muted greyscale bars on the tree grid (chrome, not data — no perf colour), with
+   a slow shimmer so the in-flight state matches the component vocabulary. */
+.sk-row { pointer-events: none; }
+.sk-bar {
+  display: block; height: 0.7rem; border-radius: 3px;
+  background: var(--surface-2);
+  animation: sk-pulse 1.1s ease-in-out infinite;
+}
+.sk-row:nth-child(2) .sk-bar { animation-delay: 0.18s; }
+@keyframes sk-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.8; } }
+
 /* =================================================== TIMELINE TAB */
 .tl-shell {
   display: flex; flex-direction: column;
@@ -746,14 +805,53 @@ html, body {
 /* The per-minute bars themselves are barChart()'s .bar-strip/.bar-col; this
    only gives them a modest fixed height to grow into and the panel-2 surface. */
 .tl-heatstrip {
-  height: 68px;
   border: 1px solid var(--border-soft);
   border-radius: 3px;
   background: var(--panel-2);
   padding: 6px 8px;
+  /* Column layout: the bar strip keeps its own fixed height and the marker /
+     ramp legend sits beneath it inside the same panel (the page markup is a
+     single div, so the legend is rendered into this container, not a sibling). */
+  display: flex; flex-direction: column; gap: 5px;
 }
+/* The bar strip keeps the original fixed height so a flat-but-busy session still
+   reads as variation; the legend below is intrinsic-height. */
+.tl-heatstrip .hs-strip { height: 56px; }
+
+/* ---- Heat strip legend: marker key + cost-ramp reference --------------- */
+/* Names the spike/stall marker dots (previously unlabelled 'red dots') and
+   anchors the perf-ramp fill to its min..max ms/t so the colour ramp is
+   readable rather than a bare gradient. Pure chrome — no data colour here
+   except the swatch dots and the ramp swatch, which mirror the data encoding. */
+.tl-heatstrip .hs-legend {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem 0.8rem;
+  font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
+}
+.tl-heatstrip .hs-ramp { display: inline-flex; align-items: center; gap: 0.3rem; }
+.tl-heatstrip .hs-ramp-label { font-variant-numeric: tabular-nums; }
+/* Ramp swatch mirrors the bar fill ramp (healthy -> busy) so the reader maps the
+   min..max labels onto the same green->amber gradient the bars use. */
+.tl-heatstrip .hs-ramp-bar {
+  width: 3rem; height: 0.5rem; border-radius: 2px;
+  background: linear-gradient(to right, var(--perf-0), var(--perf-2), var(--perf-3));
+}
+.tl-heatstrip .hs-key { display: inline-flex; align-items: center; gap: 0.3rem; }
+/* The marker dots are absolutely positioned over a bar in the strip; in the
+   legend they sit inline as a static swatch, so reset the shared positioning. */
+.tl-heatstrip .hs-key .bar-mark {
+  position: static; display: inline-block; transform: none;
+  width: 5px; height: 5px;
+}
+/* Let the per-minute columns flex-grow to fill the panel so a short session
+   spans the full strip instead of stranding it in the left corner. The inline
+   width barChart() sets becomes a floor (min-width) the !important override
+   relaxes; once the floor is hit on a long session, scrollx takes over. */
 .tl-heatstrip .bar-strip { gap: 2px; }
-.tl-heatstrip .bar-col { width: 5px; }
+.tl-heatstrip .bar-col {
+  flex: 1 1 6px !important;
+  width: auto !important;
+  min-width: 6px;
+}
 
 /* ---- T3 transition track — time-placed labelled chips (BESPOKE) -------- */
 /* Genuine time-domain layout: chips are absolutely positioned at their tick's
@@ -770,8 +868,13 @@ html, body {
   overflow: hidden;
 }
 .tl-transitions .tx-track {
+  /* Two stacked chip bands: closely-timed transitions alternate onto the lo/hi
+     band so they sit above/below each other instead of overprinting. A small
+     side inset keeps an edge-anchored chip clear of the clip boundary so the
+     right-most label is never sheared by the panel edge. */
   position: relative;
-  min-height: 1.4rem;
+  min-height: 3.6rem;
+  margin: 0 0.35rem;
 }
 .tl-transitions .tx-rail {
   position: absolute; left: 0; right: 0; top: 50%;
@@ -779,19 +882,33 @@ html, body {
   pointer-events: none;
 }
 .tl-transitions .tx-chip {
-  position: absolute; top: 50%;
+  position: absolute;
   z-index: 1;
   /* Floor the token width so a closely-timed transition chip stays a readable
      label, and cap it so a long "from -> to" label can't dominate the track.
-     The per-chip horizontal transform (edge-anchoring) is set inline so a chip
-     near either edge stays inside the clipped track. */
+     The per-chip horizontal transform (edge-anchoring) is set inline; the
+     vertical band (tx-lo / tx-hi) is set by class below. */
   min-width: 2rem;
-  max-width: 14rem;
+  max-width: 12rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   justify-content: flex-start;
 }
+/* Bands are separated by a full chip-height plus a gap so a chip on the lo band
+   never overprints one on the hi band even when both labels run wide. */
+.tl-transitions .tx-chip.tx-lo { top: calc(50% + 0.5rem); }
+.tl-transitions .tx-chip.tx-hi { top: calc(50% - 1.9rem); }
+/* '+N earlier' overflow token: pinned to the left edge, neutral, above the bands. */
+.tl-transitions .tx-chip.tx-more {
+  left: 0; top: 50%; transform: translateY(-50%);
+  min-width: 0; z-index: 2;
+  color: var(--muted);
+}
+/* Transition chips carry no colour encoding (see Js.Timeline transitionKindWord):
+   the word, arrow and kind all read in neutral chrome so the perf-ramp green
+   keeps its single meaning. */
+.tl-transitions .tx-chip { color: var(--text); }
 .tl-transitions .tx-chip .tx-kind {
   color: var(--muted);
   text-transform: lowercase;
@@ -826,10 +943,23 @@ html, body {
   pointer-events: none;
   z-index: 1;
 }
+/* Idle copy for a lane with no segments — sits to the right of the family label
+   so a blank Boss/Invasion/Subworld row reads as legitimately empty, not broken. */
+.tl-lane-empty {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-family: var(--mono); font-size: 0.65rem;
+  color: var(--dim);
+  pointer-events: none;
+}
 .tl-segment {
   position: absolute;
   top: 18px; bottom: 4px;
-  background: var(--good);
+  /* Fill encodes COST INTENSITY (perf ramp), not family. --seg-fill is set
+     inline per block from perfColor(avgFrameMs / 16.6 ms); the lane already
+     separates families, so the colour is freed to say 'which segments were
+     expensive'. A muted neutral floor covers the no-cost (open) case. */
+  --seg-fill: var(--surface-2);
+  background: var(--seg-fill);
   border: 1px solid var(--border);
   border-radius: 2px;
   cursor: pointer;
@@ -838,21 +968,24 @@ html, body {
      than collapsing to a 1-2px sliver. Position stays time-accurate; only
      the rendered width is floored. */
   min-width: 1.6rem;
-  color: var(--text-bright);
   font-family: var(--mono); font-size: 0.7rem;
 }
-/* Family fill = the family hue at low alpha over the lane; border = the solid
-   hue. colour-mix keeps the fill on the same token as the border so the two
-   can never drift, and no raw rgba() leaks in. */
-.tl-segment[data-family='Biome']    { background: color-mix(in oklch, var(--good)   55%, transparent); border-color: var(--good); }
-.tl-segment[data-family='Weather']  { background: color-mix(in oklch, var(--amber)  55%, transparent); border-color: var(--amber); }
-.tl-segment[data-family='Boss']     { background: color-mix(in oklch, var(--danger) 65%, transparent); border-color: var(--danger); }
-.tl-segment[data-family='Invasion'] { background: color-mix(in oklch, var(--orange) 60%, transparent); border-color: var(--orange); }
-.tl-segment[data-family='Subworld'] { background: color-mix(in oklch, var(--purple) 60%, transparent); border-color: var(--purple); }
 .tl-segment .lbl {
-  position: absolute; left: 4px; right: 4px; top: 1px;
+  position: absolute; left: 4px; right: 4px; top: 0;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  font-size: 0.7rem; line-height: 1.2;
+  /* Cap the label band to the glyph box and centre its line so descenders on a
+     short lane (e.g. the Weather 'Day' block) are not sheared at the bottom.
+     line-height equals the band height, so the single line sits fully inside. */
+  height: 0.92rem; line-height: 0.92rem;
+  font-size: 0.7rem;
+  /* Label reads on any fill: light text over a localised scrim. The shadow is
+     a tight dark halo so the glyphs survive the bright (red) end of the ramp;
+     no rainbow gradient sits behind the text any more. */
+  color: oklch(0.985 0 0);
+  text-shadow: 0 1px 2px oklch(0.16 0 0 / 0.95), 0 0 2px oklch(0.16 0 0 / 0.9);
+  padding: 0 2px;
+  background: linear-gradient(oklch(0.16 0 0 / 0.55), oklch(0.16 0 0 / 0));
+  border-radius: 2px 2px 0 0;
 }
 .tl-segment .tl-waterfall {
   position: absolute; left: 0; right: 0; bottom: 0;
@@ -886,6 +1019,12 @@ html, body {
 }
 .tl-attendance .tm-totals { margin-bottom: 0.5rem; }
 .tl-attendance .tm-bar { margin: 0.2rem 0 0.6rem; }
+/* Muted idle line shown in place of the per-mod table when only vanilla biome
+   ticks were captured, so the panel never shows a header over an empty body. */
+.tl-attendance .tm-idle {
+  font-family: var(--mono); font-size: 0.74rem;
+  color: var(--dim); padding: 0.3rem 0;
+}
 /* Coloured swatch in the attendance .dtable mod column. */
 .tl-attendance .tm-table td.l .dot {
   display: inline-block; width: 0.55rem; height: 0.55rem;
@@ -919,13 +1058,41 @@ html, body {
 .tl-death .ev-chip .ev-off { color: var(--muted); font-size: 0.66rem; margin-right: 0.1em; }
 .tl-death .ev-chip .ev-mod { color: var(--muted); font-size: 0.66rem; margin-left: 0.25em; opacity: 0.85; }
 
-/* ---- T7 chronicle — block layout INSIDE the shared row() ------------- */
-/* row() supplies the chrome (hover + reserved left bar); these only stack the
-   per-line meta + text within the row's single cell. */
-.cr-block .cr-cell { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
-.cr-block .cr-meta { display: flex; gap: 0.5rem; align-items: center; }
-.cr-block .cr-time { font-size: 0.66rem; letter-spacing: 0.02em; }
-.cr-block .cr-text { color: var(--text-bright); font-size: 0.74rem; line-height: 1.3; }
+/* ---- T7 chronicle — one-line rows INSIDE the shared row() ------------ */
+/* row() supplies the chrome (hover + reserved left bar); this lays the kind
+   chip, timestamp and text on ONE dense baseline so a long session shows more
+   of its arc per screen. The timestamp sits in a fixed-width gutter so the
+   times align into a scannable column. */
+/* Row-tracking hover for the chronicle log: a faint background wash so the
+   cursor's current line stands out while scanning a long session, WITHOUT the
+   accent left-bar of .row.clickable (these rows are not selectable, so they must
+   not signal clickability). Subtle by design — it aids tracking, not selection. */
+.cr-block { transition: background 0.12s; }
+.cr-block:hover { background: var(--hover); }
+.cr-block .cr-cell {
+  display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
+}
+.cr-block .cr-cell .chip { flex: none; align-self: center; }
+.cr-block .cr-time {
+  flex: none; width: 4.5rem;
+  font-size: 0.66rem; letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.cr-block .cr-text {
+  flex: 1 1 auto; min-width: 0;
+  color: var(--text-bright); font-size: 0.74rem; line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Sticky type filter pinned to the top of the chronicle scroll body — stays
+   visible while the log scrolls, giving the long list a per-type filter. */
+.cr-filter {
+  position: sticky; top: 0; z-index: 3;
+  padding: 0.3rem 0.1rem 0.4rem;
+  margin-bottom: 0.1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border-soft);
+}
 
 @media (max-width: 900px) {
   .tl-bottom { grid-template-columns: 1fr; }
@@ -934,19 +1101,45 @@ html, body {
 /* =================================================== LAG TAB */
 .lag-layout { display: flex; flex-direction: column; gap: 0.75rem; }
 
+/* Per-segment density cell: the magnitude-scaled split bar with its spike/stall
+   + events-per-minute caption centred beneath it, so the count and the geometry
+   it labels share a vertical axis instead of the caption floating left. */
+.lag-density-cell { display: flex; flex-direction: column; gap: 0.15rem; min-width: 9rem; }
+.lag-density-cell .cap { font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+  text-align: center; }
+
 /* GC pressure: stat block beside the heap line chart. */
 .lag-gc-body { display: grid; grid-template-columns: minmax(13rem, 16rem) 1fr; gap: 0.9rem; align-items: start; }
 @media (max-width: 760px) { .lag-gc-body { grid-template-columns: 1fr; } }
 
-/* Lag rhythm: interval histogram beside the cluster table. */
-.lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: start; }
-@media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; } }
+/* Allocation -> gc -> freed: when no stall has been observed the body holds a
+   single 'no gc stalls observed' line. The canonical .empty reserves 4.5rem of
+   breathing room, which reads as a tall hollow panel for one centred line here,
+   so the causality empty-state is tightened to size to its own content. */
+#lag-causality-body > .empty { min-height: 0; padding: 0.75rem 1rem; }
+
+/* Lag rhythm: interval histogram beside the cluster table. The two halves
+   carry different row counts (a coarse ~handful-bucket histogram on the left, a
+   taller cluster table on the right), so they are stretched to a shared height
+   and the shorter side's bar group is centred within it. That closes the dead
+   space that opened under whichever half is shorter, in either direction,
+   without forcing artificial inter-row gaps. */
+.lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: stretch; }
+.lag-rhythm-body > #lag-rhythm-hist { display: flex; flex-direction: column; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: center; }
+@media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; align-items: start; } }
 
 /* =================================================== INSIGHTS */
 .ins-shell {
   display: flex; flex-direction: column; gap: 0.6rem;
   padding: 0.6rem 0.9rem 1rem;
 }
+/* The KPI strip is a fixed-height header row, not a flex casualty. Without an
+   explicit flex basis the column's other children (the tall observatory + lower
+   grids) starved it down to a ~40px sliver where only fragments of the rings
+   showed. flex:none + a min-height keep the four 64px ring gauges + their label
+   rows at full natural height under the tab bar. */
+.ins-shell > #ins-kpi { flex: 0 0 auto; min-height: 92px; }
 
 /* Mid section: 2-column observatory | detail. Each column owns its height via
    the explicit max-height on its inner scroll regions (the dormant table, the
@@ -1034,6 +1227,14 @@ html, body {
 .ins-usage { display: flex; align-items: center; gap: 0.5rem; min-width: 8rem; }
 .ins-usage .split-bar { flex: 1; }
 .ins-pct { color: var(--muted); flex: none; min-width: 3rem; text-align: right; }
+/* Zero-engagement rows render no green segment, so the bar is just its track. A
+   faint surface track on the near-black row read as a blank cell. Lift the track
+   contrast and seat a hairline at the origin so a 0.0% row still reads as 'bar
+   present, empty' rather than 'nothing here'. */
+.ins-usage .split-bar {
+  background: var(--surface-2);
+  box-shadow: inset 1px 0 0 var(--border);
+}
 
 /* Observatory card internals (the middle cell of each row()). Stacks the mod
    name, the usage micro-stats, the cpu cost bar, and the (quieted) roster
@@ -1047,10 +1248,14 @@ html, body {
 }
 .obs-cost { margin-top: 0.3rem; }
 .obs-comp { margin-top: 0.28rem; opacity: 0.55; }
+/* The ms cost is the headline number of each row, so it leads the eye over the
+   rank index: a larger, brighter, heavier value with the unit kept quiet. */
 .obs-ms {
-  font-family: var(--mono); font-size: 0.82rem; color: var(--text); text-align: right;
+  font-family: var(--mono); font-size: 1rem; font-weight: 600;
+  color: var(--text-bright); text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-.obs-ms .u { font-size: 0.65rem; color: var(--dim); margin-left: 0.15rem; }
+.obs-ms .u { font-size: 0.62rem; font-weight: 400; color: var(--dim); margin-left: 0.15rem; }
 
 /* Detail pane: the scroll-region is flush, so the body insets here. */
 .det-pad { padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.2rem; }
@@ -1063,6 +1268,12 @@ html, body {
   font-size: 0.74rem; color: var(--dim); line-height: 1.35; margin-bottom: 0.45rem;
 }
 
+/* Mod-pair correlation has TWO name columns (mod A x mod B) sharing a half-width
+   panel, so the shared 20rem td.l cap is too generous — two long names would
+   still overflow. Cap each name column tighter here; the ellipsis (shared td.l
+   rule) then engages and the title= tooltip carries the full pair name. */
+#ins-matrix .dtable td.l, #ins-matrix .dtable th.l { max-width: 9rem; }
+
 /* =================================================== SELF TAB */
 .self-layout {
   display: grid;
@@ -1074,12 +1285,33 @@ html, body {
 .self-hero { grid-column: 1 / -1; }
 .self-span { grid-column: 1 / -1; }
 
-.self-hero-body { display: grid; grid-template-columns: 14rem 1fr; gap: 1.2rem; align-items: center; }
+/* Gauge column is sized to the 200px (~12.5rem) gauge SVG, not a padded 14rem,
+   so the SEVERITY tile starts close and the hero reads as one band rather than
+   leaving dead space around a centred gauge. */
+.self-hero-body { display: grid; grid-template-columns: 12.5rem 1fr; gap: 1rem; align-items: center; }
 @media (max-width: 700px) { .self-hero-body { grid-template-columns: 1fr; } }
-.self-gauge { width: 100%; max-width: 14rem; margin: 0 auto; }
+.self-gauge { width: 100%; max-width: 12.5rem; }
+@media (max-width: 700px) { .self-gauge { margin: 0 auto; } }
 
 /* ===== Memory tab ==================================================== */
 .mem-layout { display: flex; flex-direction: column; gap: 1rem; }
+
+/* Control bar above the per-mod table: a search filter (left) and the footprint
+   key (right). It is the first child of the #mem-table scroll region and sticks
+   to its top so it stays in view while the 29-row roster scrolls under it. The
+   sticky offset (-1px) + opaque surface keep rows from bleeding above it, the
+   same trick the .dtable sticky header uses. */
+.mem-controls { position: sticky; top: 0; z-index: 4; display: flex; align-items: center;
+  justify-content: space-between; gap: 0.8rem; flex-wrap: wrap;
+  padding: 0.45rem 0.55rem; background: var(--header); border-bottom: 1px solid var(--border); }
+.mem-controls .filter-input { max-width: none; width: 11rem; }
+/* Footprint key: the small uppercase label + the role-colour swatches, reusing
+   the shared .bar-legend swatch markup. margin-top:0 because it sits inline here,
+   not stacked under a bar. */
+.mem-fp-key { display: inline-flex; align-items: center; gap: 0.6rem; }
+.mem-fp-key .mem-fp-key-lbl { font-family: var(--ui); font-size: 0.67rem; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.mem-fp-key .bar-legend { margin-top: 0; }
 
 /* RAM / scaffold column LEADS the row. The magnitude bar (share of the visible
    total) and its figure sit on one baseline as a single unit — the bar filling
@@ -1090,12 +1322,56 @@ html, body {
 .mem-val-cell { display: flex; align-items: center; gap: 0.55rem; }
 .mem-val-cell .cellbar { flex: 1; min-width: 4rem; height: 0.62rem; }
 .mem-val-cell .n { flex: none; font-variant-numeric: tabular-nums; }
+/* Floor the filled bar to a visible sliver: below ~10 MB the magnitude fraction
+   collapses to 1-2px and reads as no bar at all, losing the encoding exactly
+   where the long tail of small mods lives. A 3px minimum keeps a nonzero value
+   visible without distorting the larger bars (they are far past 3px already). */
+.mem-val-cell .cellbar > span { min-width: 3px; }
 
 /* Footprint composition is SECONDARY: a thin split confined to a slim column so
    it reads as a quiet hint, never the headline. The full breakdown is in the
    drawer on click. Header + cell share the cap so the column stays narrow. */
 .mem-col-fp { width: 7rem; }
 .mem-col-fp .split-bar { max-width: 6rem; }
+/* Composition, not magnitude: this bar is always full-width (a normalised 100%
+   split) so without a cue it can read as a magnitude bar like the RAM cellbar
+   next to it. Two cheap signals separate the two readings: hairline dividers
+   between slices (a 'parts of a whole' look the solid RAM bar lacks) and a faint
+   inset frame so it reads as a fixed gauge rather than a value that fills a track.
+   Pure chrome — no colour, no width change, the composition data is untouched. */
+.mem-col-fp .split-bar { box-shadow: inset 0 0 0 1px var(--border); }
+.mem-col-fp .split-bar > span + span { box-shadow: inset 1px 0 0 var(--bg-page); }
+
+/* Strip slice selection: the shared .split-bar carries no selection hook, so the
+   renderer tags the active slice with .sel and the #mem-strip container with
+   .has-sel. A bright inset ring + a touch of lift marks the active slice without
+   an extra colour (the slice keeps its per-mod hue); the bar clips overflow, so
+   the ring reads as a crisp edge inside the strip. When a selection exists, the
+   container dims + desaturates every OTHER slice so the picked one stands out by
+   contrast too — the inset ring alone is a thin border on a wide slice and easy
+   to miss, so the dim-the-rest cue makes the selection unmistakable at any width.
+   The per-slice hover-brighten + pointer signals each slice is independently
+   clickable, matching the 'click one for its breakdown' affordance in copy. */
+#mem-strip .split-bar > span { cursor: pointer;
+  transition: filter 0.12s, box-shadow 0.12s, opacity 0.12s; }
+#mem-strip .split-bar > span:hover { filter: brightness(1.12); }
+#mem-strip.has-sel .split-bar > span { opacity: 0.32; filter: saturate(0.55); }
+#mem-strip.has-sel .split-bar > span:hover { opacity: 0.62; }
+#mem-strip .split-bar > span.sel,
+#mem-strip.has-sel .split-bar > span.sel {
+  opacity: 1; filter: brightness(1.18);
+  box-shadow: inset 0 0 0 2px var(--text-bright); }
+
+/* Breakdown empty-state: primes the slot instead of reading as dead space. The
+   prompt names the action; the hint names what a selection reveals. Centred,
+   compact, muted — honest about being empty without looking unfinished. */
+.mem-bd-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.3rem; text-align: center; padding: 1.4rem 1rem; color: var(--muted); }
+.mem-bd-empty .mem-bd-prompt { font-family: var(--ui); font-size: 0.82rem; color: var(--text); }
+.mem-bd-empty .mem-bd-prompt::first-letter { text-transform: uppercase; }
+.mem-bd-empty .mem-bd-hint { font-family: var(--ui); font-size: 0.74rem; color: var(--dim);
+  max-width: 18rem; line-height: 1.4; }
+.mem-bd-empty .mem-bd-hint::first-letter { text-transform: uppercase; }
 
 /* =================================================== MOD CARD (drawer) */
 /* The mod card is now the shared .drawer component (chrome, header, scrolling
@@ -1230,14 +1506,15 @@ html, body {
 }
 .heatmap-grid {
   display: grid;
-  /* Columns adapt to available width: every cell is at least 12px wide,
-     fluid above that. The Y axis is implicit (1 row), since per the user's
-     intent each cell is one minute of play.  */
-  grid-template-columns: repeat(auto-fill, minmax(1.1rem, 1fr));
-  gap: 2px;
+  /* Columns adapt to available width, fluid above the minimum. The Y axis is
+     implicit (1 row): each cell is one minute of play. The min is generous so a
+     short session (8 tiles) reads as chunky data the legend defers to, rather
+     than a thin strip the full 6-item key out-sizes. */
+  grid-template-columns: repeat(auto-fill, minmax(1.7rem, 1fr));
+  grid-auto-rows: 1.7rem;
+  gap: 3px;
 }
 .hm-cell {
-  aspect-ratio: 1;
   border-radius: 2px;
   background: var(--surface);
   position: relative;
@@ -1251,6 +1528,12 @@ html, body {
 .hm-cell.p2 { background: var(--perf-2); }
 .hm-cell.p3 { background: var(--perf-3); }
 .hm-cell.p4 { background: var(--perf-4); }
+/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge.
+   A faster minute lifts toward 1.16 brightness, a slower one drops toward 0.84,
+   so an all-smooth session still shows minute-to-minute texture instead of a flat
+   block — the colour still ENCODES exact ms within the band, never decorates. */
+.hm-cell { filter: brightness(calc(1.16 - 0.32 * var(--hm-t, 0.5))); }
+.hm-cell:hover { filter: none; }
 /* State overlay — boss fight cells get a red glow halo around them */
 .hm-cell.boss::after {
   content: ''; position: absolute; inset: -2px;
@@ -1258,14 +1541,17 @@ html, body {
   border-radius: 3px; pointer-events: none;
   box-shadow: 0 0 6px rgba(247, 118, 142, 0.45);
 }
+/* A compact inline key, deliberately lighter than the tiles so the data leads:
+   smaller swatches + dim text + tight spacing keep the 6-item legend from
+   out-weighing the heatmap it explains. */
 .heatmap-legend {
-  display: flex; flex-wrap: wrap; gap: 0.4em 1.2em;
-  font-family: var(--mono); font-size: 0.75rem;
-  color: var(--muted);
+  display: flex; flex-wrap: wrap; gap: 0.2em 0.85em;
+  font-family: var(--mono); font-size: 0.66rem;
+  color: var(--dim);
 }
 .heatmap-legend .lg-sw {
-  display: inline-block; width: 0.8em; height: 0.8em;
-  border-radius: 2px; margin-right: 0.4em; vertical-align: middle;
+  display: inline-block; width: 0.6em; height: 0.6em;
+  border-radius: 2px; margin-right: 0.3em; vertical-align: middle;
 }
 .heatmap-legend .lg-boss {
   border: 1px solid var(--danger); background: var(--surface);
@@ -1286,6 +1572,14 @@ html, body {
 .now-name .now-sub { font-family: var(--mono); color: var(--muted); font-size: 0.75rem; }
 .now-meta { font-family: var(--mono); font-size: 0.78rem; text-align: right; line-height: 1.3; }
 .now-meta .now-mod { color: var(--accent); font-weight: 500; }
+
+/* Muted closing line under the open-segment rows. Earns the panel's lower edge
+   so a short list no longer reads as a tall empty void; descriptive, not a CTA. */
+.now-foot {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--dim);
+  padding: 0.5rem 0.2rem 0.2rem; border-top: 1px solid var(--border-soft);
+  margin-top: 0.35rem; line-height: 1.35;
+}
 
 .hm-cell[data-tip]:hover::before {
   content: attr(data-tip);
@@ -1331,7 +1625,7 @@ html, body {
     <div class="brand">
       <span class="brand-mark"></span>
       <span class="brand-name">Performance Profiler</span>
-      <span class="brand-version" id="brand-version">v0.19.0</span>
+      <span class="brand-version" id="brand-version">v0.20.0</span>
     </div>
     <div class="live">
       <span class="live-dot" id="live-dot"></span>
@@ -2492,6 +2786,13 @@ function gauge(o) {
   const va = start + sweep * ratio;
   const valColor = o.color || (o.bands ? _bandColor(o.bands, ratio) : 'var(--accent)');
   if (ratio > 0) svg += `<path class='gauge-val' d='${_arcStroke(cx, cy, r, start, va)}' stroke='${valColor}' stroke-width='${stroke}' stroke-linecap='round'></path>`;
+  // Optional reference tick across the band (e.g. a budget threshold), so the
+  // arc is read against a target instead of in the abstract.
+  if (o.ref != null && isFinite(o.ref)) {
+    const ra = start + sweep * Math.max(0, Math.min(1, o.ref));
+    const i = _polar(cx, cy, r - stroke * 0.8, ra), oo = _polar(cx, cy, r + stroke * 0.8, ra);
+    svg += `<line class='gauge-ref' x1='${i[0].toFixed(2)}' y1='${i[1].toFixed(2)}' x2='${oo[0].toFixed(2)}' y2='${oo[1].toFixed(2)}'></line>`;
+  }
   if (o.centerValue != null) svg += `<text class='gauge-text' x='${cx}' y='${cy}' font-size='${(size * 0.17).toFixed(0)}'>${escapeHtml(String(o.centerValue))}</text>`;
   if (o.centerSub != null) svg += `<text class='gauge-sub' x='${cx}' y='${(cy + size * 0.12).toFixed(0)}' font-size='${(size * 0.075).toFixed(0)}'>${escapeHtml(String(o.centerSub))}</text>`;
   return `<svg viewBox='0 0 ${size} ${vbH}' class='chart-gauge' width='${size}' height='${vbH}'>${svg}</svg>`;
@@ -2831,12 +3132,32 @@ function renderHeatmap() {
     return null;
   }
 
+  // Band edges shared by bandClass + the within-band shade. Each minute tile gets
+  // its categorical band (p0..p4) AND a 0..1 position within that band's ms range,
+  // so even an all-smooth session (every tile p0) still shows minute-to-minute
+  // texture — a faster minute reads lighter, a slower one darker, keeping the tile
+  // an honest magnitude encoding rather than a flat status block.
+  const bandEdges = [0, 17, 25, 40, 60];
   function bandClass(avgMs) {
     if (avgMs <= 17)  return 'p0';
     if (avgMs <= 25)  return 'p1';
     if (avgMs <= 40)  return 'p2';
     if (avgMs <= 60)  return 'p3';
     return 'p4';
+  }
+  // 0 = at the cool edge of the band, 1 = at the hot edge. The top band (>60ms)
+  // has no upper bound, so we span it across the next 40ms and clamp.
+  function bandShade(avgMs) {
+    let lo = 0, hi = 60 + 40;
+    for (let i = 0; i < bandEdges.length; i++) {
+      if (avgMs <= bandEdges[i] || i === bandEdges.length - 1) {
+        lo = bandEdges[i - 1] != null ? bandEdges[i - 1] : 0;
+        hi = bandEdges[i] != null && avgMs <= bandEdges[i] ? bandEdges[i] : 60 + 40;
+        break;
+      }
+    }
+    const span = (hi - lo) || 1;
+    return Math.max(0, Math.min(1, (avgMs - lo) / span));
   }
 
   sub.textContent = buckets.length + ' minute(s) · ' + (lastHeatmap.bossOverlays?.length || 0) + ' boss segment(s)';
@@ -2845,7 +3166,7 @@ function renderHeatmap() {
     const boss = bossLabelFor(b);
     const time = new Date(b.startUnixMs).toLocaleTimeString();
     const tip = (boss ? boss.name + ' · ' : '') + time + ' · avg ' + fmtMs(b.avgMs) + 'ms · worst ' + fmtMs(b.worstMs) + 'ms';
-    return `<div class='hm-cell ${cls} ${boss ? 'boss' : ''}' data-tip='${escapeHtml(tip)}'></div>`;
+    return `<div class='hm-cell ${cls} ${boss ? 'boss' : ''}' style='--hm-t:${bandShade(b.avgMs).toFixed(3)}' data-tip='${escapeHtml(tip)}'></div>`;
   }).join('');
 }
 
@@ -2919,16 +3240,26 @@ function renderFrameChart() {
     }
   }
 
+  // Rules carry NO inline label: lineChart draws rule labels as SVG text at the
+  // right edge, on top of the trace + spike bars, so they collide with the data.
+  // We draw the dashed lines unlabelled and annotate them with a compact inset
+  // key in the top-right gutter (.chart-keys) instead, clear of the plot.
+  const fmtRule = showFps ? (v => v.toFixed(0) + ' fps') : (v => fmtMs(v) + 'ms');
+  const keys =
+    `<div class='chart-keys'>` +
+      `<span class='chart-key'><span class='ck-rule' style='border-color:var(--muted)'></span>60 fps · ${fmtRule(sixtyVal)}</span>` +
+      `<span class='chart-key'><span class='ck-rule' style='border-color:var(--dim)'></span>median · ${fmtRule(medianVal)}</span>` +
+    `</div>`;
   chart.innerHTML = lineChart({
     series: [{ values: series, color: 'var(--accent)', area: true }],
     rules: [
-      { value: sixtyVal, color: 'var(--muted)', label: '60fps' },
-      { value: medianVal, color: 'var(--dim)', label: 'median' },
+      { value: sixtyVal, color: 'var(--muted)' },
+      { value: medianVal, color: 'var(--dim)' },
     ],
     markers: marks,
     axis: true,
     fmt: showFps ? (v => v.toFixed(0)) : fmtMs,
-  });
+  }) + keys;
 }
 
 // Frame-chart mode toggle (delegated; the segmented control is re-rendered).
@@ -3064,10 +3395,10 @@ function renderNowPlaying() {
     sub.textContent = '0 open';
     return;
   }
-  sub.textContent = lastSegments.open.length + ' open';
+  const open = lastSegments.open.slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family));
+  sub.textContent = open.length + ' open';
   const cols = '0.32rem minmax(0, 1.4fr) auto';
-  root.innerHTML = rowList(lastSegments.open
-    .slice().sort((a, b) => familyWeight(a.family) - familyWeight(b.family))
+  const rowsHtml = rowList(open
     .map(s => {
       const meta = s.topModName
         ? `<span class='now-mod'>${escapeHtml(truncate(s.topModName, 16))}</span> · ${fmtMs(s.topModMsPerTick)}ms/t`
@@ -3084,6 +3415,10 @@ function renderNowPlaying() {
         ],
       });
     }));
+  // Muted footer so a short open-segment list earns its panel height rather than
+  // leaving a tall void: a quiet 'nothing else open' line closes the list off.
+  const foot = `<div class='now-foot'>no further encounters open · new segments appear as you enter biomes, bosses, weather</div>`;
+  root.innerHTML = rowsHtml + foot;
 }
 function familyWeight(f) {
   const order = ['Boss', 'Invasion', 'UserBookmark', 'Weather', 'Subworld', 'Combat', 'Hardmode', 'DeathBracket', 'Biome'];
@@ -3245,10 +3580,19 @@ function renderModTree(mod) {
   const blank = `<span></span>`;
   // Group hook records by mod, then by category.
   if (!lastHooks || !lastHooks.hooks) {
-    return `<div class='mod-tree'>` + row({
-      cols: MODTABLE_COLS, cls: 'cat-row',
-      cells: [blank, `<span class='nm muted'>loading…</span>`, blank, blank, blank, blank, blank],
-    }) + `</div>`;
+    // In-flight state: two muted skeleton category-rows (name + cost-bar shimmer)
+    // aligned to the tree grid, so the load reads as a designed placeholder in the
+    // component vocabulary rather than a bare left-flush 'loading…' string.
+    const skelRow = w => row({
+      cols: MODTABLE_COLS, cls: 'cat-row sk-row',
+      cells: [
+        blank,
+        `<span class='sk-bar' style='width:${w}'></span>`,
+        `<span class='sk-bar' style='width:70%'></span>`,
+        blank, blank, blank, blank,
+      ],
+    });
+    return `<div class='mod-tree' aria-busy='true'>` + skelRow('55%') + skelRow('40%') + `</div>`;
   }
   const cats = lastMods.categories || [];
   // Build categoryId → hooks[] for this mod.
@@ -3393,24 +3737,49 @@ function openModCard(modId) {
   const totalAvg = lastNow && lastNow.avg30sMs ? lastNow.avg30sMs : 0;
   const withoutNow = Math.max(0.1, totalNow - mod.cpuMs);
   const withoutAvg = Math.max(0.1, totalAvg - mod.avgCpuMs);
+  // The 1000/60 floor models the vsync cap: when a frame already fits the 16.67ms
+  // budget, removing a mod's slice can't raise fps past 60. That makes the two fps
+  // figures collapse to '60 vs 60' whenever both frame times sit under the cap, so
+  // we only quote an fps clause when the two genuinely differ (see fpsClause below).
   const fpsNow = totalNow > 0 ? 1000 / Math.max(1000/60, totalNow) : 0;
   const fpsWithoutNow = totalNow > 0 ? 1000 / Math.max(1000/60, withoutNow) : 0;
   const fpsAvg = totalAvg > 0 ? 1000 / Math.max(1000/60, totalAvg) : 0;
   const fpsWithoutAvg = totalAvg > 0 ? 1000 / Math.max(1000/60, withoutAvg) : 0;
 
+  // Build an honest fps clause for one with/without pair. When the two fps figures
+  // round to the same integer the 'N vs N' template is meaningless, so we drop it
+  // and state the cost in the ms delta the line above already carries. Two ways
+  // this happens: the frame already fits the 16.67ms budget (the 60fps cap absorbs
+  // the saving), or the slice is too small to move a whole frame per second.
+  // `full` controls verbosity: the average is the primary sentence and carries the
+  // full explanation; the live figure reuses this helper with full=false for a
+  // terse secondary clause, so the explanation appears once, not twice.
+  function fpsClause(withMod, withoutMod, msDelta, frameMs, full) {
+    const a = Math.round(withoutMod), b = Math.round(withMod);
+    if (a === b) {
+      const capped = frameMs > 0 && frameMs <= 1000 / 60 + 0.001;
+      if (!full) return capped ? `no measurable fps change` : `under 1 fps of difference`;
+      return capped
+        ? `no measurable fps change — the frame already fits the 60 fps budget, so the ${fmtMs(msDelta)} ms shows up as headroom rather than lost fps`
+        : `under 1 fps of difference — the ${fmtMs(msDelta)} ms is too small to move the frame rate by a whole frame per second`;
+    }
+    return `the difference between <strong>${a} fps</strong> and <strong>${b} fps</strong>`;
+  }
+
   // Category breakdown.
   const cats = lastMods.categories || [];
-  const catMax = Math.max(...mod.categories);
+  const catVals = mod.categories.map((v, i) => ({ v, i })).filter(c => c.v > 0.001).sort((a, b) => b.v - a.v);
+  const catMax = catVals.length ? catVals[0].v : 1;
+  // Median of the active categories — the perf-ramp reference, matching the
+  // cascading tree's magnitude bar so cost reads with one colour idiom across
+  // both surfaces (calm green at the median, hot toward the outliers).
+  const catMedian = catVals.length ? catVals[Math.floor(catVals.length / 2)].v : 0;
   // Ordered by cost, biggest first — the breakdown should read top-down by impact.
-  const catRows = mod.categories
-    .map((v, i) => ({ v, i }))
-    .filter(c => c.v > 0.001)
-    .sort((a, b) => b.v - a.v)
-    .map(({ v, i }) => row({
+  const catRows = catVals.map(({ v, i }) => row({
       cols: 'minmax(0, 1fr) minmax(0, 2fr) 5em',
       cells: [
         `<span class='nm'>${escapeHtml(cats[i] || 'cat:' + i)}</span>`,
-        cellBar(v / catMax, 'var(--cpu)'),
+        cellBar(v / catMax, perfColor(catMedian > 0 ? v / catMedian : 0)),
         `<span class='mc-catv'>${fmtMs(v)} ms</span>`,
       ],
     }));
@@ -3429,18 +3798,16 @@ function openModCard(modId) {
     ], { cols: '1fr 1fr' })) +
 
     sectionBlock('frame impact · marginal contribution', callout(
-      `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame ` +
-      `(<strong>${fmtMs(mod.cpuMs)} ms</strong> right now). At your current frame time that is the ` +
-      `difference between <strong>${fpsWithoutAvg.toFixed(0)} fps</strong> and ` +
-      `<strong>${fpsAvg.toFixed(0)} fps</strong> on average, ` +
-      `and <strong>${fpsWithoutNow.toFixed(0)}</strong> vs <strong>${fpsNow.toFixed(0)}</strong> live.` +
+      `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame, ` +
+      `which is ${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg, true)}. ` +
+      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>, ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false)}.</span>` +
       `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',
       catRows.length ? rowList(catRows) : `<span class='muted'>No per-category activity yet</span>`) +
 
     sectionBlock('next steps', callout(
-      `Click the row on the Summary tab to expand the cascading tree — drill into which specific hooks inside this mod are doing the work.`));
+      `Expand this mod in the cascading tree below to see which specific hooks inside it are doing the work.`));
   card.classList.remove('hidden');
 }
 
@@ -3458,6 +3825,7 @@ let lastAttendance      = null;
 let lastDeaths          = null;
 let lastChronicle       = null;
 let selectedSegmentKey  = null;   // 'family|key|startTick'
+let chronicleFilter     = 'all';  // 'all' or a chronicle kind group (see CR_KINDS)
 
 // Render-signature cache — skip rebuild when input didn't change.
 const _tlSig = {
@@ -3584,25 +3952,37 @@ function renderTimelineHeatstrip() {
            b.segmentCount + ' segs, ' + b.spikeCount + ' spikes, ' + b.stallCount + ' stalls'
     };
   });
-  root.innerHTML = barChart({ bars, max: maxFrame, colWidth: 5, scrollx: true });
+  // colWidth is a floor only — the local .tl-heatstrip CSS lets the columns
+  // flex-grow to fill the panel so a short session spans the strip instead of
+  // stranding it in the left corner; scrollx kicks in only once the floor is hit.
+  const strip = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
+
+  // Legend: the bar fill is the perf ramp (healthy -> busy) keyed to the busiest
+  // minute, and the marker dots flag spike/stall minutes. Both were unlabelled,
+  // so a reader saw 'red dots' with no key and a colour ramp with no reference.
+  // The legend names the marks and anchors the ramp to its min..max ms/t.
+  const minFrame = buckets.reduce((m, b) => Math.min(m, b.avgFrameMs || 0), maxFrame);
+  const legend =
+    `<div class='hs-legend'>` +
+      `<span class='hs-ramp'>` +
+        `<span class='hs-ramp-label'>${fmtMs(minFrame)}</span>` +
+        `<span class='hs-ramp-bar'></span>` +
+        `<span class='hs-ramp-label'>${fmtMs(maxFrame)} ms/t</span>` +
+      `</span>` +
+      `<span class='hs-key'><span class='bar-mark spike'></span>spike min</span>` +
+      `<span class='hs-key'><span class='bar-mark stall'></span>stall min</span>` +
+    `</div>`;
+  root.innerHTML = `<div class='hs-strip'>${strip}</div>${legend}`;
 }
 
 // ---- T3: transitions track — time-placed labelled chips -------------
 // type strings look like 'weather:BloodMoon' / 'biome:Jungle' / 'hardmode' /
-// 'invasion:Goblin' / 'subworld:...'. We split on ':' to route the chip
-// colour-class by the head and word the label in full. Genuine time-domain
-// layout: chips are absolutely placed at their tick fraction (KEPT bespoke).
-function transitionChipClass(type) {
-  const head = (type || '').split(':')[0].toLowerCase();
-  switch (head) {
-    case 'weather':  return 'warn';     // amber
-    case 'biome':    return 'good';      // green
-    case 'hardmode': return 'bad';       // danger
-    case 'invasion': return 'warn';      // amber/orange family
-    case 'subworld': return 'cool';      // accent
-    default:         return 'cool';
-  }
-}
+// 'invasion:Goblin' / 'subworld:...'. We split on ':' to word the label in full.
+// Genuine time-domain layout: chips are absolutely placed at their tick fraction
+// (KEPT bespoke). Transitions carry NO colour encoding — a transition is a
+// time-domain event, not an ordered magnitude or a perf reading. Tinting the
+// chip green/amber/red collided with the perf ramp (green = within budget), so
+// these chips stay neutral chrome; the perf-ramp hues are reserved for cost.
 function transitionKindWord(type) {
   const head = (type || '').split(':')[0].toLowerCase();
   switch (head) {
@@ -3632,22 +4012,39 @@ function renderTimelineTransitions() {
     root.innerHTML = emptyState('no transitions' + (timelineFilter !== 'all' ? ' for ' + timelineFilter.toLowerCase() : '') + ' yet');
     return;
   }
-  const chips = list.map(t => {
+  // The track is a fixed-width time domain; too many chips collide and clip. Cap
+  // the count to the most-recent TL_TX_CAP and surface the rest as a '+N' token
+  // anchored to the left edge so nothing is silently dropped. Two stagger bands
+  // hold the cap; a lower cap keeps each band sparse enough that adjacent chips
+  // on the same band don't overprint.
+  const TL_TX_CAP = 10;
+  const ordered = list.slice().sort((a, b) => a.unixMs - b.unixMs);
+  const hidden = Math.max(0, ordered.length - TL_TX_CAP);
+  const shown = hidden > 0 ? ordered.slice(ordered.length - TL_TX_CAP) : ordered;
+
+  const chips = shown.map((t, i) => {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
     // Edge-anchor: chips near the left/right edge anchor to that edge so the
-    // (clipped) track never cuts the label; the rest centre on their tick.
-    const tx = leftPct < 14 ? '0' : leftPct > 86 ? '-100%' : '-50%';
-    const cls = transitionChipClass(t.type);
+    // (clipped + inset) track never cuts the label; the rest centre on their
+    // tick. Wider edge bands than before so a chip whose tick sits at the very
+    // right anchors inward rather than overhanging the clip boundary.
+    const tx = leftPct < 18 ? '0' : leftPct > 82 ? '-100%' : '-50%';
+    // Vertical stagger: alternate chips onto two stacked bands so two closely-
+    // timed transitions sit above/below each other instead of overprinting.
+    const band = i % 2 === 0 ? 'lo' : 'hi';
     const word = transitionKindWord(t.type);
     const arrow = (t.from || t.to)
       ? `${escapeHtml(t.from || '?')} → ${escapeHtml(t.to || '?')}`
       : escapeHtml(t.type || word);
     const tip = `${word}: ${t.from || '?'} → ${t.to || '?'} (tick ${t.tickIndex})`;
-    return `<span class='chip ${cls} tx-chip' style='left:${leftPct.toFixed(2)}%;transform:translate(${tx},-50%)' title='${escapeHtml(tip)}'>
+    return `<span class='chip tx-chip tx-${band}' style='left:${leftPct.toFixed(2)}%;transform:translateX(${tx})' title='${escapeHtml(tip)}'>
       <span class='tx-kind'>${escapeHtml(word)}</span> ${arrow}
     </span>`;
   }).join('');
-  root.innerHTML = `<div class='tx-track'><span class='tx-rail'></span>${chips}</div>`;
+  const overflow = hidden > 0
+    ? `<span class='chip tx-chip tx-more' title='${hidden} earlier transition${hidden === 1 ? '' : 's'} not shown'>+${hidden}</span>`
+    : '';
+  root.innerHTML = `<div class='tx-track'><span class='tx-rail'></span>${overflow}${chips}</div>`;
 }
 
 // ---- T1+T2: swimlanes ------------------------------------------------
@@ -3710,7 +4107,12 @@ function renderTimelineSwimlanes() {
     if (!lane) continue;
     if (!familyVisible(f)) { lane.innerHTML = ''; continue; }
     const arr = byFamily[f];
-    if (arr.length === 0) { lane.innerHTML = ''; continue; }
+    if (arr.length === 0) {
+      // Legitimately empty lane: a muted idle line, so a blank Boss/Invasion/
+      // Subworld row reads as 'nothing happened' rather than 'unfinished'.
+      lane.innerHTML = `<span class='tl-lane-empty'>none this session</span>`;
+      continue;
+    }
     lane.innerHTML = arr.map(s => {
       const left = pctOf(s.startUnixMs, win);
       const right = pctOf(s.endUnixMs, win);
@@ -3721,6 +4123,12 @@ function renderTimelineSwimlanes() {
       const delta = lifetime ? lifetime.deltaFraction : null;
       const outlier = (delta != null && Math.abs(delta) > 0.25) ? 'outlier' : '';
       const selected = (k === selectedSegmentKey) ? 'selected' : '';
+      // Fill = cost intensity: perf ramp of the segment's avg frame time vs the
+      // 16.6 ms (60 fps) reference. Open/unmeasured segments (avgFrameMs 0) fall
+      // through perfColor to the healthy end; the inline --seg-fill drives .bg.
+      const fill = (s.avgFrameMs > 0)
+        ? perfColor(s.avgFrameMs / 16.6)
+        : 'var(--surface-2)';
       let waterfall = '';
       if (attr && attr.perMod && attr.perMod.length > 0) {
         let total = 0;
@@ -3741,7 +4149,7 @@ function renderTimelineSwimlanes() {
       }
       const tip = `${s.name} — ${fmtDuration(s.durationMs)} · ${fmtMs(s.avgFrameMs)} ms/t`;
       return `<div class='tl-segment ${outlier} ${selected}' data-family='${s.family}' data-key='${escapeHtml(k)}'
-        style='left:${left.toFixed(2)}%;width:${width.toFixed(2)}%' title='${escapeHtml(tip)}'>
+        style='left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;--seg-fill:${fill}' title='${escapeHtml(tip)}'>
         <span class='lbl'>${escapeHtml(s.name)}</span>
         ${waterfall}
         ${badge}
@@ -3867,11 +4275,21 @@ function renderTimelineAttendance() {
     return;
   }
   const a = lastAttendance;
-  const sig = (a.totalBiomeTicks||0) + ':' + (a.moddedBiomeTicks||0) + ':' + a.byMod.length + ':' + (a.byMod.length ? a.byMod[0].biomeTicks : 0);
+  // All-zero readout (no biome-tick attribution yet) reads as broken under a
+  // populated-looking table shell. Show an explicit idle state instead of the
+  // zero-grid + headerless table.
+  const totalTicks = a.totalBiomeTicks || 0;
+  if (totalTicks <= 0) {
+    if (_tlSig.attendance === 'idle') return;
+    _tlSig.attendance = 'idle';
+    setHTML(root, emptyState('no biome-tick attribution captured this session'));
+    return;
+  }
+  const sig = totalTicks + ':' + (a.moddedBiomeTicks||0) + ':' + a.byMod.length + ':' + (a.byMod.length ? a.byMod[0].biomeTicks : 0);
   if (sig === _tlSig.attendance) return;
   _tlSig.attendance = sig;
 
-  const total = Math.max(1, a.totalBiomeTicks || 0);
+  const total = Math.max(1, totalTicks);
   const modded = Math.max(0, Math.min(total, a.moddedBiomeTicks || 0));
   const vanilla = Math.max(0, total - modded);
 
@@ -3894,9 +4312,16 @@ function renderTimelineAttendance() {
       value: fmtInt(m.biomeTicks) + ' (' + ((m.biomeTicks/total)*100).toFixed(1) + '%)' });
   }
 
-  // Legend: vanilla + the top contributors (cap to keep it readable).
-  const legendSegs = segsArr.slice(0, 9).map(s => ({ color: s.color, label: s.label, value: s.value }));
-  const barHtml = `<div class='tm-bar'>${splitBar(segsArr, { tall: true })}${splitLegend(legendSegs)}</div>`;
+  // The bar only encodes proportion once there are >=2 series to split; a single
+  // flat fill (vanilla-only) is decoration, so in that degenerate case drop the
+  // bar and keep just the legend line stating the share.
+  let barHtml = '';
+  if (segsArr.length >= 2) {
+    const legendSegs = segsArr.slice(0, 9).map(s => ({ color: s.color, label: s.label, value: s.value }));
+    barHtml = `<div class='tm-bar'>${splitBar(segsArr, { tall: true })}${splitLegend(legendSegs)}</div>`;
+  } else if (segsArr.length === 1) {
+    barHtml = `<div class='tm-bar'>${splitLegend(segsArr.map(s => ({ color: s.color, label: s.label, value: s.value })))}</div>`;
+  }
 
   const rows = sorted.map(m => {
     const share = (m.biomeTicks / total) * 100;
@@ -3909,12 +4334,17 @@ function renderTimelineAttendance() {
     </tr>`;
   }).join('');
 
-  const tableHtml = `<table class='dtable tm-table'>
+  // Only render the per-mod table when there are contributing mods — a header
+  // row over an empty body reads as a broken table, so replace it with a muted
+  // idle line in the vanilla-only case.
+  const tableHtml = sorted.length > 0
+    ? `<table class='dtable tm-table'>
     <thead><tr>
       <th class='l'>mod</th><th>biome ticks</th><th>share</th><th>invasions</th><th>boss segs</th>
     </tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table>`
+    : `<div class='tm-idle'>no per-mod biome attribution this session</div>`;
 
   setHTML(root, totalsBand + barHtml + tableHtml);
 }
@@ -3978,24 +4408,50 @@ function renderTimelineDeaths() {
 // A tokenised block list inside a bounded scrollRegion; each line is a
 // timestamp + kind + text block, left-accented by kind via the .chip colour
 // classes. setHTML keeps the reader's scroll position across the poll.
+// Colour the kind badge by SEVERITY only — death is the alarm (red), spikes and
+// boss bounds are warnings (amber). The non-severity event types (transition,
+// weather, summary, join) stay neutral so the perf-ramp green keeps its single
+// meaning ('within budget') and one hue never means two things across panes.
 function chronicleKindClass(kind) {
   switch (kind) {
     case 'death':       return 'bad';
     case 'spike':       return 'warn';
     case 'boss-start':
     case 'boss-end':    return 'warn';
-    case 'weather':     return 'cool';
-    case 'transition':  return 'good';
-    case 'summary':     return 'cool';
     default:            return '';
   }
+}
+
+// Collapse the raw kinds onto the filter groups the chip row offers, so e.g.
+// boss-start and boss-end both fall under 'boss'. 'all' matches everything.
+function chronicleKindGroup(kind) {
+  switch (kind) {
+    case 'boss-start':
+    case 'boss-end':   return 'boss';
+    default:           return kind || 'other';
+  }
+}
+
+const CR_KINDS = ['death','spike','boss','weather','transition','summary'];
+
+// Filter setter wired by the sticky chip row; resets the cache so the next
+// render rebuilds the filtered list.
+function setChronicleFilter(f) {
+  const next = (f === chronicleFilter && f !== 'all') ? 'all' : f;
+  if (next === chronicleFilter) return;
+  chronicleFilter = next;
+  _tlSig.chronicle = '';
+  renderTimelineChronicle();
 }
 
 function renderTimelineChronicle() {
   const scroll = document.getElementById('tl-chronicle-scroll');
   if (!scroll) return;
   const lines = (lastChronicle && lastChronicle.lines) || [];
-  const sig = lines.length + ':' + (lines.length ? (lines[0].unixMs + ',' + lines[lines.length-1].unixMs) : '');
+  // Which filter groups actually occur — so the chip row only offers live ones.
+  const present = new Set(lines.map(l => chronicleKindGroup(l.kind)));
+  const sig = lines.length + ':' + chronicleFilter + ':' +
+    (lines.length ? (lines[0].unixMs + ',' + lines[lines.length-1].unixMs) : '');
   if (sig === _tlSig.chronicle) return;
   _tlSig.chronicle = sig;
 
@@ -4003,20 +4459,38 @@ function renderTimelineChronicle() {
     setHTML(scroll, emptyState('no chronicle lines yet'));
     return;
   }
+
+  // Sticky type filter at the top of the scroll body — a segmented() control of
+  // 'all' + each kind group that occurs this session. It stays pinned while the
+  // list scrolls, giving the long log a per-type filter consistent with the
+  // swimlane family filter above.
+  const opts = [{ value: 'all', label: 'all' }].concat(
+    CR_KINDS.filter(k => present.has(k)).map(k => ({ value: k, label: k })));
+  const filterBar = `<div class='cr-filter'>` +
+    segmented({ id: 'cr-filter-seg', attr: 'data-crfilter', active: chronicleFilter, options: opts }) +
+    `</div>`;
+
   // Oldest -> newest so the column reads top-to-bottom in session order. Each
   // line is a single-column row() (so it inherits the shared hover + left-bar)
-  // whose cell stacks a meta line (kind chip + timestamp) over the text.
-  const sorted = lines.slice().sort((a,b) => a.unixMs - b.unixMs);
+  // whose cell lays the kind chip, timestamp and text on ONE dense baseline so a
+  // long session shows more of its arc without heavy scrolling.
+  let sorted = lines.slice().sort((a,b) => a.unixMs - b.unixMs);
+  if (chronicleFilter !== 'all') {
+    sorted = sorted.filter(l => chronicleKindGroup(l.kind) === chronicleFilter);
+  }
+  if (sorted.length === 0) {
+    setHTML(scroll, filterBar + emptyState('no ' + chronicleFilter + ' events this session'));
+    wireChronicleFilter(scroll);
+    return;
+  }
   const blocks = sorted.map(l => {
     const t = l.unixMs ? new Date(l.unixMs).toLocaleTimeString() : '—';
     const cls = chronicleKindClass(l.kind);
     const cell =
       `<div class='cr-cell'>` +
-        `<div class='cr-meta'>` +
-          `<span class='chip ${cls}'>${escapeHtml(l.kind)}</span>` +
-          `<span class='cr-time muted'>${escapeHtml(t)}</span>` +
-        `</div>` +
-        `<div class='cr-text'>${escapeHtml(l.text)}</div>` +
+        `<span class='chip ${cls}'>${escapeHtml(l.kind)}</span>` +
+        `<span class='cr-time muted'>${escapeHtml(t)}</span>` +
+        `<span class='cr-text'>${escapeHtml(l.text)}</span>` +
       `</div>`;
     return row({
       cols: '1fr',
@@ -4026,7 +4500,14 @@ function renderTimelineChronicle() {
     });
   });
   // tl-chronicle-scroll is the overflow:auto container; setHTML keeps scroll.
-  setHTML(scroll, rowList(blocks));
+  setHTML(scroll, filterBar + rowList(blocks));
+  wireChronicleFilter(scroll);
+}
+
+function wireChronicleFilter(scroll) {
+  scroll.querySelectorAll('[data-crfilter]').forEach(b => {
+    b.addEventListener('click', () => setChronicleFilter(b.getAttribute('data-crfilter')));
+  });
 }
 
 // ---- Top-level dispatch --------------------------------------------
@@ -4193,14 +4674,18 @@ function renderLagHeatmap() {
     }
     const rows = causes.map(cause => ({ cause, ...(agg.get(cause) || { eventCount: 0, totalMs: 0 }) }))
                        .sort((a, b) => b.eventCount - a.eventCount);
-    const ctxNote = realContexts.length === 1 ? ' · ' + realContexts[0] : '';
+    // Only one context exists, so the cross-tab degenerates to a single column.
+    // Label the body for what it actually shows — lag events ranked by cause —
+    // rather than presenting a 'single context · —' degenerate matrix frame. The
+    // sole context (when one is named) goes in the sub-label, not the title.
+    const ctxSub = realContexts.length === 1 ? realContexts[0] : 'one context this session';
     const bars = rows.map(r => ({
       value: r.eventCount,
-      label: r.cause || '—',
+      label: humanizeLabel(r.cause) || '—',
       valueLabel: fmtInt(r.eventCount),
       color: 'var(--accent)',
     }));
-    root.innerHTML = sectionHeader('single context' + ctxNote, 'ranked by events') +
+    root.innerHTML = sectionHeader('lag events by cause', ctxSub) +
       barChart({ horizontal: true, bars });
     return;
   }
@@ -4267,9 +4752,20 @@ function renderLagGalaxy() {
   const p95s = clusters.map(c => c.p95Ms || 0).sort((a, b) => a - b);
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
+  // The context column is dead width when no cluster carries a real context, so
+  // it is dropped from both the header and the rows in that case. The guard
+  // counts rows that would actually render a chip (a non-empty biome / weather
+  // string, or hardmode true) rather than truthiness of the raw fields, so an
+  // all-'—' column never survives when every row's context is empty.
+  const hasCtx = c => (typeof c.primaryBiome === 'string' && c.primaryBiome.trim() !== '')
+    || (typeof c.weatherFlags === 'string' && c.weatherFlags.trim() !== '')
+    || c.hardmode === true;
+  const anyContext = clusters.filter(hasCtx).length >= 1;
+  const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
+
   const head = `<thead><tr>
     ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagGalaxySort')}
-    <th class='l'>context</th>
+    ${ctxTh}
     ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagGalaxySort')}
     ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagGalaxySort')}
     ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagGalaxySort')}
@@ -4278,11 +4774,15 @@ function renderLagGalaxy() {
 
   const body = sorted.map(c => {
     const sel = c.fingerprintId === lagGalaxySelected ? ' sel' : '';
-    let ctxChips = '';
-    if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-    if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
-    if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
-    if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
+    let ctxCell = '';
+    if (anyContext) {
+      let ctxChips = '';
+      if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
+      if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
+      ctxCell = `<td class='l'>${ctxChips}</td>`;
+    }
 
     const tint = tintClass(medianP95 > 0 ? (c.p95Ms || 0) / medianP95 : 0);
     const colour = modColor(c.topModId || 0);
@@ -4300,7 +4800,7 @@ function renderLagGalaxy() {
     const causeTip = fpId ? (c.causeClass || '—') + ' · id ' + fpId : (c.causeClass || '—');
     return `<tr class='clickable${sel}' onclick='lagGalaxyPick("${escapeHtml(fpId)}")'>
       <td class='l' title='${escapeHtml(causeTip)}'>${escapeHtml(c.causeClass || '—')}</td>
-      <td class='l'>${ctxChips}</td>
+      ${ctxCell}
       <td>${fmtInt(c.eventCount)}</td>
       <td class='${tint}'>${fmtMs(c.p95Ms)}</td>
       <td>${fmtMs(c.totalMs)}</td>
@@ -4316,12 +4816,19 @@ function renderLagGalaxy() {
     if (pick.primaryBiome) subBits.push(pick.primaryBiome);
     if (pick.weatherFlags) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
-    const causeChip = `<span class='chip cool'>${escapeHtml(pick.causeClass || '—')}</span>`;
+    const ctxText = subBits.join(' · ') || 'no context';
+    // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
+    // built from the cause class, the dominant mod, and the surrounding context.
+    // The raw fingerprint key ('Spike|m0|—||h0') is kept only as a small dim tag
+    // for debugging, never as the prominent label the player reads.
+    const headline = [humanizeLabel(pick.causeClass) || '—', pick.topModName || '—', ctxText]
+      .filter(Boolean).join(' · ');
+    const causeChip = `<span class='chip cool'>${escapeHtml(headline)}</span>`;
     const fpLine = pick.fingerprintId
-      ? `<span class='muted' title='fingerprint id'>id ${escapeHtml(pick.fingerprintId)}</span>` : '';
+      ? `<span class='muted' style='font-size:0.7rem' title='internal fingerprint key'>${escapeHtml(pick.fingerprintId)}</span>` : '';
     const detailBody =
       `<div style='display:flex;gap:0.5em;align-items:center;flex-wrap:wrap;margin-bottom:0.4rem'>${causeChip}${fpLine}</div>` +
-      statLine('context', subBits.join(' · ') || '—') +
+      statLine('context', ctxText) +
       statLine('events', fmtInt(pick.eventCount)) +
       statLine('p95', fmtMs(pick.p95Ms) + ' ms') +
       statLine('total', fmtMs(pick.totalMs) + ' ms') +
@@ -4341,10 +4848,16 @@ function lagGalaxyPick(fp) {
 }
 
 // ---------------------------------------------------------------- Density table
-// Shared sortable .dtable. Columns: segment, spikes/stalls (per-row split bar
-// spike=var(--spike) / stall=var(--stall) + the two counts), events/min,
-// vsBaseline x (perf-tinted via tintClass). The session baseline goes in the
-// panel sub-header; a splitLegend keys the spike/stall colours.
+// Shared sortable .dtable. Columns: segment, events (raw count), density (a
+// split bar whose TOTAL length scales to the row's events/min relative to the
+// busiest segment, with the spike=var(--spike) / stall=var(--stall) split
+// living inside that length), vsBaseline x (perf-tinted via tintClass). The
+// session baseline goes in the panel sub-header; a splitLegend keys the colours.
+//
+// The bar length encodes magnitude (which segment is worst reads at a glance);
+// the spike/stall split inside it encodes the mix. events/min was previously a
+// numeric column too, but it is the un-normalised twin of vs base, so it now
+// lives only as the bar length + the caption rather than as a second number.
 function lagDensitySortBy(key) {
   if (lagDensitySort.key === key) lagDensitySort.dir *= -1;
   else lagDensitySort = { key, dir: -1 };
@@ -4368,11 +4881,15 @@ function renderLagDensity() {
 
   const baseline = (snap && snap.sessionBaselinePerMin) || 0;
   const sorted = lagApplySort(entries, lagDensitySort);
+  // Busiest segment sets the bar's full extent so the lengths read comparably.
+  let maxPerMin = 0;
+  for (const e of entries) { if ((e.eventsPerMin || 0) > maxPerMin) maxPerMin = e.eventsPerMin; }
+  if (maxPerMin <= 0) maxPerMin = 1;
 
   const head = `<thead><tr>
     ${lagSortTh(lagDensitySort, 'name', 'segment', true, 'lagDensitySortBy')}
-    <th class='l'>spikes / stalls</th>
-    ${lagSortTh(lagDensitySort, 'eventsPerMin', 'events/min', false, 'lagDensitySortBy')}
+    ${lagSortTh(lagDensitySort, 'eventCount', 'events', false, 'lagDensitySortBy')}
+    ${lagSortTh(lagDensitySort, 'eventsPerMin', 'density', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'vsBaseline', 'vs base', false, 'lagDensitySortBy')}
   </tr></thead>`;
 
@@ -4380,20 +4897,26 @@ function renderLagDensity() {
     const spikes = e.spikeCount || 0;
     const stalls = e.stallCount || 0;
     const total = spikes + stalls;
-    const spikeFrac = total > 0 ? spikes / total : 0;
-    const stallFrac = total > 0 ? stalls / total : 0;
+    const events = e.eventCount != null ? e.eventCount : total;
+    // Total bar length = this row's events/min as a fraction of the busiest
+    // segment; the spike/stall split divides THAT length, so the bar answers
+    // both 'which segment is worst' (length) and 'what kind' (split) at once.
+    const lenFrac = Math.max(0, Math.min(1, (e.eventsPerMin || 0) / maxPerMin));
+    const spikeFrac = total > 0 ? lenFrac * (spikes / total) : 0;
+    const stallFrac = total > 0 ? lenFrac * (stalls / total) : 0;
     const bar = splitBar([
       { frac: spikeFrac, color: 'var(--spike)', label: 'spikes', value: fmtInt(spikes) },
       { frac: stallFrac, color: 'var(--stall)', label: 'stalls', value: fmtInt(stalls) },
     ], { thin: true });
-    const tip = (e.name || '—') + ' · ' + fmtInt(spikes) + ' spikes · ' + fmtInt(stalls) + ' stalls';
-    const countsCell = `<div title='${escapeHtml(tip)}'>${bar}<span class='muted' style='font-size:0.7rem'><span style='color:var(--spike)'>${fmtInt(spikes)}</span> / <span style='color:var(--stall)'>${fmtInt(stalls)}</span></span></div>`;
+    const perMin = (e.eventsPerMin || 0).toFixed(1);
+    const tip = (e.name || '—') + ' · ' + perMin + ' events/min · ' + fmtInt(spikes) + ' spikes · ' + fmtInt(stalls) + ' stalls';
+    const densityCell = `<div class='lag-density-cell' title='${escapeHtml(tip)}'>${bar}<span class='cap'><span style='color:var(--spike)'>${fmtInt(spikes)}</span> / <span style='color:var(--stall)'>${fmtInt(stalls)}</span> · ${perMin}/min</span></div>`;
     const vsTint = tintClass(e.vsBaseline);
     const vsTxt = (isFinite(e.vsBaseline) && e.vsBaseline > 0) ? e.vsBaseline.toFixed(2) + '×' : '—';
     return `<tr>
       <td class='l' title='${escapeHtml((e.family || '') + ' · ' + fmtDuration(e.durationMs))}'>${escapeHtml(e.name || '—')}</td>
-      <td class='l'>${countsCell}</td>
-      <td>${(e.eventsPerMin || 0).toFixed(1)}</td>
+      <td>${fmtInt(events)}</td>
+      <td class='l'>${densityCell}</td>
       <td class='${vsTint}'>${vsTxt}</td>
     </tr>`;
   }).join('');
@@ -4428,10 +4951,15 @@ function renderLagGcPressure() {
   const gb = v => (v / 1024).toFixed(2) + ' GB';
   // Peak rule (horizontal) labels the peak heap value on the auto-scaled axis;
   // a marker (vertical) pins the sample index where it occurred.
+  // padTop + a wider niceScale headroom (pad) push the peak rule down off the
+  // plot's top edge so its 'N GB peak' label reads as an annotation on the line
+  // rather than colliding with the top-right corner of the frame. The rule label
+  // anchors at (w - padX), so a wider padX nudges the 'N GB peak' text in off the
+  // right boundary instead of hugging it.
   const chart = n > 0
     ? lineChart({
         series: [{ values: series, color: 'var(--gc)', area: true }],
-        h: 130, axis: true, fmt: gb,
+        h: 138, padTop: 22, padX: 16, pad: 0.2, axis: true, fmt: gb,
         rules: [{ value: maxHeap, color: 'var(--gc)', label: gb(maxHeap) + ' peak' }],
         markers: n > 1 ? [{ index: peakI, color: 'var(--gc)' }] : [],
       })
@@ -4502,9 +5030,37 @@ function renderLagCausality() {
 }
 
 // ---------------------------------------------------------------- Rhythm
-// A horizontal interval histogram via barChart({horizontal:true}) (one bar per
-// bucket, label = interval seconds, value = count) plus a .dtable of rhythm
-// clusters (centre ± width, events, top mod + share, share of session).
+// Two clearly-headed sub-sections side by side: a coarse interval histogram
+// (the raw ~60 micro-buckets are re-binned into a handful of legible, taller
+// buckets, the modal one highlighted) and a .dtable of rhythm clusters (centre
+// ± width, events, top mod + share, share of session). Each half carries its
+// own sectionHeader so the two row systems read as distinct, not one confused
+// table, and the coarser histogram closes the height mismatch with the table.
+
+// Re-bin the fine interval histogram into at most `target` equal-width buckets
+// spanning the observed interval range, summing counts. Returns
+// [{lo, hi, count}] ordered by interval. Fewer than `target` distinct intervals
+// pass through unchanged (one bucket each).
+function lagRebinHist(hist, target) {
+  const pts = hist.filter(b => b && isFinite(b.intervalSeconds));
+  if (pts.length === 0) return [];
+  let lo = Infinity, hi = -Infinity;
+  for (const b of pts) { if (b.intervalSeconds < lo) lo = b.intervalSeconds; if (b.intervalSeconds > hi) hi = b.intervalSeconds; }
+  if (pts.length <= target || hi <= lo) {
+    return pts.slice().sort((a, b) => a.intervalSeconds - b.intervalSeconds)
+              .map(b => ({ lo: b.intervalSeconds, hi: b.intervalSeconds, count: b.count || 0 }));
+  }
+  const span = hi - lo, n = Math.max(1, target);
+  const bins = [];
+  for (let i = 0; i < n; i++) bins.push({ lo: lo + span * i / n, hi: lo + span * (i + 1) / n, count: 0 });
+  for (const b of pts) {
+    let idx = Math.floor((b.intervalSeconds - lo) / span * n);
+    if (idx < 0) idx = 0; if (idx >= n) idx = n - 1;
+    bins[idx].count += b.count || 0;
+  }
+  return bins.filter(b => b.count > 0);
+}
+
 function renderLagRhythm() {
   const histRoot = document.getElementById('lag-rhythm-hist');
   const clusterRoot = document.getElementById('lag-rhythm-clusters');
@@ -4519,23 +5075,35 @@ function renderLagRhythm() {
     return;
   }
 
-  // Horizontal histogram: interval bucket label + bar + count.
-  const histHtml = hist.length === 0
+  // Coarse, legible histogram: re-bin to ~12 buckets, highlight the modal one.
+  const bins = lagRebinHist(hist, 12);
+  let modalI = -1, modalC = -1;
+  for (let i = 0; i < bins.length; i++) { if (bins[i].count > modalC) { modalC = bins[i].count; modalI = i; } }
+  const histInner = bins.length === 0
     ? emptyState('no interval histogram yet')
     : barChart({
         horizontal: true,
-        bars: hist.map(b => ({
-          value: b.count || 0,
-          label: b.intervalSeconds.toFixed(2) + 's',
-          valueLabel: fmtInt(b.count),
-          color: 'var(--accent)',
-        })),
+        bars: bins.map((b, i) => {
+          const label = (b.hi > b.lo)
+            ? b.lo.toFixed(2) + '–' + b.hi.toFixed(2) + 's'
+            : b.lo.toFixed(2) + 's';
+          return {
+            value: b.count || 0,
+            label,
+            valueLabel: fmtInt(b.count),
+            // The modal bucket is the periodicity the panel is about, so it reads
+            // on the bright accent; the rest sit on the dimmer muted tone. Both
+            // are monochrome — magnitude/emphasis, not category.
+            color: i === modalI ? 'var(--accent)' : 'var(--muted)',
+          };
+        }),
       });
+  const histHtml = sectionHeader('interval distribution', 'time between repeated events') + histInner;
 
   // Cluster table.
-  let clusterTable;
+  let clusterInner;
   if (clusters.length === 0) {
-    clusterTable = emptyState('no rhythm clusters detected');
+    clusterInner = emptyState('no rhythm clusters detected');
   } else {
     const rows = clusters.map(c => {
       const colour = modColor(c.topModId || 0);
@@ -4549,13 +5117,14 @@ function renderLagRhythm() {
         <td>${(share * 100).toFixed(1)}%</td>
       </tr>`;
     }).join('');
-    clusterTable = `<table class='dtable'>
+    clusterInner = `<table class='dtable'>
       <thead><tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr></thead>
       <tbody>${rows}</tbody></table>`;
   }
+  const clusterHtml = sectionHeader('rhythm clusters', 'periodic signatures') + clusterInner;
 
   histRoot.innerHTML = histHtml;
-  setHTML(clusterRoot, clusterTable);
+  setHTML(clusterRoot, clusterHtml);
 }
 
 // ====== INSIGHTS TAB ==================================================
@@ -4586,18 +5155,33 @@ let dormantSort = { key: 'usageRatio', dir: 1 };       // least-engaged first
 let engagementSort = { key: 'cpuShare', dir: -1 };     // costliest first
 
 // Roster composition categories: [field, label, colour]. Shared by the
-// observatory list split bar and its legend so colour == meaning across
-// both. Colours come from the palette tokens, never invented.
+// observatory list split bar, its legend, and the detail pane so colour ==
+// meaning across all three.
+//
+// These nine are a fixed content-TYPE role set (like the Memory tab's four
+// footprint roles), not the chromatic per-mod series, so they ride a fixed
+// monochrome luminance ramp rather than nine categorical hues. The prior hue
+// set ran out of distinct colours at nine and collided: 'accessories' on
+// --accent (oklch 0.922) and 'bosses' on --text-bright (oklch 1.0) both
+// rendered near-white, and a near-white DATA swatch breaks the monochrome
+// chrome (white is the brightest thing on the dark surface, reserved for
+// chrome, never data). The ramp fixes both: every step is a distinct grey, no
+// two collide, and grey is orthogonal to the per-mod hues so a category shade
+// never clashes with a mod's colour. Order is brightest->dimmest, fixed, so
+// the legend keys the column once for every row. Span 0.92->0.40 over nine
+// steps (~0.065 L apart) stays perceptibly separable in OKLCH's uniform L, and
+// the 0.40 floor matches the Memory footprint ramp's dimmest step so even the
+// last category clears the --surface split-bar track (oklch 0.235).
 const ROSTER_CATS = [
-  ['items',       'items',       'var(--good)'],
-  ['npcs',        'npcs',        'var(--danger)'],
-  ['buffs',       'buffs',       'var(--amber)'],
-  ['projectiles', 'projectiles', 'var(--cyan)'],
-  ['mounts',      'mounts',      'var(--orange)'],
-  ['accessories', 'accessories', 'var(--accent)'],
-  ['biomes',      'biomes',      'var(--magenta)'],
-  ['invasions',   'invasions',   'var(--purple)'],
-  ['bosses',      'bosses',      'var(--text-bright)'],
+  ['items',       'items',       'oklch(0.920 0 0)'],
+  ['npcs',        'npcs',        'oklch(0.855 0 0)'],
+  ['buffs',       'buffs',       'oklch(0.790 0 0)'],
+  ['projectiles', 'projectiles', 'oklch(0.725 0 0)'],
+  ['mounts',      'mounts',      'oklch(0.660 0 0)'],
+  ['accessories', 'accessories', 'oklch(0.595 0 0)'],
+  ['biomes',      'biomes',      'oklch(0.530 0 0)'],
+  ['invasions',   'invasions',   'oklch(0.465 0 0)'],
+  ['bosses',      'bosses',      'oklch(0.400 0 0)'],
 ];
 
 async function pollInsightsData() {
@@ -4680,23 +5264,30 @@ function renderInsightsKpiStrip() {
   const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
   const denom = Math.max(1, loaded);
 
-  function kpi(label, value, frac, sub, color) {
+  function kpi(label, value, frac, sub) {
     const g = gauge({
       ratio: Math.max(0, Math.min(1, frac)), sweep: 360, w: 64, stroke: 6,
-      color, centerValue: value,
+      color: 'var(--accent)', centerValue: value,
     });
     return `<div class='kpi-cell'>${g}<div class='kpi-meta'>` +
       `<span class='kpi-lbl'>${escapeHtml(label)}</span>` +
       `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
   }
 
+  // One gauge vocabulary across all four KPIs: identical full-ring gauge on the
+  // single neutral --accent. These are four magnitude counts of the same roster,
+  // not perf states, so they must not borrow the green/amber perf ramp (that hue
+  // is reserved for actual cost/engagement data and would mis-signal 'active' as
+  // good and 'under 5%' as a warning). The differentiating signal is each ring's
+  // arc-fill + centre count + label, not the colour — so the strip reads as one
+  // coherent component family in monochrome chrome.
   const body = `<div class='kpi-grid'>` +
-    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session',                              'var(--accent)') +
-    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster',    'var(--good)') +
-    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--magenta)') +
-    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%',      'var(--amber)') +
+    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session') +
+    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster') +
+    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage') +
+    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%') +
     `</div>`;
-  root.innerHTML = panel({ body });
+  root.innerHTML = panel({ title: 'modlist overview', body });
 }
 
 // ----- I2 dormant surface --------------------------------------------
@@ -5032,11 +5623,15 @@ function renderCrossCutting() {
   const sections = groups.map(g => {
     const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
     const maxApp = Math.max(1, leaders[0] && leaders[0].appearances || 1);
+    // The bar width encodes share-of-class (appearances / class max); its colour
+    // is a data token (--cpu, the calm ramp green), not the near-white --accent.
+    // Solid white was decorative — the brightest thing in monochrome chrome — and
+    // colour here must encode, not decorate.
     const rows = leaders.map((l, i) => `<tr title='${escapeHtml(l.modName + ' — ' + fmtInt(l.appearances) + ' appearances in ' + g.signalClass)}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(l.modName)}</td>
       <td>${fmtInt(l.appearances)}</td>
-      <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--accent)')}</td>
+      <td class='l ins-cell'>${cellBar(l.appearances / maxApp, 'var(--cpu)')}</td>
     </tr>`).join('');
     return sectionBlock(
       humanizeLabel(g.signalClass),
@@ -5107,10 +5702,18 @@ function renderEngagementScatter() {
     return 0;
   });
 
+  // A true scatter (usage axis × cpu axis) is deferred — there is no scatter
+  // component and building one blind would be fragile. The relationship is made
+  // legible in-place instead: each row carries a usage bar and a cpu bar on a
+  // SHARED axis (both scaled to the max share across all mods), so a long usage
+  // bar over a short cpu bar reads as usage-heavy at a glance, and the inverse as
+  // cost-heavy — the same split the tilt chip names, now visible per row.
+  const maxShare = Math.max(1e-6, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
+
   const cols = [
     { key: 'modName',    label: 'mod',         l: true },
-    { key: 'usageShare', label: 'usage share', title: 'share of all engagement attributed to this mod' },
-    { key: 'cpuShare',   label: 'cpu share',   title: 'share of all measured cpu attributed to this mod' },
+    { key: 'usageShare', label: 'usage share', l: true, title: 'share of all engagement attributed to this mod (bar scaled to the busiest mod)' },
+    { key: 'cpuShare',   label: 'cpu share',   l: true, title: 'share of all measured cpu attributed to this mod (bar scaled to the busiest mod)' },
     { key: 'rosterSize', label: 'roster' },
   ];
   const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
@@ -5119,10 +5722,16 @@ function renderEngagementScatter() {
   const rows = dots.map(d => {
     const tl = tilt(d);
     const chipCls = tl.cls ? ` ${tl.cls}` : '';
-    return `<tr title='${escapeHtml(d.modName + ' — usage ' + ((d.usageShare||0)*100).toFixed(1) + '% · cpu ' + ((d.cpuShare||0)*100).toFixed(1) + '% · roster ' + fmtInt(d.rosterSize))}'>
+    const uPct = ((d.usageShare||0)*100).toFixed(1);
+    const cPct = ((d.cpuShare||0)*100).toFixed(1);
+    // Usage rides the engagement teal, cpu the ramp green: two distinguishable
+    // data colours on one shared axis so the bars are directly comparable.
+    const usageCell = `<div class='ins-usage'>${cellBar((d.usageShare||0)/maxShare, 'var(--good-bar)')}<span class='ins-pct'>${uPct}%</span></div>`;
+    const cpuCell   = `<div class='ins-usage'>${cellBar((d.cpuShare||0)/maxShare, 'var(--cpu)')}<span class='ins-pct'>${cPct}%</span></div>`;
+    return `<tr title='${escapeHtml(d.modName + ' — usage ' + uPct + '% · cpu ' + cPct + '% · roster ' + fmtInt(d.rosterSize))}'>
       <td class='l'>${escapeHtml(d.modName)}</td>
-      <td>${((d.usageShare||0)*100).toFixed(1)}%</td>
-      <td>${((d.cpuShare||0)*100).toFixed(1)}%</td>
+      <td class='l'>${usageCell}</td>
+      <td class='l'>${cpuCell}</td>
       <td>${fmtInt(d.rosterSize)}</td>
       <td class='l'><span class='chip${chipCls}'>${tl.label}</span></td>
     </tr>`;
@@ -5173,16 +5782,26 @@ function renderModInteractionMatrix() {
   if (subEl) subEl.textContent = `${N} mods (Pearson r)`;
 
   const pairs = mi.topCoupled.slice(0, 12);
-  const maxAbs = Math.max(1e-6, ...pairs.map(p => Math.abs(p.pearson || 0)));
+  // Strong-correlation clusters (e.g. every |r| in 0.99..1.0) make a 0..max bar
+  // read as uniformly full, so it adds nothing over the r column. Scale the bar to
+  // the VISIBLE range instead: baseline at the lowest |r| shown, full at the
+  // highest, so small differences between strong correlations stay separable. The
+  // numeric r column carries the absolute value; the bar carries the spread.
+  const absVals = pairs.map(p => Math.abs(p.pearson || 0));
+  const loAbs = Math.min(...absVals), hiAbs = Math.max(...absVals);
+  const spanAbs = hiAbs - loAbs;
   const rows = pairs.map((p, i) => {
     const r = p.pearson || 0;
     const tint = r >= 0 ? 'var(--good)' : 'var(--danger)';
+    // Map |r| onto [0.08 .. 1] of the visible range so even the weakest shown row
+    // keeps a readable stub; a degenerate all-equal set falls back to full.
+    const frac = spanAbs > 1e-9 ? 0.08 + 0.92 * ((Math.abs(r) - loAbs) / spanAbs) : 1;
     return `<tr title='${escapeHtml(p.modNameA + ' × ' + p.modNameB + ' — r = ' + r.toFixed(3) + ' (n=' + fmtInt(p.samplesUsed) + ')')}'>
       <td class='dim'>${i + 1}</td>
       <td class='l'>${escapeHtml(p.modNameA)}</td>
       <td class='l'>${escapeHtml(p.modNameB)}</td>
       <td style='color:${tint}'>${r.toFixed(3)}</td>
-      <td class='l ins-cell'>${cellBar(Math.abs(r) / maxAbs, tint)}</td>
+      <td class='l ins-cell'>${cellBar(frac, tint)}</td>
       <td>${fmtInt(p.samplesUsed)}</td>
     </tr>`;
   }).join('');
@@ -5210,6 +5829,10 @@ function renderSelf() {
       { to: 2.5 / 3.5, color: 'var(--orange)' },
       { to: 1, color: 'var(--danger)' },
     ],
+    // Reference tick at the healthy->concerning boundary (1.5x baseline on the
+    // 0..3.5 scale), so the fill is read as 'how far into budget' against the
+    // same threshold the bands already use, not a free-floating arc.
+    ref: 1.5 / 3.5,
     color: s.severity === 'Severe' ? 'var(--danger)' : s.severity === 'Concerning' ? 'var(--orange)' : 'var(--good)',
     centerValue: ratio.toFixed(2) + '×', centerSub: s.severity.toLowerCase(),
   });
@@ -5242,11 +5865,14 @@ function renderSelf() {
     statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB')) +
     statLine('managed share', dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'));
   const ws = s.processWorkingSetMb || 1, managed = s.processManagedHeapMb || 0, native = Math.max(0, ws - managed);
+  // managed = near-white accent fill; native = a clear mid-grey (--muted), not
+  // the near-panel --surface-2 that vanishes against the dark panel and reads as
+  // 'one bright swatch' next to managed. Two distinct neutrals on the mono ramp.
   document.getElementById('self-split').innerHTML = splitBar([
     { frac: managed / ws, color: 'var(--accent)', label: 'managed', value: fmtInt(Math.round(managed)) + ' MB' },
-    { frac: native / ws, color: 'var(--surface-2)', label: 'native', value: fmtInt(Math.round(native)) + ' MB' },
+    { frac: native / ws, color: 'var(--muted)', label: 'native', value: fmtInt(Math.round(native)) + ' MB' },
   ], { tall: true }) + splitLegend([
-    { color: 'var(--accent)', label: 'managed' }, { color: 'var(--surface-2)', label: 'native' },
+    { color: 'var(--accent)', label: 'managed' }, { color: 'var(--muted)', label: 'native' },
   ]);
 
   // ---- backend ----
@@ -5272,15 +5898,20 @@ function renderHookDistribution() {
   }
   const sorted = [...perMod.values()].sort((a, b) => b.count - a.count).slice(0, 12);
   const max = sorted.length ? sorted[0].count : 1;
+  const maxMs = sorted.reduce((m, e) => Math.max(m, e.ms), 0) || 1;
   sub.textContent = perMod.size + ' mods · ' + lastHooks.hooks.length + ' active hooks shown';
-  const cols = '2em minmax(0,1.4fr) minmax(0,3fr) 7em 6em';
+  // The count bar is sorted-by (the primary metric); ms gets its own faint
+  // secondary cellBar on an independent scale so where cost and hook count
+  // diverge is visible instead of two bare number columns parsed by eye.
+  const cols = '2em minmax(0,1.4fr) minmax(0,2.4fr) 6em minmax(0,1fr) 5.5em';
   root.innerHTML = rowList(sorted.map((m, i) => row({
     cols,
     cells: [
       `<span class='rk'>${i + 1}</span>`,
       `<span class='nm'>${escapeHtml(m.name)}</span>`,
-      cellBar(m.count / max, 'var(--accent)'),
+      cellBar(m.count / max, modColor(m.id)),
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
+      cellBar(m.ms / maxMs, 'var(--surface-2)'),
       `<span style='text-align:right;color:var(--muted)'>${fmtMs(m.ms)} ms</span>`,
     ],
   })));
@@ -5291,8 +5922,42 @@ function renderHookDistribution() {
 //           'overhead' = the profiler's hook-scaffolding we hold per mod.
 let memBasis = 'modlist';
 let memSelected = null;   // selected modId for the breakdown drawer
+let memFilter = '';       // per-mod table search term
+// Sort state for the per-mod table (mirrors the Insights sortableHead model).
+// Defaults to the value column descending — the costliest-first ordering the
+// strip already uses. 'val' tracks whichever metric the basis exposes.
+let memSort = { key: 'val', dir: -1 };
 
 function memValue(m) { return memBasis === 'overhead' ? (m.hookBytes || 0) : (m.tmlTotal || 0); }
+
+// Footprint composition encoding. The four tML categories (code / textures /
+// sounds / managed) are a fixed ROLE set, not per-mod categories, so they get a
+// fixed encoding that never collides with the chromatic per-mod hues (modColor's
+// full-wheel L0.72/C0.11 palette). A monochrome luminance ramp does that: it is
+// orthogonal to every per-mod hue (no chroma to clash with CalamityMod's lilac),
+// it is consistent across every row (segment N is always the same shade), and it
+// fits the neutral chrome the way the heatmap's opacity ramp does. Order is fixed
+// brightest->dimmest so the legend below the column keys it once for all rows.
+// L values are spread wide (0.97 -> 0.32, ~0.22 per step) so the four bands stay
+// distinguishable even in the slim row mini-bar; the dimmest (managed) still sits
+// clear of the --surface track (L0.235) so a filled segment reads against it.
+const MEM_FP_CATS = [
+  { key: 'tmlCode',     label: 'code',     color: 'oklch(0.97 0 0)' },
+  { key: 'tmlTextures', label: 'textures', color: 'oklch(0.74 0 0)' },
+  { key: 'tmlSounds',   label: 'sounds',   color: 'oklch(0.52 0 0)' },
+  { key: 'tmlManaged',  label: 'managed',  color: 'oklch(0.32 0 0)' },
+];
+
+// Which roles are actually present across the visible roster. splitBar/splitLegend
+// both drop zero-fraction segments, so a category that is zero for every mod (e.g.
+// sounds, which tModLoader reports as 0 for every mod here) never paints a single
+// bar slice. Keying it in the static column legend anyway makes the legend claim a
+// role the bars never show — the column key and the bars disagree. So the static
+// key is data-driven: it lists only the roles non-zero in at least one mod, which
+// is exactly the set the bars can render.
+function memFootprintCatsPresent(mods) {
+  return MEM_FP_CATS.filter(c => mods.some(m => (m[c.key] || 0) > 0));
+}
 
 // tML code/textures/sounds/managed split as a SECONDARY hint (thin bar). Kept
 // quiet by design: the full composition lives in the breakdown drawer on click,
@@ -5301,12 +5966,18 @@ function memValue(m) { return memBasis === 'overhead' ? (m.hookBytes || 0) : (m.
 function memFootprintSegs(m) {
   const t = m.tmlTotal || 0;
   if (t <= 0) return null;
-  return [
-    { frac: m.tmlCode/t,     color: 'var(--cpu)',   label: 'code',     value: fmtBytes(m.tmlCode) },
-    { frac: m.tmlTextures/t, color: 'var(--spike)', label: 'textures', value: fmtBytes(m.tmlTextures) },
-    { frac: m.tmlSounds/t,   color: 'var(--cyan)',  label: 'sounds',   value: fmtBytes(m.tmlSounds) },
-    { frac: m.tmlManaged/t,  color: 'var(--gc)',    label: 'managed',  value: fmtBytes(m.tmlManaged) },
-  ];
+  return MEM_FP_CATS.map(c => ({
+    frac: (m[c.key] || 0) / t, color: c.color, label: c.label, value: fmtBytes(m[c.key]),
+  }));
+}
+
+// Static key for the footprint column: a splitLegend over the role colours of
+// the roles actually present (no per-mod data), so the monochrome ramp reads as
+// 'code | textures | managed' once for the whole column instead of unexplained
+// shades per row — and matches the set the bars can paint (roles zero everywhere
+// are dropped from both the bars and this key, so the two agree).
+function memFootprintLegend(cats) {
+  return splitLegend(cats.map(c => ({ color: c.color, label: c.label })));
 }
 
 function renderMemory() {
@@ -5337,7 +6008,7 @@ function renderMemory() {
     legendEl.innerHTML = '';
     sumEl.innerHTML = '';
     tableEl.innerHTML = emptyState('no data yet');
-    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
 
@@ -5359,7 +6030,7 @@ function renderMemory() {
     stripEl.innerHTML = '';
     legendEl.innerHTML = '';
     tableEl.innerHTML = emptyState(memBasis === 'overhead' ? 'profiler not installed yet' : 'no per-mod memory estimate yet');
-    drawerEl.innerHTML = emptyState('select a mod for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
   const total = rows.reduce((s, r) => s + r.v, 0) || 1;
@@ -5378,6 +6049,11 @@ function renderMemory() {
     const sel = memSelected === r.m.id ? ` class='sel'` : '';
     return `<span data-mod='${r.m.id}'${sel} `;
   });
+  // Container-level selection marker: when a slice is active, .has-sel dims the
+  // un-selected slices so the picked one stands out by contrast as well as by its
+  // own ring. On a wide slice the inset ring alone is a thin border that is easy
+  // to miss; dimming the rest makes the selection unmistakable at any slice width.
+  stripEl.classList.toggle('has-sel', rows.some(r => memSelected === r.m.id));
 
   // Legend — top 8 + rest, clickable (legend() lg rows; we add data-mod so the
   // delegated handler picks them up like the strip + table).
@@ -5393,22 +6069,69 @@ function renderMemory() {
     return r ? `<span class='lg' data-mod='${r.m.id}'>` : `<span class='lg'>`;
   });
 
-  // Per-mod table — same order as the strip. The RAM/scaffold column LEADS: a
-  // wide magnitude bar (share of the visible total) sits beside its figure as
-  // one unit, so scanning the column tracks size. The footprint composition is a
-  // SECONDARY hint — a thin, narrow split confined to its own slim column; the
-  // full breakdown is one click away in the drawer. tr.sel drives the drawer.
+  // Per-mod table view. Independent of the strip: a 29-mod roster needs to be
+  // navigable, so the table carries its own search filter + click-to-sort while
+  // the strip stays size-sorted. The magnitude cellbar shares the strip's total
+  // so bar lengths read the same in both. tr.sel drives the breakdown drawer.
   const valHead = memBasis === 'overhead' ? 'scaffold' : 'RAM';
-  let th = `<table class='dtable'><thead><tr>`
-    + `<th class='l'>mod</th>`
-    + `<th class='mem-col-val'>${valHead}</th>`
-    + `<th class='l mem-col-fp'>footprint</th><th>hooks</th><th>alloc/s</th>`
+  // Sort keys -> comparable scalar. 'name' is alpha; the rest are numeric and
+  // tie-break on name so the order is deterministic when figures match (idle/db
+  // mode where every alloc reads 0). The footprint column is composition, not a
+  // scalar, so it is presentational only (not a sort key).
+  const memSortVal = {
+    name:  m => null,
+    val:   m => memValue(m),
+    hooks: m => m.hookCount || 0,
+    alloc: m => (mem.tracksAllocations ? (m.allocBytes || 0) : 0),
+  };
+  const q = memFilter.trim().toLowerCase();
+  let view = rows.slice();
+  if (q) view = view.filter(r => r.m.name.toLowerCase().includes(q));
+  view.sort((a, b) => {
+    if (memSort.key === 'name') return memSort.dir * a.m.name.localeCompare(b.m.name);
+    const fn = memSortVal[memSort.key] || memSortVal.val;
+    return memSort.dir * ((fn(a.m) - fn(b.m)) || a.m.name.localeCompare(b.m.name));
+  });
+
+  // Sortable header cell: the shared .dtable th.sortable / .sorted idiom with a
+  // direction caret on the active column. data-msort is the delegated click key;
+  // extra carries any column-width class (e.g. mem-col-val).
+  function memTh(key, label, leftAlign, extra) {
+    const on = memSort.key === key;
+    const arrow = on ? (memSort.dir === 1 ? ' ▲' : ' ▼') : '';
+    const cls = (leftAlign ? 'l ' : '') + (extra ? extra + ' ' : '') + 'sortable' + (on ? ' sorted' : '');
+    return `<th class='${cls}' data-msort='${key}'>${escapeHtml(label)}${arrow}</th>`;
+  }
+
+  // A search box + a footprint key live in a sticky control bar above the table,
+  // so a 29-mod roster is filterable and the monochrome footprint ramp is keyed
+  // once. The bar re-emits each poll; bindMemory() restores the input's focus.
+  // The key is computed off the FULL roster (not the filtered view) so it stays
+  // stable while the user searches, and lists only roles the bars actually paint.
+  const fpCats = memFootprintCatsPresent(mem.mods);
+  let html = `<div class='mem-controls'>`
+    + `<input class='filter-input' id='mem-search' placeholder='search mods…' value='${escapeHtml(memFilter)}'>`
+    + `<div class='mem-fp-key'><span class='mem-fp-key-lbl'>footprint</span>${memFootprintLegend(fpCats)}</div>`
+    + `</div>`;
+  if (view.length === 0) {
+    html += emptyState('no mods match “' + memFilter + '”');
+    setHTML(tableEl, html);
+    memRestoreSearchFocus();
+    renderMemoryDrawer();
+    return;
+  }
+  html += `<table class='dtable'><thead><tr>`
+    + memTh('name', 'mod', true)
+    + memTh('val', valHead, false, 'mem-col-val')
+    + `<th class='l mem-col-fp'>footprint</th>`
+    + memTh('hooks', 'hooks', false)
+    + memTh('alloc', 'alloc/s', false)
     + `</tr></thead><tbody>`;
-  for (const r of rows) {
+  for (const r of view) {
     const m = r.m;
     const sel = memSelected === m.id ? ' sel' : '';
     const segs = memFootprintSegs(m);
-    th += `<tr class='clickable${sel}' data-mod='${m.id}'>`
+    html += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
       + `<td class='mem-col-val'><span class='mem-val-cell'>`
         + cellBar(r.v / total, modColor(m.id))
@@ -5419,10 +6142,21 @@ function renderMemory() {
       + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
       + `</tr>`;
   }
-  th += `</tbody></table>`;
-  setHTML(tableEl, th);   // preserve scroll on poll-driven re-render
+  html += `</tbody></table>`;
+  setHTML(tableEl, html);   // preserve scroll on poll-driven re-render
+  memRestoreSearchFocus();
 
   renderMemoryDrawer();
+}
+
+// Breakdown empty-state. A bare centred line read as dead space, so this primes
+// the slot: the prompt plus a one-line note of what a selection reveals (the tML
+// footprint split + the profiler instrumentation figures). Compact, not a skeleton.
+function memBreakdownPrompt() {
+  return `<div class='mem-bd-empty'>`
+    + `<div class='mem-bd-prompt'>select a mod slice or row</div>`
+    + `<div class='mem-bd-hint'>its tModLoader footprint split and profiler instrumentation appear here</div>`
+    + `</div>`;
 }
 
 function renderMemoryDrawer() {
@@ -5430,11 +6164,11 @@ function renderMemoryDrawer() {
   const mem = lastMemory;
   if (!drawerEl) return;
   if (memSelected == null || !mem) {
-    drawerEl.innerHTML = emptyState('select a mod slice or row for its breakdown');
+    drawerEl.innerHTML = memBreakdownPrompt();
     return;
   }
   const m = mem.mods.find(x => x.id === memSelected);
-  if (!m) { drawerEl.innerHTML = emptyState('select a mod for its breakdown'); return; }
+  if (!m) { drawerEl.innerHTML = memBreakdownPrompt(); return; }
 
   // Header: name + total (the tML number is an estimate — sub-label keeps that
   // honesty badge in the section header, not a normative judgement).
@@ -5465,12 +6199,37 @@ function renderMemoryDrawer() {
   drawerEl.innerHTML = h;
 }
 
+// The search input lives inside #mem-table, which setHTML() rewrites every poll,
+// so a focused box would lose focus + caret mid-keystroke. We track focus/caret
+// as the user types and restore them after each re-render. memSearchActive flips
+// false on blur so a re-render never steals focus back once the user clicks away.
+let memSearchActive = false, memSearchCaret = 0;
+function memRestoreSearchFocus() {
+  if (!memSearchActive) return;
+  const s = document.getElementById('mem-search');
+  if (!s) return;
+  s.focus();
+  const c = Math.min(memSearchCaret, s.value.length);
+  try { s.setSelectionRange(c, c); } catch (e) { /* unsupported */ }
+}
+
 // Delegated interactions — bound once to the stable containers.
 (function bindMemory() {
   ['mem-strip', 'mem-legend', 'mem-table'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('click', e => {
+      // A sort header is not a selection target — handle it first and bail.
+      const sortTh = e.target.closest('th[data-msort]');
+      if (sortTh) {
+        const k = sortTh.dataset.msort;
+        // Toggle direction on the active column; a new column starts descending
+        // (name starts ascending — A→Z reads as the natural default for a name).
+        if (memSort.key === k) memSort.dir = -memSort.dir;
+        else { memSort.key = k; memSort.dir = (k === 'name') ? 1 : -1; }
+        if (activeTab === 'memory') renderMemory();
+        return;
+      }
       const t = e.target.closest('[data-mod]');
       if (!t) return;
       const mid = parseInt(t.dataset.mod, 10);
@@ -5478,6 +6237,21 @@ function renderMemoryDrawer() {
       if (activeTab === 'memory') renderMemory();
     });
   });
+
+  // Search box: delegated input/focus/blur on the stable #mem-table container so
+  // the listeners survive every poll-driven innerHTML rewrite of the table.
+  const table = document.getElementById('mem-table');
+  if (table) {
+    table.addEventListener('input', e => {
+      if (e.target.id !== 'mem-search') return;
+      memFilter = e.target.value;
+      memSearchCaret = e.target.selectionStart || 0;
+      if (activeTab === 'memory') renderMemory();
+    });
+    table.addEventListener('focusin', e => { if (e.target.id === 'mem-search') memSearchActive = true; });
+    table.addEventListener('focusout', e => { if (e.target.id === 'mem-search') memSearchActive = false; });
+  }
+
   const basis = document.getElementById('mem-basis');
   if (basis) basis.addEventListener('click', e => {
     const b = e.target.closest('button');

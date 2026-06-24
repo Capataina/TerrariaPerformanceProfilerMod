@@ -33,12 +33,26 @@ function memValue(m) { return memBasis === 'overhead' ? (m.hookBytes || 0) : (m.
 // it is consistent across every row (segment N is always the same shade), and it
 // fits the neutral chrome the way the heatmap's opacity ramp does. Order is fixed
 // brightest->dimmest so the legend below the column keys it once for all rows.
+// L values are spread wide (0.97 -> 0.32, ~0.22 per step) so the four bands stay
+// distinguishable even in the slim row mini-bar; the dimmest (managed) still sits
+// clear of the --surface track (L0.235) so a filled segment reads against it.
 const MEM_FP_CATS = [
-  { key: 'tmlCode',     label: 'code',     color: 'oklch(0.90 0 0)' },
-  { key: 'tmlTextures', label: 'textures', color: 'oklch(0.72 0 0)' },
-  { key: 'tmlSounds',   label: 'sounds',   color: 'oklch(0.54 0 0)' },
-  { key: 'tmlManaged',  label: 'managed',  color: 'oklch(0.38 0 0)' },
+  { key: 'tmlCode',     label: 'code',     color: 'oklch(0.97 0 0)' },
+  { key: 'tmlTextures', label: 'textures', color: 'oklch(0.74 0 0)' },
+  { key: 'tmlSounds',   label: 'sounds',   color: 'oklch(0.52 0 0)' },
+  { key: 'tmlManaged',  label: 'managed',  color: 'oklch(0.32 0 0)' },
 ];
+
+// Which roles are actually present across the visible roster. splitBar/splitLegend
+// both drop zero-fraction segments, so a category that is zero for every mod (e.g.
+// sounds, which tModLoader reports as 0 for every mod here) never paints a single
+// bar slice. Keying it in the static column legend anyway makes the legend claim a
+// role the bars never show — the column key and the bars disagree. So the static
+// key is data-driven: it lists only the roles non-zero in at least one mod, which
+// is exactly the set the bars can render.
+function memFootprintCatsPresent(mods) {
+  return MEM_FP_CATS.filter(c => mods.some(m => (m[c.key] || 0) > 0));
+}
 
 // tML code/textures/sounds/managed split as a SECONDARY hint (thin bar). Kept
 // quiet by design: the full composition lives in the breakdown drawer on click,
@@ -52,11 +66,13 @@ function memFootprintSegs(m) {
   }));
 }
 
-// Static key for the footprint column: a splitLegend over the role colours (no
-// per-mod data), so the monochrome ramp reads as 'code | textures | sounds |
-// managed' once for the whole column instead of unexplained shades per row.
-function memFootprintLegend() {
-  return splitLegend(MEM_FP_CATS.map(c => ({ color: c.color, label: c.label })));
+// Static key for the footprint column: a splitLegend over the role colours of
+// the roles actually present (no per-mod data), so the monochrome ramp reads as
+// 'code | textures | managed' once for the whole column instead of unexplained
+// shades per row — and matches the set the bars can paint (roles zero everywhere
+// are dropped from both the bars and this key, so the two agree).
+function memFootprintLegend(cats) {
+  return splitLegend(cats.map(c => ({ color: c.color, label: c.label })));
 }
 
 function renderMemory() {
@@ -128,6 +144,11 @@ function renderMemory() {
     const sel = memSelected === r.m.id ? ` class='sel'` : '';
     return `<span data-mod='${r.m.id}'${sel} `;
   });
+  // Container-level selection marker: when a slice is active, .has-sel dims the
+  // un-selected slices so the picked one stands out by contrast as well as by its
+  // own ring. On a wide slice the inset ring alone is a thin border that is easy
+  // to miss; dimming the rest makes the selection unmistakable at any slice width.
+  stripEl.classList.toggle('has-sel', rows.some(r => memSelected === r.m.id));
 
   // Legend — top 8 + rest, clickable (legend() lg rows; we add data-mod so the
   // delegated handler picks them up like the strip + table).
@@ -180,9 +201,12 @@ function renderMemory() {
   // A search box + a footprint key live in a sticky control bar above the table,
   // so a 29-mod roster is filterable and the monochrome footprint ramp is keyed
   // once. The bar re-emits each poll; bindMemory() restores the input's focus.
+  // The key is computed off the FULL roster (not the filtered view) so it stays
+  // stable while the user searches, and lists only roles the bars actually paint.
+  const fpCats = memFootprintCatsPresent(mem.mods);
   let html = `<div class='mem-controls'>`
     + `<input class='filter-input' id='mem-search' placeholder='search mods…' value='${escapeHtml(memFilter)}'>`
-    + `<div class='mem-fp-key'><span class='mem-fp-key-lbl'>footprint</span>${memFootprintLegend()}</div>`
+    + `<div class='mem-fp-key'><span class='mem-fp-key-lbl'>footprint</span>${memFootprintLegend(fpCats)}</div>`
     + `</div>`;
   if (view.length === 0) {
     html += emptyState('no mods match “' + memFilter + '”');

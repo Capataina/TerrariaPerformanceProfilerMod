@@ -43,18 +43,33 @@ let dormantSort = { key: 'usageRatio', dir: 1 };       // least-engaged first
 let engagementSort = { key: 'cpuShare', dir: -1 };     // costliest first
 
 // Roster composition categories: [field, label, colour]. Shared by the
-// observatory list split bar and its legend so colour == meaning across
-// both. Colours come from the palette tokens, never invented.
+// observatory list split bar, its legend, and the detail pane so colour ==
+// meaning across all three.
+//
+// These nine are a fixed content-TYPE role set (like the Memory tab's four
+// footprint roles), not the chromatic per-mod series, so they ride a fixed
+// monochrome luminance ramp rather than nine categorical hues. The prior hue
+// set ran out of distinct colours at nine and collided: 'accessories' on
+// --accent (oklch 0.922) and 'bosses' on --text-bright (oklch 1.0) both
+// rendered near-white, and a near-white DATA swatch breaks the monochrome
+// chrome (white is the brightest thing on the dark surface, reserved for
+// chrome, never data). The ramp fixes both: every step is a distinct grey, no
+// two collide, and grey is orthogonal to the per-mod hues so a category shade
+// never clashes with a mod's colour. Order is brightest->dimmest, fixed, so
+// the legend keys the column once for every row. Span 0.92->0.40 over nine
+// steps (~0.065 L apart) stays perceptibly separable in OKLCH's uniform L, and
+// the 0.40 floor matches the Memory footprint ramp's dimmest step so even the
+// last category clears the --surface split-bar track (oklch 0.235).
 const ROSTER_CATS = [
-  ['items',       'items',       'var(--good)'],
-  ['npcs',        'npcs',        'var(--danger)'],
-  ['buffs',       'buffs',       'var(--amber)'],
-  ['projectiles', 'projectiles', 'var(--cyan)'],
-  ['mounts',      'mounts',      'var(--orange)'],
-  ['accessories', 'accessories', 'var(--accent)'],
-  ['biomes',      'biomes',      'var(--magenta)'],
-  ['invasions',   'invasions',   'var(--purple)'],
-  ['bosses',      'bosses',      'var(--text-bright)'],
+  ['items',       'items',       'oklch(0.920 0 0)'],
+  ['npcs',        'npcs',        'oklch(0.855 0 0)'],
+  ['buffs',       'buffs',       'oklch(0.790 0 0)'],
+  ['projectiles', 'projectiles', 'oklch(0.725 0 0)'],
+  ['mounts',      'mounts',      'oklch(0.660 0 0)'],
+  ['accessories', 'accessories', 'oklch(0.595 0 0)'],
+  ['biomes',      'biomes',      'oklch(0.530 0 0)'],
+  ['invasions',   'invasions',   'oklch(0.465 0 0)'],
+  ['bosses',      'bosses',      'oklch(0.400 0 0)'],
 ];
 
 async function pollInsightsData() {
@@ -137,24 +152,28 @@ function renderInsightsKpiStrip() {
   const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
   const denom = Math.max(1, loaded);
 
-  function kpi(label, value, frac, sub, color) {
+  function kpi(label, value, frac, sub) {
     const g = gauge({
       ratio: Math.max(0, Math.min(1, frac)), sweep: 360, w: 64, stroke: 6,
-      color, centerValue: value,
+      color: 'var(--accent)', centerValue: value,
     });
     return `<div class='kpi-cell'>${g}<div class='kpi-meta'>` +
       `<span class='kpi-lbl'>${escapeHtml(label)}</span>` +
       `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
   }
 
-  // dormant rides a neutral muted ring, not the lone categorical pink it used to:
-  // hue is reserved for the per-mod series, so a single magnitude KPI uses a
-  // neutral fill. active/under-5% sit on the perf ramp (green / amber).
+  // One gauge vocabulary across all four KPIs: identical full-ring gauge on the
+  // single neutral --accent. These are four magnitude counts of the same roster,
+  // not perf states, so they must not borrow the green/amber perf ramp (that hue
+  // is reserved for actual cost/engagement data and would mis-signal 'active' as
+  // good and 'under 5%' as a warning). The differentiating signal is each ring's
+  // arc-fill + centre count + label, not the colour — so the strip reads as one
+  // coherent component family in monochrome chrome.
   const body = `<div class='kpi-grid'>` +
-    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session',                              'var(--accent)') +
-    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster',    'var(--good)') +
-    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage', 'var(--muted)') +
-    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%',      'var(--amber)') +
+    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session') +
+    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster') +
+    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage') +
+    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%') +
     `</div>`;
   root.innerHTML = panel({ title: 'modlist overview', body });
 }

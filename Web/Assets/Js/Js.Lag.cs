@@ -229,9 +229,15 @@ function renderLagGalaxy() {
   const p95s = clusters.map(c => c.p95Ms || 0).sort((a, b) => a - b);
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
-  // The context column is dead width when no cluster carries any context, so
-  // it is dropped from both the header and the rows in that case.
-  const anyContext = clusters.some(c => c.primaryBiome || c.weatherFlags || c.hardmode);
+  // The context column is dead width when no cluster carries a real context, so
+  // it is dropped from both the header and the rows in that case. The guard
+  // counts rows that would actually render a chip (a non-empty biome / weather
+  // string, or hardmode true) rather than truthiness of the raw fields, so an
+  // all-'—' column never survives when every row's context is empty.
+  const hasCtx = c => (typeof c.primaryBiome === 'string' && c.primaryBiome.trim() !== '')
+    || (typeof c.weatherFlags === 'string' && c.weatherFlags.trim() !== '')
+    || c.hardmode === true;
+  const anyContext = clusters.filter(hasCtx).length >= 1;
   const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
 
   const head = `<thead><tr>
@@ -424,11 +430,13 @@ function renderLagGcPressure() {
   // a marker (vertical) pins the sample index where it occurred.
   // padTop + a wider niceScale headroom (pad) push the peak rule down off the
   // plot's top edge so its 'N GB peak' label reads as an annotation on the line
-  // rather than colliding with the top-right corner of the frame.
+  // rather than colliding with the top-right corner of the frame. The rule label
+  // anchors at (w - padX), so a wider padX nudges the 'N GB peak' text in off the
+  // right boundary instead of hugging it.
   const chart = n > 0
     ? lineChart({
         series: [{ values: series, color: 'var(--gc)', area: true }],
-        h: 138, padTop: 22, pad: 0.2, axis: true, fmt: gb,
+        h: 138, padTop: 22, padX: 16, pad: 0.2, axis: true, fmt: gb,
         rules: [{ value: maxHeap, color: 'var(--gc)', label: gb(maxHeap) + ' peak' }],
         markers: n > 1 ? [{ index: peakI, color: 'var(--gc)' }] : [],
       })

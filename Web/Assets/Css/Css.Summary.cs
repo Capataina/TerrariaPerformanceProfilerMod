@@ -123,8 +123,12 @@ internal static partial class DashboardAssets
 /* ====== Events feed (rowList of row()) ====== */
 .events-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }
 .ev-row { align-items: baseline; }
-.ev-glyph { text-align: center; color: var(--muted); }
-.ev-when  { color: var(--dim); font-size: 0.72rem; }
+/* The kind glyph is the row's scan anchor — it is the one element coloured per
+   event kind, so we size it up a touch to lead the eye down the list rather than
+   leaving every row the same weight. The timestamp recedes (already dim) so the
+   glyph + text carry the row and the relative time stays a secondary figure. */
+.ev-glyph { text-align: center; color: var(--muted); font-size: 0.92rem; }
+.ev-when  { color: var(--dim); font-size: 0.72rem; opacity: 0.85; }
 .ev-row[data-kind='boss-kill'] .ev-glyph { color: var(--good); }
 .ev-row[data-kind='death']     .ev-glyph { color: var(--danger); }
 .ev-row[data-kind='spike']     .ev-glyph { color: var(--amber); }
