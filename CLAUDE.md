@@ -15,7 +15,7 @@ At the start of every session:
 0. **Fetch remote state.** Run `git fetch origin` if a remote exists. (Early on there is no remote — a GitHub repo is a Milestone 5 step.)
 1. **Read `README.md`.** It is the directional document: what the mod is, the mod-only architecture decision, the six views, the overhead model, the milestones. Project intent lives here.
 2. **Read `context/` if it exists.** Repository-level implementation memory. It does not exist yet at the scaffold stage; once the hook-interceptor architecture lands, recommend an `upkeep-context` pass to establish it.
-3. **Consult the design pitch when scope or architecture is in question.** The full ~1,100-line design — every feature, every rationale, the feasibility-research record — lives in the LifeOS vault at `Projects/Potential Projects/Modded Terraria Profiler.md`. It is the design source of truth; the README is its directional summary. Read the pitch before re-litigating a decision it already settled.
+3. **Consult the vault project docs when scope or architecture is in question.** The full design (every feature, every rationale, the feasibility-research record) lives in the LifeOS vault under `Projects/Performance Profiler/`, a structured Option C project folder. Start at `_Overview.md`, then `Architecture.md`, the per-feature docs in `Systems/` (e.g. `Systems/Insights Engine.md`), and `Decisions.md` / `Gaps.md` / `Roadmap.md`. These are the design source of truth; the README is their directional summary. Read them before re-litigating a decision they already settled. (The original single-file pitch at `Projects/Potential Projects/Modded Terraria Profiler.md` was retired into this folder.)
 4. **Summarise current state.** Confirm what you understand of the implementation state and active milestone, then ask any focusing question that materially shapes the next step.
 
 ---
@@ -56,7 +56,7 @@ The profiler's own architecture already embodies this: the in-game overlay is th
 | Source | Role | Rule |
 |---|---|---|
 | `README.md` | Project intent, scope, milestones, philosophy | Directional source of truth; keep current as the project evolves. Routine drift updates inline with the change called out; mission/scope changes confirmed first. |
-| Vault design pitch | Full design rationale, feature detail, feasibility record | Read for the *why*; not edited from inside this repo. |
+| Vault project docs (`Projects/Performance Profiler/`) | Full design rationale, feature detail, feasibility record | Read for the *why* (start at `_Overview.md`); not edited from inside this repo. |
 | `context/` | Repository implementation memory | The maintained view of current reality, once it exists. |
 | Code | Implementation reality | Verify details, resolve ambiguity, detect drift here. |
 
