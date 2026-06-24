@@ -363,6 +363,26 @@ public sealed class ProfilerSystem : ModSystem
         // self-contained and survives the InsightsEngine.Shared = null at unload.
         ContextBaseline? capturedBaseline = InsightsEngine.Shared?.ContextBaseline;
         string capturedFingerprint = ModlistFingerprint.Compute();
+        // Dual-surface observability: render the engine's top insights on the game
+        // thread (where mod names resolve) so the off-thread summary log carries the
+        // same interpretation the dashboard shows. Guarded — a render failure just
+        // drops the insights line from the log.
+        string[]? capturedInsights = null;
+        try
+        {
+            InsightsEngine? engine = InsightsEngine.Shared;
+            if (engine != null)
+            {
+                var top = engine.Store.Top(8, (long)Main.GameUpdateCount);
+                if (top.Count > 0)
+                {
+                    capturedInsights = new string[top.Count];
+                    for (int i = 0; i < top.Count; i++)
+                        capturedInsights[i] = InsightRenderer.Render(top[i], Audience.Both, Density.Short);
+                }
+            }
+        }
+        catch { capturedInsights = null; }
 
         _ = Task.Run(() =>
         {
@@ -372,7 +392,7 @@ public sealed class ProfilerSystem : ModSystem
                 capturedDb?.DrainAndTruncateJournalForSessionEnd();
                 if (capturedDb != null && capturedLogger != null)
                 {
-                    SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId);
+                    SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId, capturedInsights);
                 }
                 // Persist the per-context baselines for this stack (prior + this
                 // session). Independently guarded: a failure here must not abort the

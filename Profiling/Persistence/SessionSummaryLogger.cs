@@ -31,7 +31,8 @@ namespace PerformanceProfiler.Profiling.Persistence;
 /// </summary>
 internal static class SessionSummaryLogger
 {
-    public static void Write(ILog log, ProfilerDatabase db, ObjectId sessionId)
+    public static void Write(ILog log, ProfilerDatabase db, ObjectId sessionId,
+        System.Collections.Generic.IReadOnlyList<string>? engineInsights = null)
     {
         try
         {
@@ -85,6 +86,17 @@ internal static class SessionSummaryLogger
             {
                 var m = topMods[i];
                 sb.AppendLine($"  top mod {i + 1}    {m.ModInternalName}  avg {m.AvgMs:F2}ms/t  peak {m.PeakMs:F1}ms  total {m.TotalMs:F0}ms");
+            }
+            // Dual-surface observability: the engine's top insights, rendered by the
+            // caller (which holds the live engine + game-state mod names), so the agent
+            // reading client.log sees the same interpretation the player sees on the
+            // dashboard. Sourced from the engine directly rather than re-derived here.
+            if (engineInsights != null && engineInsights.Count > 0)
+            {
+                for (int i = 0; i < engineInsights.Count; i++)
+                {
+                    sb.AppendLine($"  insight {i + 1}    {engineInsights[i]}");
+                }
             }
             sb.AppendLine("=== end session-summary ===");
             log.Info(sb.ToString());
