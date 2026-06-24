@@ -61,6 +61,16 @@ public sealed class ContextBaseline
     /// <summary>How many buckets have been evicted under the cap (surfaced so silent truncation is visible).</summary>
     public int Evictions => _evictions;
 
+    /// <summary>
+    /// True once <see cref="Seed"/> has loaded a prior session's distributions into
+    /// this frame: the comparison now spans sessions, so a detector reading it can
+    /// honestly badge its finding LifetimeData rather than ThisSession.
+    /// </summary>
+    public bool WasSeeded { get; private set; }
+
+    /// <summary>The sentinel bucket id under which the session-wide (global) per-mod stat persists.</summary>
+    public const long GlobalBucket = 0L;
+
     /// <summary>Packs a context dimension (0..255) and value into an opaque bucket id.</summary>
     public static long MakeBucket(byte dim, int value) => ((long)dim << 32) | (uint)value;
 
@@ -109,6 +119,49 @@ public sealed class ContextBaseline
 
     /// <summary>The currently-tracked bucket ids (for a detector to sweep).</summary>
     public IEnumerable<long> Buckets => _byBucket.Keys;
+
+    /// <summary>
+    /// Yields every non-empty distribution for persistence: the global per-mod
+    /// stats under <see cref="GlobalBucket"/>, then each context bucket's per-mod
+    /// stats. The cross-session store writes these and reads them back via
+    /// <see cref="Seed"/>.
+    /// </summary>
+    public IEnumerable<(long bucket, int modId, RunningStat stat)> Export()
+    {
+        for (int m = 0; m < _modCount; m++)
+        {
+            if (_global[m].Count > 0) yield return (GlobalBucket, m, _global[m]);
+        }
+        foreach (KeyValuePair<long, RunningStat[]> kv in _byBucket)
+        {
+            RunningStat[] arr = kv.Value;
+            for (int m = 0; m < arr.Length; m++)
+            {
+                if (arr[m].Count > 0) yield return (kv.Key, m, arr[m]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Loads persisted distributions back in (the inverse of <see cref="Export"/>),
+    /// marking the frame seeded so detectors badge LifetimeData. Rows for the
+    /// <see cref="GlobalBucket"/> restore the global per-mod stats; others restore a
+    /// context bucket. Out-of-range mods and excess buckets (past the cap) are
+    /// skipped. Intended to run once, before any <see cref="Observe"/>.
+    /// </summary>
+    public void Seed(IEnumerable<(long bucket, int modId, RunningStat stat)> rows)
+    {
+        foreach ((long bucket, int modId, RunningStat stat) in rows)
+        {
+            if ((uint)modId >= (uint)_modCount) continue;
+            if (bucket == GlobalBucket) { _global[modId] = stat; continue; }
+            RunningStat[] arr = GetOrAddBucket(bucket);
+            if (arr.Length == 0) continue; // evicted under the cap
+            arr[modId] = stat;
+            _bucketSamples[bucket] = stat.Count > _bucketSamples.GetValueOrDefault(bucket) ? stat.Count : _bucketSamples[bucket];
+        }
+        WasSeeded = true;
+    }
 
     private RunningStat[] GetOrAddBucket(long bucket)
     {

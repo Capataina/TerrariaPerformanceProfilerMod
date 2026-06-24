@@ -7,6 +7,7 @@ using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Insights;
+using PerformanceProfiler.Insights.ReferenceFrames;
 using PerformanceProfiler.Profiling.Persistence;
 using PerformanceProfiler.Data.Aggregators.Segments;
 
@@ -274,6 +275,26 @@ public sealed class ProfilerSystem : ModSystem
         Segments = new SegmentDetector(sid, SegmentStore);
         _lastSpikeCount = 0;
         _lastStallCount = 0;
+
+        // Wave 6: seed the insights engine's context baseline with this stack's prior
+        // sessions, so cross-session confidence and the LifetimeData badge are
+        // truthful from the first detection pass. Guarded end-to-end: any failure
+        // leaves a fresh (unseeded) baseline — a degraded feature, never a crash
+        // (Invariant 4: persistence is an agent surface, not a gameplay dependency).
+        try
+        {
+            ProfilerDatabase? cbDb = PerformanceProfiler.Database;
+            if (cbDb != null && PerModAttribution.ModCount > 0)
+            {
+                ContextBaseline seeded = CrossSessionStore.Load(
+                    cbDb.ContextBaselines, ModlistFingerprint.Compute(), PerModAttribution.ModCount);
+                InsightsEngine.GetOrCreateShared().SeedContextBaseline(seeded);
+            }
+        }
+        catch (Exception ex)
+        {
+            Mod.Logger.Warn($"Cross-session baseline seed skipped ({ex.GetType().Name}: {ex.Message}); fresh baseline this session.");
+        }
         _wasDeadLastTick = false;
 
         // v0.9.x data pipeline — initialise every registered IDataStream
@@ -337,6 +358,11 @@ public sealed class ProfilerSystem : ModSystem
         SessionRecorder capturedRecorder = recorder;
         var capturedDb = PerformanceProfiler.Database;
         var capturedLogger = PerformanceProfiler.LoggerOrNull;
+        // Wave 6: capture the engine's lifetime baseline + this stack's fingerprint on
+        // the game thread (the modlist is stable here) so the off-thread save below is
+        // self-contained and survives the InsightsEngine.Shared = null at unload.
+        ContextBaseline? capturedBaseline = InsightsEngine.Shared?.ContextBaseline;
+        string capturedFingerprint = ModlistFingerprint.Compute();
 
         _ = Task.Run(() =>
         {
@@ -347,6 +373,14 @@ public sealed class ProfilerSystem : ModSystem
                 if (capturedDb != null && capturedLogger != null)
                 {
                     SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId);
+                }
+                // Persist the per-context baselines for this stack (prior + this
+                // session). Independently guarded: a failure here must not abort the
+                // recorder-end work above (Invariant 4).
+                if (capturedDb != null && capturedBaseline != null)
+                {
+                    try { CrossSessionStore.Save(capturedDb.ContextBaselines, capturedFingerprint, capturedBaseline); }
+                    catch (Exception ex) { PerformanceProfiler.LoggerOrNull?.Warn($"Cross-session baseline save failed: {ex.GetType().Name}: {ex.Message}"); }
                 }
             }
             catch (Exception ex)

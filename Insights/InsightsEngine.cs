@@ -176,6 +176,18 @@ public sealed class InsightsEngine
     /// </summary>
     public ContextBaseline? ContextBaseline => _contextBaseline;
 
+    /// <summary>
+    /// Installs a pre-loaded context baseline (typically seeded with prior-session
+    /// data by <see cref="ReferenceFrames.CrossSessionStore"/>) before the first
+    /// evaluation, so this session accumulates on top of the lifetime total. A
+    /// no-op once a baseline already exists, so a late call cannot clobber
+    /// mid-session accumulation.
+    /// </summary>
+    public void SeedContextBaseline(ContextBaseline seeded)
+    {
+        _contextBaseline ??= seeded;
+    }
+
     /// <summary>The full detector roster, including gated stubs. Used by the JSONL exporter.</summary>
     public IReadOnlyList<IInsightDetector> Detectors => _detectors;
 

@@ -88,6 +88,10 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<LoadoutSnapshotRow>      LoadoutSnapshots      => _db.GetCollection<LoadoutSnapshotRow>("loadoutSnapshots");
     public ILiteCollection<BuffEventRow>            BuffEvents            => _db.GetCollection<BuffEventRow>("buffEvents");
     public ILiteCollection<SegmentRow>              Segments              => _db.GetCollection<SegmentRow>("segments");
+    // Wave 6: cross-session per-context per-mod cost baselines, keyed by fingerprint.
+    // An additive collection (LiteDB creates it on first use), so it needs no schema
+    // migration — old DBs simply have none until a session writes one.
+    public ILiteCollection<ContextBaselineRow>      ContextBaselines      => _db.GetCollection<ContextBaselineRow>("contextBaselines");
 
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
         : this(root, StreamRegistry.Default(), log, profilerVersion) { }

@@ -34,6 +34,30 @@ public struct RunningStat
     /// <summary>Standard deviation (population).</summary>
     public double StdDev => Math.Sqrt(Variance);
 
+    /// <summary>Raw Welford components — for persistence (the cross-session store reads these back).</summary>
+    public double M2 => _m2;
+
+    /// <summary>Rebuilds a RunningStat from persisted components, so a prior session's distribution can resume accumulating.</summary>
+    public static RunningStat FromComponents(long count, double mean, double m2)
+        => new RunningStat { Count = count < 0 ? 0 : count, Mean = mean, _m2 = m2 < 0d ? 0d : m2 };
+
+    /// <summary>
+    /// Combines two independent distributions into one (Chan's parallel algorithm)
+    /// — the forward of <see cref="Without"/>. This is how a session's freshly
+    /// accumulated stats fold into the lifetime baseline: count, mean, and M2 all
+    /// merge exactly, no re-reading the samples.
+    /// </summary>
+    public RunningStat Merge(in RunningStat other)
+    {
+        if (Count == 0) return other;
+        if (other.Count == 0) return this;
+        long n = Count + other.Count;
+        double delta = other.Mean - Mean;
+        double mean = Mean + delta * other.Count / n;
+        double m2 = _m2 + other._m2 + delta * delta * ((double)Count * other.Count) / n;
+        return new RunningStat { Count = n, Mean = mean, _m2 = m2 };
+    }
+
     /// <summary>
     /// Subtracts a sub-distribution from this one, yielding the complement
     /// (e.g. "out of context" = global − in-context). Returns a RunningStat with

@@ -83,6 +83,8 @@
     <!-- Wave 3 reference-frame substrate (pure stats + the per-context accumulator). -->
     <Compile Include="..\Insights\Shared\Stats.cs" Link="Source\Insights\Shared\Stats.cs" />
     <Compile Include="..\Insights\ReferenceFrames\ContextBaseline.cs" Link="Source\Insights\ReferenceFrames\ContextBaseline.cs" />
+    <!-- Wave 6 cross-session store (LiteDB round-trip of the per-context baselines). -->
+    <Compile Include="..\Insights\ReferenceFrames\CrossSessionStore.cs" Link="Source\Insights\ReferenceFrames\CrossSessionStore.cs" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification

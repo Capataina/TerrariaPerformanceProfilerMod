@@ -136,7 +136,9 @@ public sealed class ContextConditionalCostDetector : IInsightDetector
                 },
                 Confidence = Confidence.Preliminary, // the store promotes on confirmations + pAdjusted
                 Audience = Audience.Both,
-                Scope = EvidenceScope.ThisSession,
+                // LifetimeData once the frame carries prior-session baselines (Wave 6);
+                // the larger sample count is also what lets confidence climb past Low.
+                Scope = cb.WasSeeded ? EvidenceScope.LifetimeData : EvidenceScope.ThisSession,
                 ConfirmationCount = 1,
             });
         }
