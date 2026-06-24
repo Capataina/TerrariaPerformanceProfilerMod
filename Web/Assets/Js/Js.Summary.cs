@@ -330,10 +330,31 @@ function streamRamp(i, n) {
   const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base, hot) .. 1 = smallest (top, calm)
   return `oklch(${(0.64 + 0.08 * t).toFixed(3)} ${(0.17 - 0.07 * t).toFixed(3)} ${(25 + 125 * t).toFixed(0)})`;
 }
+// Build the stream's top-N + window controls once, wired to re-render in place.
+function buildStreamControls() {
+  const ctl = document.getElementById('stream-ctl');
+  if (!ctl || ctl.dataset.built) return;
+  ctl.dataset.built = '1';
+  ctl.innerHTML =
+    `<span class='ctl-lbl'>mods</span>` +
+    segmented({ id: 'stream-mods', attr: 'data-smods', active: String(streamModCount),
+      options: [{ value: '3', label: '3' }, { value: '5', label: '5' }, { value: '10', label: '10' }] }) +
+    `<span class='ctl-lbl'>window</span>` +
+    segmented({ id: 'stream-win', attr: 'data-swin', active: String(streamWindow),
+      options: [{ value: '10', label: '10' }, { value: '25', label: '25' }, { value: '50', label: '50' }] });
+  ctl.addEventListener('click', e => {
+    const m = e.target.closest('[data-smods]'), w = e.target.closest('[data-swin]');
+    if (m) { streamModCount = parseInt(m.dataset.smods, 10);
+      ctl.querySelectorAll('#stream-mods button').forEach(x => x.classList.toggle('active', x.dataset.smods === m.dataset.smods)); renderModStream(); }
+    if (w) { streamWindow = parseInt(w.dataset.swin, 10);
+      ctl.querySelectorAll('#stream-win button').forEach(x => x.classList.toggle('active', x.dataset.swin === w.dataset.swin)); renderModStream(); }
+  });
+}
 function renderModStream() {
   const root = document.getElementById('mod-stream');
   const sub = document.getElementById('stream-sub');
   if (!root) return;
+  buildStreamControls();
   const ids = [...modStreamHistory.keys()];
   if (ids.length === 0 || !lastMods || !lastMods.mods) {
     root.innerHTML = emptyState('building the per-mod cost stream… (a sample lands every ~5s)');
@@ -341,20 +362,24 @@ function renderModStream() {
     return;
   }
   const nameById = new Map(lastMods.mods.map(m => [m.id, m.name]));
-  const arr = ids
-    .map(id => { const v = modStreamHistory.get(id) || []; return { id, name: nameById.get(id) || ('mod ' + id), values: v, total: v.reduce((a, b) => a + b, 0) }; })
+  // Rank every mod by its total over the window, then keep the top-N. Fewer, thicker
+  // bands make the perf-ramp gradient (impact = colour + height) read clearly.
+  const ranked = ids
+    .map(id => { const v = (modStreamHistory.get(id) || []).slice(-streamWindow); return { id, name: nameById.get(id) || ('mod ' + id), values: v, total: v.reduce((a, b) => a + b, 0) }; })
     .filter(s => s.total > 0)
     .sort((a, b) => b.total - a.total);
-  if (arr.length === 0) {
+  if (ranked.length === 0) {
     root.innerHTML = emptyState('no per-mod cost recorded yet');
     if (sub) sub.textContent = '—';
     return;
   }
+  const arr = ranked.slice(0, streamModCount);
   const n = arr.length;
   const series = arr.map((s, i) => ({ label: s.name, values: s.values, color: streamRamp(i, n) }));
   const samples = Math.max(...arr.map(s => s.values.length));
   root.innerHTML = streamArea({ series, w: 1200, h: 150, line: true, markers: true });
-  if (sub) sub.textContent = `${n} mods · last ${samples} sample${samples === 1 ? '' : 's'} (~5s each)`;
+  const more = ranked.length > n ? ` of ${ranked.length}` : '';
+  if (sub) sub.textContent = `top ${n}${more} mods · last ${samples} sample${samples === 1 ? '' : 's'} (~5s each)`;
 }
 setInterval(sampleModStream, 5000);
 

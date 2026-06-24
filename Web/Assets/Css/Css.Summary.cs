@@ -56,6 +56,10 @@ internal static partial class DashboardAssets
 /* ====== Per-mod cost stream (stacked-area banner) ====== */
 .stream-wrap { padding: 0.2rem 0.4rem 0.3rem; height: 9.5rem; }
 .stream-wrap .chart-stream { height: 100%; }
+/* Small labels separating the top-N and window segmented controls in the header. */
+#stream-ctl { display: inline-flex; align-items: center; }
+#stream-ctl .ctl-lbl { font-family: var(--mono); font-size: 0.6rem; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0.3rem 0 0.6rem; }
 
 /* ====== Cost-flow sankey ====== */
 .flow-wrap { padding: 0.35rem 0.7rem 0.6rem; }

@@ -49,11 +49,12 @@ internal static partial class DashboardAssets
           </div>
         </div>
 
-        <!-- Per-mod cost stream: every mod stacked over a rolling ~5s window -->
+        <!-- Per-mod cost stream: top-N mods stacked over a rolling ~5s window -->
         <div class=""panel"" style=""grid-area: stack;"">
           <header class=""panel-h"">
-            <span class=""panel-title"">per-mod cost stream · every mod, over time</span>
+            <span class=""panel-title"">per-mod cost stream</span>
             <span class=""panel-sub"" id=""stream-sub"">—</span>
+            <span class=""panel-actions"" id=""stream-ctl""></span>
           </header>
           <div class=""stream-wrap"" id=""mod-stream""></div>
         </div>
