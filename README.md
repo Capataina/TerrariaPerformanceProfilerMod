@@ -2,7 +2,7 @@
 
 ### A live performance dashboard for your Terraria modlist — runs in your browser.
 
-![status](https://img.shields.io/badge/status-v0.9.0%20·%20dashboard%20first-79c0ff?style=flat-square)
+![status](https://img.shields.io/badge/status-v0.22.0%20·%20six%20live%20tabs-79c0ff?style=flat-square)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4-1b7340?style=flat-square)
 ![read-only](https://img.shields.io/badge/instrumentation-read--only-95d4a3?style=flat-square)
@@ -35,17 +35,17 @@ If F9 doesn't open the browser for some reason (Linux sometimes has weird `xdg-o
 
 The dashboard has six tabs across the top:
 
-**Now**  — the live mission-control view. A frame-time chart for the last 30 seconds, the segments you're currently in (which biome you're standing in, which boss is alive, weather events), a live mod ranking with cost bars, and a feed of recent events (segment closes, spikes, deaths). This is where you spend most of your time.
+**Summary** — the live mission-control view, and where you spend most of your time. A frame-time chart for the last 30 seconds; the impact-share donut; a per-mod **cost stream** (every mod stacked over a rolling window, so you watch the whole modlist's cost breathe and which mod owns the frame); a **cost-flow sankey** (which subsystem — NPCs, projectiles, world — each heavy mod is heavy in); the session minute-by-minute heatmap; the now-playing segments; a recent-events feed; and the full per-mod cascading tree (sort by current cost, session average, or composite; outliers highlighted).
 
-**Mods** — full per-mod cost ranking. Sort by current cost, session average, or composite score. Outliers (mods costing significantly more than the median) are highlighted.
+**Timeline** — every closed segment from your session as a time-scaled swimlane: every biome visit, weather event, boss fight, invasion, death-run, each block filled by its cost intensity. Click a block to drill into what it cost, alongside a session chronicle and biome attendance.
 
-**Timeline** — every closed segment from your session: every biome visit, weather event, boss fight, invasion, death-run. Click through to see what each cost.
+**Lag** — every lag spike and stall the profiler detected, with the per-mod breakdown at the worst tick, GC pressure over time, a per-segment lag-density table, and the lag rhythm (how often hitches recur). When you get a 24 ms frame, you see which mod owned it.
 
-**Spikes** — every lag spike the profiler detected, with the per-mod breakdown at the worst tick of each spike. So when you get a 24 ms frame, you can see which mod owned it.
+**Insights** — pattern-detection records from the insights engine (outliers, context-conditional cost, leaks, cost concentration, cross-cutting signals), plus a per-mod observatory, a modlist-composition **waffle** (active vs dormant at a glance), dormant-content ranking, an **engagement-vs-cost bubble scatter**, and a mod-pair cost-correlation table.
 
-**Insights** — pattern-detection records. Things like *"Verdant has been the top contributor in 9 out of your last 10 Blood Moons"* or *"this Jungle visit was 63% above your lifetime average for Jungle visits."*
+**Self** — the profiler measuring itself: its overhead gauge against budget, install footprint, bytes-per-hook, process context, and the per-mod hook distribution. We're transparent about our own cost.
 
-**Self** — the profiler measuring itself. Its install footprint, bytes-per-hook, severity bucket. We're transparent about our own cost.
+**Memory** — per-mod RAM: each mod's profiler-scaffolding footprint and tModLoader's own estimate, as a split strip plus a sortable table with a per-mod drill-down breakdown.
 
 ---
 
@@ -141,12 +141,12 @@ Profiling is never free, so we measure our own cost too — and surface it on th
 
 ## Project status
 
-Currently at v0.9.0 — the dashboard-first architecture pivot. Stable and usable.
+Currently at **v0.22.0**. Six live tabs with a rich chart vocabulary — frame trace, impact donut, per-mod cost stream, category-to-mod cost-flow sankey, modlist waffle, engagement-vs-cost bubble scatter, radial gauges, heatmaps, and a time-scaled swimlane. The insights engine has landed (five detector families, cross-session baselines), and a layered off-game testing harness (`tools/testing/`, the L4/L6/L8 axes) screenshots and audits every tab so visual regressions are caught without a build.
 
 Roadmap from here:
 
 - **v1.0** — first public Workshop release. Real first-launch UX, screenshots, GIFs, full Workshop description.
-- **v1.1+** — richer insights engine, cross-session comparison views, post-session HTML report (a single self-contained file you can share showing what happened in one specific play session), more chart types on the dashboard.
+- **Next** — a player-facing insight feed on the Insights tab (the engine ranks insights; the tab does not yet render them as a feed), cross-session comparison views, and a shareable self-contained post-session HTML report.
 - **Maybe later** — Steam Deck handheld dashboard view, mobile-friendly dashboard layout, multiplayer-server-side variant.
 
 ---
@@ -179,8 +179,11 @@ PerformanceProfiler/
 │                         # in handheld / Steam-Deck variants.
 ├── Localization/         # tModLoader hjson localisation files.
 ├── Tests/                # xUnit test project (pure-logic detectors).
-├── design/               # Design documents and mockups. Not shipped.
-├── context/              # Engineering notes. Not shipped.
+├── tools/                # Off-game tooling (not shipped): preview/ renders the
+│                         # dashboard straight from the .cs source with no build;
+│                         # testing/ is the L4/L6/L8 Playwright audit harness.
+├── design/               # Design docs, the offline interactive preview, mockups. Not shipped.
+├── context/              # Engineering notes, plans, and per-page audit dossiers. Not shipped.
 └── build.txt             # tModLoader build manifest (version + asset rules).
 ```
 

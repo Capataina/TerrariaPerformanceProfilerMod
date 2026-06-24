@@ -43,9 +43,12 @@ context/
 ├── perf-pass/               v0.5→v0.6 performance-research record
 │   baseline, deferred, verification
 │
-└── plans/                   Forward-looking plan files + audit receipt
-    ui-component-library, extensive-testing-infrastructure,
-    insights-engine, install-ram-optimisation, code-health-audit/
+├── plans/                   Forward-looking plan files + audit receipt
+│   ui-component-library, extensive-testing-infrastructure,
+│   insights-engine, install-ram-optimisation, code-health-audit/
+│
+└── pages/                   Per-page UI audit dossiers (one per dashboard tab),
+                             maintained by the tools/testing L8 audit harness
 ```
 
 `.context-lint.json` aliases `_Overview.md` into the `architecture.md` lint slot (it is the entry-point file alongside the structural map) and treats `tmodloader/` + `integration/` as reference-style content. The project uses the markdown `architecture.md` form, not the HTML arch pipeline.
