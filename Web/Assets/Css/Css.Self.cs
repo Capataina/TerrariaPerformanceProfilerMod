@@ -32,12 +32,23 @@ internal static partial class DashboardAssets
 .self-hero { grid-column: 1 / -1; }
 .self-span { grid-column: 1 / -1; }
 
-/* Gauge column is sized to the 200px (~12.5rem) gauge SVG, not a padded 14rem,
-   so the SEVERITY tile starts close and the hero reads as one band rather than
-   leaving dead space around a centred gauge. */
-.self-hero-body { display: grid; grid-template-columns: 12.5rem 1fr; gap: 1rem; align-items: center; }
+/* Gauge column shrinks to the arc's actual footprint (auto, not a fixed 12.5rem
+   track that resolved wider than the 200px SVG and left the gauge floating left
+   with a dead band before the SEVERITY tile), and the gap to the stats is
+   tightened, so the SEVERITY tile starts close and the hero reads as one band. */
+.self-hero-body { display: grid; grid-template-columns: auto 1fr; gap: 0.6rem; align-items: center; }
 @media (max-width: 700px) { .self-hero-body { grid-template-columns: 1fr; } }
-.self-gauge { width: 100%; max-width: 12.5rem; }
+/* Fixed to the gauge's own 12.5rem footprint and centred in its (auto) track via
+   justify-self, so the arc + its centred value sit in the middle of the column
+   rather than left of it. The stats cell still stretches to fill 1fr. */
+.self-gauge { width: 12.5rem; max-width: 100%; justify-self: center; }
 @media (max-width: 700px) { .self-gauge { margin: 0 auto; } }
+
+/* Process-context headline: the managed-share tile is the panel's answer, so it
+   leads at hero size with the two raw byte rows as supporting detail beneath.
+   Reuses the shared stat-tile; the local rules only enlarge the figure past the
+   default .big and add the gap that separates headline from supporting rows. */
+.self-share-hero { margin-bottom: 0.5rem; }
+.self-share-hero .stat-tile .v { font-size: 2rem; }
 ";
 }

@@ -27,11 +27,14 @@ internal static partial class DashboardAssets
           <div class=""panel-body"" id=""lag-kpi""></div>
         </div>
 
-        <!-- Cause x context heatmap (collapses to a ranked bar list <=1 context) -->
+        <!-- Cause x context heatmap (collapses to a ranked bar list <=1 context).
+             Title/sub are poll-rewritten by renderLagHeatmap so they read 'lag
+             events by cause' in the single-context case and 'cause x context'
+             only when a real 2D grid is actually rendered. -->
         <div class=""panel"">
           <header class=""panel-h"">
-            <span class=""panel-title"">cause &times; context</span>
-            <span class=""panel-sub"" data-explain=""lag-heatmap"">events by cause and surrounding context</span>
+            <span class=""panel-title"" id=""lag-heatmap-title"">lag events by cause</span>
+            <span class=""panel-sub"" id=""lag-heatmap-sub"" data-explain=""lag-heatmap"">ranked by event count</span>
           </header>
           <div class=""panel-body"" id=""lag-heatmap-body""></div>
         </div>

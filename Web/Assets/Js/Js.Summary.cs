@@ -55,7 +55,13 @@ function renderHeatmap() {
     return 'p4';
   }
   // 0 = at the cool edge of the band, 1 = at the hot edge. The top band (>60ms)
-  // has no upper bound, so we span it across the next 40ms and clamp.
+  // has no upper bound, so we span it across the next 40ms and clamp. The widest
+  // band is the bottom one (0–17ms), and a smooth session's minutes all land in its
+  // cool fifth (~3–5ms → raw position ~0.18–0.27), so a linear position barely moves
+  // the shade and the strip reads flat. A sqrt curve gives the cool end more
+  // resolution: it lifts that cluster into the mid-range where the brightness ramp
+  // bites, so honest minute-to-minute ms differences become visible without
+  // inventing variation the data doesn't have.
   function bandShade(avgMs) {
     let lo = 0, hi = 60 + 40;
     for (let i = 0; i < bandEdges.length; i++) {
@@ -66,7 +72,8 @@ function renderHeatmap() {
       }
     }
     const span = (hi - lo) || 1;
-    return Math.max(0, Math.min(1, (avgMs - lo) / span));
+    const t = Math.max(0, Math.min(1, (avgMs - lo) / span));
+    return Math.sqrt(t);
   }
 
   sub.textContent = buckets.length + ' minute(s) · ' + (lastHeatmap.bossOverlays?.length || 0) + ' boss segment(s)';
@@ -389,6 +396,10 @@ function familyColor(f) {
   })[f] || 'var(--good)';
 }
 
+// The header label is a fixed 'last N' promise; cap the rendered rows to the same
+// N so the count and the list agree. The feed arrives capped at the backend's own
+// (larger) DefaultMax, so this client cap is what the panel header actually quotes.
+const EVENTS_SHOWN = 12;
 function renderNowEvents() {
   const root = document.getElementById('nowevents');
   // /api/events delivers a pre-merged, pre-sorted, capped feed —
@@ -399,16 +410,33 @@ function renderNowEvents() {
     root.innerHTML = emptyState('nothing yet — events appear as segments close + spikes fire');
     return;
   }
+  // Row scan hierarchy. The event text leads with its own magnitude/subject token
+  // (e.g. 'spike 11.0ms', 'died in Jungle') — that lead token is the scan anchor, so
+  // we split it off and weight it up while the trailing detail ('· top Mod N.NN ms')
+  // recedes. The per-kind coloured glyph anchors the left, the timestamp recedes to
+  // the right. Net: lead-token + glyph carry the row instead of a uniform-weight wall.
   const cols = '1.4em minmax(0, 1fr) auto';
-  root.innerHTML = rowList(lastEvents.events.map(e => row({
-    cols, cls: 'ev-row',
-    attrs: `data-kind='${e.kind}'`,
-    cells: [
-      `<span class='ev-glyph'>${glyphFor(e.kind)}</span>`,
-      `<span class='nm'>${escapeHtml(e.text)}</span>`,
-      `<span class='ev-when'>${fmtAgo(e.unixMs)}</span>`,
-    ],
-  })));
+  root.innerHTML = rowList(lastEvents.events.slice(0, EVENTS_SHOWN).map(e => {
+    const parts = splitEventText(e.text);
+    return row({
+      cols, cls: 'ev-row',
+      attrs: `data-kind='${e.kind}'`,
+      cells: [
+        `<span class='ev-glyph'>${glyphFor(e.kind)}</span>`,
+        `<span class='nm'><span class='ev-lead'>${escapeHtml(parts.lead)}</span>` +
+          `${parts.rest ? `<span class='ev-rest'>${escapeHtml(parts.rest)}</span>` : ''}</span>`,
+        `<span class='ev-when'>${fmtAgo(e.unixMs)}</span>`,
+      ],
+    });
+  }));
+}
+// Split an event line into a lead token (the magnitude/subject that should dominate
+// the row) and the trailing detail. The feed delimits the two with ' · ', so the
+// first segment is the lead and the remainder is the recessive detail; lines with no
+// delimiter are all-lead. Pure string work — no kind-specific assumptions.
+function splitEventText(text) {
+  const i = text.indexOf(' · ');
+  return i < 0 ? { lead: text, rest: '' } : { lead: text.slice(0, i), rest: text.slice(i) };
 }
 function glyphFor(kind) {
   return ({ 'boss-kill':'✓', 'death':'☠', 'spike':'⚡', 'stall':'⏸', 'segment':'↺' })[kind] || '·';

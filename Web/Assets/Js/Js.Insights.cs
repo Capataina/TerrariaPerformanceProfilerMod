@@ -60,16 +60,20 @@ let engagementSort = { key: 'cpuShare', dir: -1 };     // costliest first
 // steps (~0.065 L apart) stays perceptibly separable in OKLCH's uniform L, and
 // the 0.40 floor matches the Memory footprint ramp's dimmest step so even the
 // last category clears the --surface split-bar track (oklch 0.235).
+// The ramp top is capped at 0.84 (not near-white): white is the brightest thing
+// in the monochrome chrome and reads as a highlight, so a DATA swatch must stay
+// clearly below it. The 0.84 -> 0.42 span over nine steps keeps each category a
+// distinct grey while the brightest no longer competes with the chrome accent.
 const ROSTER_CATS = [
-  ['items',       'items',       'oklch(0.920 0 0)'],
-  ['npcs',        'npcs',        'oklch(0.855 0 0)'],
-  ['buffs',       'buffs',       'oklch(0.790 0 0)'],
-  ['projectiles', 'projectiles', 'oklch(0.725 0 0)'],
-  ['mounts',      'mounts',      'oklch(0.660 0 0)'],
-  ['accessories', 'accessories', 'oklch(0.595 0 0)'],
-  ['biomes',      'biomes',      'oklch(0.530 0 0)'],
-  ['invasions',   'invasions',   'oklch(0.465 0 0)'],
-  ['bosses',      'bosses',      'oklch(0.400 0 0)'],
+  ['items',       'items',       'oklch(0.840 0 0)'],
+  ['npcs',        'npcs',        'oklch(0.788 0 0)'],
+  ['buffs',       'buffs',       'oklch(0.735 0 0)'],
+  ['projectiles', 'projectiles', 'oklch(0.683 0 0)'],
+  ['mounts',      'mounts',      'oklch(0.630 0 0)'],
+  ['accessories', 'accessories', 'oklch(0.578 0 0)'],
+  ['biomes',      'biomes',      'oklch(0.525 0 0)'],
+  ['invasions',   'invasions',   'oklch(0.473 0 0)'],
+  ['bosses',      'bosses',      'oklch(0.420 0 0)'],
 ];
 
 async function pollInsightsData() {

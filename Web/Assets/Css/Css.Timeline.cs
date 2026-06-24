@@ -175,10 +175,15 @@ internal static partial class DashboardAssets
   pointer-events: none;
   z-index: 1;
 }
-/* Idle copy for a lane with no segments — sits to the right of the family label
-   so a blank Boss/Invasion/Subworld row reads as legitimately empty, not broken. */
+/* Idle copy for a lane with no segments. Anchored near the lane START (just
+   past the family label in ::before), not the right edge: with the gantt now
+   scaled to the segment-containing span, a right-pinned label read as a
+   marooned straggler floating over dead space. Sitting it near the start keeps
+   a blank Boss/Invasion/Subworld row legible as legitimately empty, not broken. */
 .tl-lane-empty {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+  /* Clear the family label that ::before draws at the lane's top-left. */
+  padding-top: 0.8rem;
   font-family: var(--mono); font-size: 0.65rem;
   color: var(--dim);
   pointer-events: none;

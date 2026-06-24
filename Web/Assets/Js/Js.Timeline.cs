@@ -98,6 +98,42 @@ function pctOf(ms, win) {
   return ((ms - win.startMs) / win.spanMs) * 100;
 }
 
+// Swimlane-only time domain — spans just the captured segments (first segment
+// start to last segment end), NOT the full session window. timelineWindow()
+// stretches to `now` and to the last activity-strip minute, which leaves every
+// segment clustered in the far-left sliver of each lane with dead space out to
+// the right edge. Scaling the gantt to the range that actually contains
+// segments spreads the blocks across the lane width while keeping their
+// RELATIVE positions/proportions exact. A small margin on each side keeps the
+// first/last blocks off the very edges. Every lane is laid against this one
+// window, so the family lanes stay axis-aligned with each other.
+function swimlaneWindow() {
+  let s = Infinity, e = -Infinity;
+  if (lastSegments) {
+    for (const sg of (lastSegments.recent || [])) {
+      if (sg.startUnixMs < s) s = sg.startUnixMs;
+      if (sg.endUnixMs   > e) e = sg.endUnixMs;
+    }
+    for (const sg of (lastSegments.open || [])) {
+      if (sg.startUnixMs < s) s = sg.startUnixMs;
+      const nowMs = lastNow ? lastNow.unixMs : Date.now();
+      const endMs = sg.startUnixMs + (sg.elapsedMs || 0);
+      if (endMs > e) e = endMs;
+      if (nowMs > e) e = nowMs;   // an open segment legitimately runs to now
+    }
+  }
+  if (!isFinite(s) || !isFinite(e) || e <= s) {
+    // No segments yet — fall back to the broad window so the lanes still scale
+    // to something sane rather than collapsing to a degenerate span.
+    return timelineWindow();
+  }
+  // Pad by a small fraction of the captured span so the first block doesn't
+  // touch the left edge and the last doesn't touch the right.
+  const margin = Math.max(1, (e - s) * 0.03);
+  s -= margin; e += margin;
+  return { startMs: s, endMs: e, spanMs: Math.max(1, e - s) };
+}
+
 // ---- Family filter --------------------------------------------------
 // timelineFilter (JsConfig) is 'all' or one of TL_FAMILIES. Selecting a
 // family narrows the swimlanes + transitions + attendance to it; 'all' shows
@@ -274,7 +310,10 @@ function renderTimelineTransitions() {
 // modColor), a lifetime-delta badge, and accent outlining when the segment is
 // a lifetime outlier. Filter gates which lanes render.
 function renderTimelineSwimlanes() {
-  const win = timelineWindow();
+  // Scale the gantt to the segment-containing span, not the full session
+  // window — see swimlaneWindow(). This one window drives every lane's block
+  // placement so the family lanes stay axis-aligned with each other.
+  const win = swimlaneWindow();
   const byFamily = {};
   for (const f of TL_FAMILIES) byFamily[f] = [];
 

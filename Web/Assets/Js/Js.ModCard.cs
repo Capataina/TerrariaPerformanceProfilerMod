@@ -62,6 +62,10 @@ function openModCard(modId) {
     }
     return `the difference between <strong>${a} fps</strong> and <strong>${b} fps</strong>`;
   }
+  // The live figure only earns its own fps note when it lands in a different fps
+  // regime from the average — otherwise it would just restate the average sentence's
+  // verdict verbatim, so we show the live value alone and let the verdict appear once.
+  function fpsDiffers(withMod, withoutMod) { return Math.round(withMod) !== Math.round(withoutMod); }
 
   // Category breakdown.
   const cats = lastMods.categories || [];
@@ -97,7 +101,8 @@ function openModCard(modId) {
     sectionBlock('frame impact · marginal contribution', callout(
       `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame, ` +
       `which is ${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg, true)}. ` +
-      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>, ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false)}.</span>` +
+      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>` +
+        `${fpsDiffers(fpsNow, fpsWithoutNow) ? ', ' + fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false) : ''}.</span>` +
       `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',

@@ -535,6 +535,28 @@ html, body {
 /* Optional reference tick on a gauge arc (e.g. an overhead budget threshold). */
 .gauge-ref { stroke: var(--text-bright); stroke-width: 1.5; opacity: 0.85; }
 
+/* ===== Scatter / bubble =========================================== */
+.chart-scatter { display: block; width: 100%; height: auto; }
+.chart-scatter .sc-axis { stroke: var(--border); stroke-width: 1; }
+.chart-scatter .sc-grid { stroke: var(--border-soft); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6; }
+.chart-scatter .sc-diag { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+.chart-scatter .sc-dot { opacity: 0.78; stroke: var(--bg-page); stroke-width: 0.6; }
+.chart-scatter .sc-dot.hit { cursor: pointer; transition: opacity 0.12s; }
+.chart-scatter .sc-dot.hit:hover { opacity: 1; stroke: var(--accent); stroke-width: 1.2; }
+.chart-scatter .sc-lbl { fill: var(--muted); font-family: var(--ui); font-size: 9px; }
+.chart-scatter .sc-tick { fill: var(--dim); font-family: var(--mono); font-size: 8.5px; }
+
+/* ===== Waffle: unit-grid composition ============================== */
+.chart-waffle { display: grid; gap: 2px; }
+.chart-waffle .wf-cell { aspect-ratio: 1; border-radius: 1px; }
+
+/* ===== Sankey: two-layer flow ===================================== */
+.chart-sankey { display: block; width: 100%; height: auto; }
+.chart-sankey .sk-link { opacity: 0.3; transition: opacity 0.12s; }
+.chart-sankey .sk-link:hover { opacity: 0.6; }
+.chart-sankey .sk-node { rx: 1; }
+.chart-sankey .sk-lbl { fill: var(--text); font-family: var(--mono); font-size: 8.5px; }
+
 /* ===== Bar chart: vertical column strip ========================== */
 .bar-strip { display: flex; align-items: flex-end; gap: 1px; height: 100%;
   width: max-content; min-width: 100%; }
@@ -616,10 +638,11 @@ html, body {
     'chart  chart   donut'
     'trends trends  donut'
     'heatmap heatmap heatmap'
+    'flow   flow    flow'
     'now    events  events'
     'mods   mods    mods';
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto;
+  grid-template-rows: auto minmax(170px, 1fr) auto auto auto auto auto;
   gap: 0.75rem;
 }
 
@@ -630,6 +653,7 @@ html, body {
       'chart  chart'
       'donut  trends'
       'heatmap heatmap'
+      'flow   flow'
       'now    events'
       'mods   mods';
     grid-template-columns: 1fr 1fr;
@@ -637,10 +661,14 @@ html, body {
 }
 @media (max-width: 700px) {
   .grid-summary {
-    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'now' 'events' 'mods';
+    grid-template-areas: 'kpi' 'chart' 'donut' 'trends' 'heatmap' 'flow' 'now' 'events' 'mods';
     grid-template-columns: 1fr;
   }
 }
+
+/* ====== Cost-flow sankey ====== */
+.flow-wrap { padding: 0.35rem 0.7rem 0.6rem; }
+.flow-wrap .chart-sankey { width: 100%; max-height: 17rem; }
 
 /* ====== Frame chart hero ====== */
 .panel-hero .chart-wrap {
@@ -716,11 +744,13 @@ html, body {
 /* ====== Events feed (rowList of row()) ====== */
 .events-scroll { overflow-y: auto; flex: 1 1 auto; min-height: 100px; }
 .ev-row { align-items: baseline; }
-/* The kind glyph is the row's scan anchor — it is the one element coloured per
-   event kind, so we size it up a touch to lead the eye down the list rather than
-   leaving every row the same weight. The timestamp recedes (already dim) so the
-   glyph + text carry the row and the relative time stays a secondary figure. */
+/* Row scan hierarchy: the per-kind coloured glyph anchors the left, the lead token
+   (the spike magnitude / event subject) is the dominant text, and the trailing
+   detail + timestamp recede — so the eye runs down the lead column instead of facing
+   a uniform-weight wall. */
 .ev-glyph { text-align: center; color: var(--muted); font-size: 0.92rem; }
+.ev-lead  { font-weight: 600; color: var(--text); }
+.ev-rest  { color: var(--dim); font-weight: 400; }
 .ev-when  { color: var(--dim); font-size: 0.72rem; opacity: 0.85; }
 .ev-row[data-kind='boss-kill'] .ev-glyph { color: var(--good); }
 .ev-row[data-kind='death']     .ev-glyph { color: var(--danger); }
@@ -943,10 +973,15 @@ html, body {
   pointer-events: none;
   z-index: 1;
 }
-/* Idle copy for a lane with no segments — sits to the right of the family label
-   so a blank Boss/Invasion/Subworld row reads as legitimately empty, not broken. */
+/* Idle copy for a lane with no segments. Anchored near the lane START (just
+   past the family label in ::before), not the right edge: with the gantt now
+   scaled to the segment-containing span, a right-pinned label read as a
+   marooned straggler floating over dead space. Sitting it near the start keeps
+   a blank Boss/Invasion/Subworld row legible as legitimately empty, not broken. */
 .tl-lane-empty {
-  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+  /* Clear the family label that ::before draws at the lane's top-left. */
+  padding-top: 0.8rem;
   font-family: var(--mono); font-size: 0.65rem;
   color: var(--dim);
   pointer-events: none;
@@ -1120,13 +1155,14 @@ html, body {
 
 /* Lag rhythm: interval histogram beside the cluster table. The two halves
    carry different row counts (a coarse ~handful-bucket histogram on the left, a
-   taller cluster table on the right), so they are stretched to a shared height
-   and the shorter side's bar group is centred within it. That closes the dead
-   space that opened under whichever half is shorter, in either direction,
-   without forcing artificial inter-row gaps. */
+   taller cluster table on the right), so the histogram column is stretched to
+   the table's height and its handful of bars are top-aligned (starting just
+   under the sub-header) then spread down the full extent with taller rows, so
+   the left column reads full rather than clustering centred-but-short. */
 .lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: stretch; }
 .lag-rhythm-body > #lag-rhythm-hist { display: flex; flex-direction: column; }
-.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: center; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: space-between; gap: 0.6rem; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows > .bar-row { min-height: 1.9rem; }
 @media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; align-items: start; } }
 
 /* =================================================== INSIGHTS */
@@ -1274,6 +1310,15 @@ html, body {
    rule) then engages and the title= tooltip carries the full pair name. */
 #ins-matrix .dtable td.l, #ins-matrix .dtable th.l { max-width: 9rem; }
 
+/* Engagement-vs-cost bubble scatter: centre the plot, legend beneath. */
+#scatter-body { display: flex; flex-direction: column; align-items: center; }
+#scatter-body .chart-scatter { max-width: 30rem; }
+.sc-foot { margin-top: 0.3rem; }
+
+/* Modlist-composition waffle: bound the cell grid so cells stay small squares. */
+.wf-wrap { max-width: 20rem; margin: 0.1rem auto 0; }
+.wf-key { margin-top: 0.55rem; }
+
 /* =================================================== SELF TAB */
 .self-layout {
   display: grid;
@@ -1285,13 +1330,24 @@ html, body {
 .self-hero { grid-column: 1 / -1; }
 .self-span { grid-column: 1 / -1; }
 
-/* Gauge column is sized to the 200px (~12.5rem) gauge SVG, not a padded 14rem,
-   so the SEVERITY tile starts close and the hero reads as one band rather than
-   leaving dead space around a centred gauge. */
-.self-hero-body { display: grid; grid-template-columns: 12.5rem 1fr; gap: 1rem; align-items: center; }
+/* Gauge column shrinks to the arc's actual footprint (auto, not a fixed 12.5rem
+   track that resolved wider than the 200px SVG and left the gauge floating left
+   with a dead band before the SEVERITY tile), and the gap to the stats is
+   tightened, so the SEVERITY tile starts close and the hero reads as one band. */
+.self-hero-body { display: grid; grid-template-columns: auto 1fr; gap: 0.6rem; align-items: center; }
 @media (max-width: 700px) { .self-hero-body { grid-template-columns: 1fr; } }
-.self-gauge { width: 100%; max-width: 12.5rem; }
+/* Fixed to the gauge's own 12.5rem footprint and centred in its (auto) track via
+   justify-self, so the arc + its centred value sit in the middle of the column
+   rather than left of it. The stats cell still stretches to fill 1fr. */
+.self-gauge { width: 12.5rem; max-width: 100%; justify-self: center; }
 @media (max-width: 700px) { .self-gauge { margin: 0 auto; } }
+
+/* Process-context headline: the managed-share tile is the panel's answer, so it
+   leads at hero size with the two raw byte rows as supporting detail beneath.
+   Reuses the shared stat-tile; the local rules only enlarge the figure past the
+   default .big and add the gap that separates headline from supporting rows. */
+.self-share-hero { margin-bottom: 0.5rem; }
+.self-share-hero .stat-tile .v { font-size: 2rem; }
 
 /* ===== Memory tab ==================================================== */
 .mem-layout { display: flex; flex-direction: column; gap: 1rem; }
@@ -1528,11 +1584,13 @@ html, body {
 .hm-cell.p2 { background: var(--perf-2); }
 .hm-cell.p3 { background: var(--perf-3); }
 .hm-cell.p4 { background: var(--perf-4); }
-/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge.
-   A faster minute lifts toward 1.16 brightness, a slower one drops toward 0.84,
-   so an all-smooth session still shows minute-to-minute texture instead of a flat
-   block — the colour still ENCODES exact ms within the band, never decorates. */
-.hm-cell { filter: brightness(calc(1.16 - 0.32 * var(--hm-t, 0.5))); }
+/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge (on a
+   sqrt curve, so the cool fifth where smooth sessions live gets usable resolution).
+   A faster minute lifts toward 1.3 brightness, a slower one drops toward 0.7, with
+   the band midpoint neutral — a wide-enough swing that an all-smooth session's real
+   ms differences read as minute-to-minute texture instead of a flat block. The
+   colour still ENCODES exact ms within the band, never decorates. */
+.hm-cell { filter: brightness(calc(1.3 - 0.6 * var(--hm-t, 0.5))); }
 .hm-cell:hover { filter: none; }
 /* State overlay — boss fight cells get a red glow halo around them */
 .hm-cell.boss::after {
@@ -1625,7 +1683,7 @@ html, body {
     <div class="brand">
       <span class="brand-mark"></span>
       <span class="brand-name">Performance Profiler</span>
-      <span class="brand-version" id="brand-version">v0.20.0</span>
+      <span class="brand-version" id="brand-version">v0.21.0</span>
     </div>
     <div class="live">
       <span class="live-dot" id="live-dot"></span>
@@ -1774,6 +1832,15 @@ html, body {
           </div>
         </div>
 
+        <!-- CPU cost flow: category -> top mods (sankey) -->
+        <div class="panel" style="grid-area: flow;">
+          <header class="panel-h">
+            <span class="panel-title">where the cpu goes · category → mod</span>
+            <span class="panel-sub" id="flow-sub">—</span>
+          </header>
+          <div class="flow-wrap" id="cost-flow"></div>
+        </div>
+
         <!-- Now playing segments -->
         <div class="panel" style="grid-area: now;">
           <header class="panel-h">
@@ -1877,11 +1944,14 @@ html, body {
           <div class="panel-body" id="lag-kpi"></div>
         </div>
 
-        <!-- Cause x context heatmap (collapses to a ranked bar list <=1 context) -->
+        <!-- Cause x context heatmap (collapses to a ranked bar list <=1 context).
+             Title/sub are poll-rewritten by renderLagHeatmap so they read 'lag
+             events by cause' in the single-context case and 'cause x context'
+             only when a real 2D grid is actually rendered. -->
         <div class="panel">
           <header class="panel-h">
-            <span class="panel-title">cause &times; context</span>
-            <span class="panel-sub" data-explain="lag-heatmap">events by cause and surrounding context</span>
+            <span class="panel-title" id="lag-heatmap-title">lag events by cause</span>
+            <span class="panel-sub" id="lag-heatmap-sub" data-explain="lag-heatmap">ranked by event count</span>
           </header>
           <div class="panel-body" id="lag-heatmap-body"></div>
         </div>
@@ -2798,6 +2868,131 @@ function gauge(o) {
   return `<svg viewBox='0 0 ${size} ${vbH}' class='chart-gauge' width='${size}' height='${vbH}'>${svg}</svg>`;
 }
 
+// ---- Scatter / bubble: x vs y relationship, optional radius -----------
+// The encoding for a relationship (two shared-axis quantities), with an optional
+// third dimension as bubble area and an optional y=x reference line. opts:
+//   { points:[{x,y,r?,color?,label?,id?}], w, h, xMax, yMax, rMax,
+//     xLabel, yLabel, fmt, diag?:bool }
+// A datum with an id becomes a click target (data-mod / .slice.hit), matching donut.
+function scatter(o) {
+  o = o || {};
+  const w = o.w || 420, h = o.h || 300;
+  const padL = 40, padR = 14, padT = 12, padB = 30;
+  const pw = w - padL - padR, ph = h - padT - padB;
+  const pts = (o.points || []).filter(p => p && isFinite(p.x) && isFinite(p.y));
+  const xMax = o.xMax || Math.max(1e-9, ...pts.map(p => p.x));
+  const yMax = o.yMax || Math.max(1e-9, ...pts.map(p => p.y));
+  const rMax = o.rMax || Math.max(1e-9, ...pts.map(p => p.r || 0));
+  const X = v => padL + (v / xMax) * pw;
+  const Y = v => padT + ph - (v / yMax) * ph;
+  const R = v => rMax > 0 ? 3 + Math.sqrt(Math.max(0, v) / rMax) * 12 : 4;
+  const fmt = o.fmt || (v => v.toFixed(0));
+
+  // Frame: left + bottom axes, faint gridlines at the mid + max.
+  let g = `<line class='sc-axis' x1='${padL}' y1='${padT}' x2='${padL}' y2='${padT + ph}'></line>` +
+          `<line class='sc-axis' x1='${padL}' y1='${padT + ph}' x2='${padL + pw}' y2='${padT + ph}'></line>` +
+          `<line class='sc-grid' x1='${padL}' y1='${(padT + ph / 2).toFixed(1)}' x2='${padL + pw}' y2='${(padT + ph / 2).toFixed(1)}'></line>` +
+          `<line class='sc-grid' x1='${(padL + pw / 2).toFixed(1)}' y1='${padT}' x2='${(padL + pw / 2).toFixed(1)}' y2='${padT + ph}'></line>`;
+  // Optional y=x balance reference (only meaningful when axes share a scale).
+  if (o.diag) {
+    const m = Math.min(xMax, yMax);
+    g += `<line class='sc-diag' x1='${X(0).toFixed(1)}' y1='${Y(0).toFixed(1)}' x2='${X(m).toFixed(1)}' y2='${Y(m).toFixed(1)}'></line>`;
+  }
+  // Bubbles, largest first so small ones stay clickable on top.
+  const ordered = pts.slice().sort((a, b) => (b.r || 0) - (a.r || 0));
+  for (const p of ordered) {
+    const hit = p.id != null ? ` data-mod='${p.id}' class='sc-dot hit'` : ` class='sc-dot'`;
+    const tip = escapeHtml((p.label || '') + ' · ' + fmt(p.x) + ' / ' + fmt(p.y) + (p.r != null ? ' · ' + fmtInt(p.r) : ''));
+    g += `<circle${hit} cx='${X(p.x).toFixed(1)}' cy='${Y(p.y).toFixed(1)}' r='${R(p.r || 0).toFixed(1)}' fill='${p.color || 'var(--cpu)'}'><title>${tip}</title></circle>`;
+  }
+  // Axis labels + max ticks.
+  const xl = o.xLabel ? `<text class='sc-lbl' x='${(padL + pw / 2).toFixed(0)}' y='${h - 4}' text-anchor='middle'>${escapeHtml(o.xLabel)}</text>` : '';
+  const yl = o.yLabel ? `<text class='sc-lbl' x='${-(padT + ph / 2).toFixed(0)}' y='11' text-anchor='middle' transform='rotate(-90)'>${escapeHtml(o.yLabel)}</text>` : '';
+  const ticks = `<text class='sc-tick' x='${padL + pw}' y='${padT + ph + 12}' text-anchor='end'>${escapeHtml(fmt(xMax))}</text>` +
+                `<text class='sc-tick' x='${padL - 4}' y='${padT + 8}' text-anchor='end'>${escapeHtml(fmt(yMax))}</text>` +
+                `<text class='sc-tick' x='${padL - 4}' y='${padT + ph}' text-anchor='end'>0</text>`;
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-scatter' preserveAspectRatio='xMidYMid meet'>${g}${xl}${yl}${ticks}</svg>`;
+}
+
+// ---- Waffle: unit grid, cells coloured by category --------------------
+// Part-to-whole as a grid of unit squares (one cell per unit), so composition
+// reads as countable area, not just a number. opts:
+//   { cells:[{count,color,label}], cols?, total? }
+function waffle(o) {
+  o = o || {};
+  const cells = (o.cells || []).filter(c => c && c.count > 0);
+  const total = o.total || cells.reduce((s, c) => s + c.count, 0);
+  if (total <= 0) return emptyState('no composition data');
+  const cols = o.cols || Math.min(20, Math.max(8, Math.ceil(Math.sqrt(total))));
+  // Flatten the category counts into a per-cell colour list.
+  const seq = [];
+  for (const c of cells) for (let i = 0; i < c.count; i++) seq.push(c.color);
+  let squares = '';
+  for (let i = 0; i < seq.length; i++) {
+    squares += `<span class='wf-cell' style='background:${seq[i]}'></span>`;
+  }
+  // The caller renders the key via legend(); this returns just the cell grid.
+  return `<div class='chart-waffle' style='grid-template-columns:repeat(${cols},1fr)'>${squares}</div>`;
+}
+
+// ---- Sankey: two-layer flow (source category -> target mod) -----------
+// Where a quantity flows: left nodes -> right nodes, ribbon width = flow value.
+// The asked-for new capability (cost flowing category -> mod). opts:
+//   { left:[{label,value,color?}], right:[{label,value,color?}],
+//     links:[{l:leftIdx, r:rightIdx, value}], w, h, fmt }
+function sankey(o) {
+  o = o || {};
+  const w = o.w || 460, h = o.h || 320;
+  const nodeW = 10, padT = 6, padB = 6, gap = 6;
+  const colX = { l: 2, r: w - nodeW - 2 };
+  const left = o.left || [], right = o.right || [], links = (o.links || []).filter(k => k && k.value > 0);
+  const fmt = o.fmt || (v => v.toFixed(2));
+  if (!left.length || !right.length || !links.length) return emptyState('no flow data');
+
+  // Node heights proportional to value, stacked top->bottom with gaps.
+  function layout(nodes, x) {
+    const tot = nodes.reduce((s, n) => s + (n.value || 0), 0) || 1;
+    const usable = h - padT - padB - gap * (nodes.length - 1);
+    let y = padT;
+    return nodes.map(n => {
+      const nh = Math.max(2, (n.value || 0) / tot * usable);
+      const box = { x, y, h: nh, cy: y + nh / 2, value: n.value, label: n.label, color: n.color, off: 0 };
+      y += nh + gap;
+      return box;
+    });
+  }
+  const L = layout(left, colX.l), Rr = layout(right, colX.r);
+
+  // Track a running offset on each node so stacked ribbons don't overlap.
+  const Loff = L.map(() => 0), Roff = Rr.map(() => 0);
+  // Draw widest links first (under), thin on top.
+  const sorted = links.slice().sort((a, b) => b.value - a.value);
+  let ribbons = '';
+  for (const k of sorted) {
+    const a = L[k.l], b = Rr[k.r];
+    if (!a || !b) continue;
+    const aTot = left[k.l].value || 1, bTot = right[k.r].value || 1;
+    const wA = a.h * (k.value / aTot), wB = b.h * (k.value / bTot);
+    const y0 = a.y + Loff[k.l], y1 = b.y + Roff[k.r];
+    Loff[k.l] += wA; Roff[k.r] += wB;
+    const x0 = colX.l + nodeW, x1 = colX.r, xm = (x0 + x1) / 2;
+    // Filled ribbon: top edge curves x0->x1, bottom edge curves back.
+    const d = `M ${x0} ${y0.toFixed(1)} C ${xm} ${y0.toFixed(1)}, ${xm} ${y1.toFixed(1)}, ${x1} ${y1.toFixed(1)} ` +
+              `L ${x1} ${(y1 + wB).toFixed(1)} C ${xm} ${(y1 + wB).toFixed(1)}, ${xm} ${(y0 + wA).toFixed(1)}, ${x0} ${(y0 + wA).toFixed(1)} Z`;
+    ribbons += `<path class='sk-link' d='${d}' fill='${a.color || 'var(--cpu)'}'><title>${escapeHtml(a.label + ' → ' + b.label + ' · ' + fmt(k.value))}</title></path>`;
+  }
+  // Node rectangles + labels (left labels right-anchored inside, right labels left).
+  function nodes(boxes, side) {
+    return boxes.map(n => {
+      const lblX = side === 'l' ? n.x + nodeW + 4 : n.x - 4;
+      const anchor = side === 'l' ? 'start' : 'end';
+      return `<rect class='sk-node' x='${n.x}' y='${n.y.toFixed(1)}' width='${nodeW}' height='${n.h.toFixed(1)}' fill='${n.color || 'var(--muted)'}'></rect>` +
+        (n.h > 9 ? `<text class='sk-lbl' x='${lblX}' y='${(n.cy + 3).toFixed(1)}' text-anchor='${anchor}'>${escapeHtml(n.label)}</text>` : '');
+    }).join('');
+  }
+  return `<svg viewBox='0 0 ${w} ${h}' class='chart-sankey' preserveAspectRatio='xMidYMid meet'>${ribbons}${nodes(L, 'l')}${nodes(Rr, 'r')}</svg>`;
+}
+
 // ---- Heatmap: 2D categorical matrix (.rheat) ------------------------
 // opts: { rows:[label], cols:[label], cellAt:(r,c)=>{value,tip}, max, fmt }
 function heatmapMatrix(o) {
@@ -2975,6 +3170,7 @@ function renderSummary() {
   renderKpiStrip();
   renderFrameChart();
   renderDonut();
+  renderCostFlow();
   renderTrendSparklines();
   renderHeatmap();
   renderNowPlaying();
@@ -3146,7 +3342,13 @@ function renderHeatmap() {
     return 'p4';
   }
   // 0 = at the cool edge of the band, 1 = at the hot edge. The top band (>60ms)
-  // has no upper bound, so we span it across the next 40ms and clamp.
+  // has no upper bound, so we span it across the next 40ms and clamp. The widest
+  // band is the bottom one (0–17ms), and a smooth session's minutes all land in its
+  // cool fifth (~3–5ms → raw position ~0.18–0.27), so a linear position barely moves
+  // the shade and the strip reads flat. A sqrt curve gives the cool end more
+  // resolution: it lifts that cluster into the mid-range where the brightness ramp
+  // bites, so honest minute-to-minute ms differences become visible without
+  // inventing variation the data doesn't have.
   function bandShade(avgMs) {
     let lo = 0, hi = 60 + 40;
     for (let i = 0; i < bandEdges.length; i++) {
@@ -3157,7 +3359,8 @@ function renderHeatmap() {
       }
     }
     const span = (hi - lo) || 1;
-    return Math.max(0, Math.min(1, (avgMs - lo) / span));
+    const t = Math.max(0, Math.min(1, (avgMs - lo) / span));
+    return Math.sqrt(t);
   }
 
   sub.textContent = buckets.length + ' minute(s) · ' + (lastHeatmap.bossOverlays?.length || 0) + ' boss segment(s)';
@@ -3327,6 +3530,51 @@ function renderDonut() {
   if (leg) leg.addEventListener('click', pick);
 })();
 
+// ---- Cost flow: category -> top mods (sankey) -----------------------
+// Where the measured CPU goes: the cost categories on the left, the costliest
+// mods on the right, each ribbon's width = that mod's cost in that category.
+// Answers 'which subsystem is each heavy mod heavy in' at a glance — a flow the
+// donut (per-mod totals) and the tree (per-mod categories) cannot show together.
+// Descriptive only: it shows where cost lands, names no verdict.
+function renderCostFlow() {
+  const root = document.getElementById('cost-flow');
+  if (!root) return;
+  const sub = document.getElementById('flow-sub');
+  if (!lastMods || !lastMods.worldLoaded || !lastMods.mods || !lastMods.categories) {
+    root.innerHTML = ''; if (sub) sub.textContent = '—'; return;
+  }
+  const catNames = lastMods.categories;
+  const mods = lastMods.mods.map(m => ({
+    id: m.id, name: m.name, cats: m.categories || [],
+    total: (m.categories || []).reduce((s, v) => s + (v > 0 ? v : 0), 0),
+  })).filter(m => m.total > 0).sort((a, b) => b.total - a.total).slice(0, 8);
+  if (mods.length === 0) { root.innerHTML = emptyState('no per-category cost yet'); if (sub) sub.textContent = '—'; return; }
+
+  // Category totals across the shown mods so the node heights match the ribbons.
+  const catTot = catNames.map((_, i) => mods.reduce((s, m) => s + Math.max(0, m.cats[i] || 0), 0));
+  // Categories ride a monochrome luminance ramp (a content dimension); the bright
+  // per-mod hue is reserved for the mod nodes on the right, so the two layers read
+  // as 'grey subsystem flows into coloured mod'.
+  const grey = i => `oklch(${(0.82 - 0.055 * i).toFixed(3)} 0 0)`;
+  const left = [];
+  const catIdx = [];
+  catNames.forEach((c, i) => {
+    if (catTot[i] > 0) { catIdx[i] = left.length; left.push({ label: String(c).toLowerCase(), value: catTot[i], color: grey(i) }); }
+    else catIdx[i] = -1;
+  });
+  const right = mods.map(m => ({ label: truncate(m.name, 16), value: m.total, color: modColor(m.id) }));
+
+  const grand = catTot.reduce((s, v) => s + v, 0) || 1;
+  const links = [];
+  mods.forEach((m, r) => catNames.forEach((_, i) => {
+    const v = Math.max(0, m.cats[i] || 0);
+    if (catIdx[i] >= 0 && v / grand > 0.004) links.push({ l: catIdx[i], r, value: v });
+  }));
+
+  root.innerHTML = sankey({ left, right, links, w: 900, h: 240, fmt: v => fmtMs(v) + ' ms' });
+  if (sub) sub.textContent = `${left.length} categories → top ${mods.length} mods`;
+}
+
 function renderTrendSparklines() {
   const title = document.getElementById('trends-title');
   const rows = document.getElementById('trend-rows');
@@ -3435,6 +3683,10 @@ function familyColor(f) {
   })[f] || 'var(--good)';
 }
 
+// The header label is a fixed 'last N' promise; cap the rendered rows to the same
+// N so the count and the list agree. The feed arrives capped at the backend's own
+// (larger) DefaultMax, so this client cap is what the panel header actually quotes.
+const EVENTS_SHOWN = 12;
 function renderNowEvents() {
   const root = document.getElementById('nowevents');
   // /api/events delivers a pre-merged, pre-sorted, capped feed —
@@ -3445,16 +3697,33 @@ function renderNowEvents() {
     root.innerHTML = emptyState('nothing yet — events appear as segments close + spikes fire');
     return;
   }
+  // Row scan hierarchy. The event text leads with its own magnitude/subject token
+  // (e.g. 'spike 11.0ms', 'died in Jungle') — that lead token is the scan anchor, so
+  // we split it off and weight it up while the trailing detail ('· top Mod N.NN ms')
+  // recedes. The per-kind coloured glyph anchors the left, the timestamp recedes to
+  // the right. Net: lead-token + glyph carry the row instead of a uniform-weight wall.
   const cols = '1.4em minmax(0, 1fr) auto';
-  root.innerHTML = rowList(lastEvents.events.map(e => row({
-    cols, cls: 'ev-row',
-    attrs: `data-kind='${e.kind}'`,
-    cells: [
-      `<span class='ev-glyph'>${glyphFor(e.kind)}</span>`,
-      `<span class='nm'>${escapeHtml(e.text)}</span>`,
-      `<span class='ev-when'>${fmtAgo(e.unixMs)}</span>`,
-    ],
-  })));
+  root.innerHTML = rowList(lastEvents.events.slice(0, EVENTS_SHOWN).map(e => {
+    const parts = splitEventText(e.text);
+    return row({
+      cols, cls: 'ev-row',
+      attrs: `data-kind='${e.kind}'`,
+      cells: [
+        `<span class='ev-glyph'>${glyphFor(e.kind)}</span>`,
+        `<span class='nm'><span class='ev-lead'>${escapeHtml(parts.lead)}</span>` +
+          `${parts.rest ? `<span class='ev-rest'>${escapeHtml(parts.rest)}</span>` : ''}</span>`,
+        `<span class='ev-when'>${fmtAgo(e.unixMs)}</span>`,
+      ],
+    });
+  }));
+}
+// Split an event line into a lead token (the magnitude/subject that should dominate
+// the row) and the trailing detail. The feed delimits the two with ' · ', so the
+// first segment is the lead and the remainder is the recessive detail; lines with no
+// delimiter are all-lead. Pure string work — no kind-specific assumptions.
+function splitEventText(text) {
+  const i = text.indexOf(' · ');
+  return i < 0 ? { lead: text, rest: '' } : { lead: text.slice(0, i), rest: text.slice(i) };
 }
 function glyphFor(kind) {
   return ({ 'boss-kill':'✓', 'death':'☠', 'spike':'⚡', 'stall':'⏸', 'segment':'↺' })[kind] || '·';
@@ -3765,6 +4034,10 @@ function openModCard(modId) {
     }
     return `the difference between <strong>${a} fps</strong> and <strong>${b} fps</strong>`;
   }
+  // The live figure only earns its own fps note when it lands in a different fps
+  // regime from the average — otherwise it would just restate the average sentence's
+  // verdict verbatim, so we show the live value alone and let the verdict appear once.
+  function fpsDiffers(withMod, withoutMod) { return Math.round(withMod) !== Math.round(withoutMod); }
 
   // Category breakdown.
   const cats = lastMods.categories || [];
@@ -3800,7 +4073,8 @@ function openModCard(modId) {
     sectionBlock('frame impact · marginal contribution', callout(
       `This mod adds <strong>${fmtMs(mod.avgCpuMs)} ms</strong> to the average frame, ` +
       `which is ${fpsClause(fpsAvg, fpsWithoutAvg, mod.avgCpuMs, totalAvg, true)}. ` +
-      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>, ${fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false)}.</span>` +
+      `<span class='muted'>Right now: <strong>${fmtMs(mod.cpuMs)} ms</strong>` +
+        `${fpsDiffers(fpsNow, fpsWithoutNow) ? ', ' + fpsClause(fpsNow, fpsWithoutNow, mod.cpuMs, totalNow, false) : ''}.</span>` +
       `<br/><span class='muted'>Caveat: a marginal upper bound. Sibling mods may do less work when this mod's content isn't present, so the real-world delta is usually smaller. This describes measured cost, not a recommendation.</span>`)) +
 
     sectionBlock('category breakdown',
@@ -3876,6 +4150,42 @@ function timelineWindow() {
 
 function pctOf(ms, win) {
   return ((ms - win.startMs) / win.spanMs) * 100;
+}
+
+// Swimlane-only time domain — spans just the captured segments (first segment
+// start to last segment end), NOT the full session window. timelineWindow()
+// stretches to `now` and to the last activity-strip minute, which leaves every
+// segment clustered in the far-left sliver of each lane with dead space out to
+// the right edge. Scaling the gantt to the range that actually contains
+// segments spreads the blocks across the lane width while keeping their
+// RELATIVE positions/proportions exact. A small margin on each side keeps the
+// first/last blocks off the very edges. Every lane is laid against this one
+// window, so the family lanes stay axis-aligned with each other.
+function swimlaneWindow() {
+  let s = Infinity, e = -Infinity;
+  if (lastSegments) {
+    for (const sg of (lastSegments.recent || [])) {
+      if (sg.startUnixMs < s) s = sg.startUnixMs;
+      if (sg.endUnixMs   > e) e = sg.endUnixMs;
+    }
+    for (const sg of (lastSegments.open || [])) {
+      if (sg.startUnixMs < s) s = sg.startUnixMs;
+      const nowMs = lastNow ? lastNow.unixMs : Date.now();
+      const endMs = sg.startUnixMs + (sg.elapsedMs || 0);
+      if (endMs > e) e = endMs;
+      if (nowMs > e) e = nowMs;   // an open segment legitimately runs to now
+    }
+  }
+  if (!isFinite(s) || !isFinite(e) || e <= s) {
+    // No segments yet — fall back to the broad window so the lanes still scale
+    // to something sane rather than collapsing to a degenerate span.
+    return timelineWindow();
+  }
+  // Pad by a small fraction of the captured span so the first block doesn't
+  // touch the left edge and the last doesn't touch the right.
+  const margin = Math.max(1, (e - s) * 0.03);
+  s -= margin; e += margin;
+  return { startMs: s, endMs: e, spanMs: Math.max(1, e - s) };
 }
 
 // ---- Family filter --------------------------------------------------
@@ -4054,7 +4364,10 @@ function renderTimelineTransitions() {
 // modColor), a lifetime-delta badge, and accent outlining when the segment is
 // a lifetime outlier. Filter gates which lanes render.
 function renderTimelineSwimlanes() {
-  const win = timelineWindow();
+  // Scale the gantt to the segment-containing span, not the full session
+  // window — see swimlaneWindow(). This one window drives every lane's block
+  // placement so the family lanes stay axis-aligned with each other.
+  const win = swimlaneWindow();
   const byFamily = {};
   for (const f of TL_FAMILIES) byFamily[f] = [];
 
@@ -4643,12 +4956,23 @@ function renderLagKpiStrip() {
 // empty placeholder dropped) -> a ranked barChart({horizontal:true}), one
 // bar per cause. The conditional is kept; the genuine multi-context case
 // still gets the real grid.
+// Rewrite the outer panel title/sub so the frame never oversells the body:
+// the single-context body is a ranked bar list, so the frame says 'lag events
+// by cause'; only a real 2D grid earns the 'cause × context' framing.
+function setLagHeatmapTitle(title, sub) {
+  const t = document.getElementById('lag-heatmap-title');
+  const s = document.getElementById('lag-heatmap-sub');
+  if (t) t.textContent = title;
+  if (s) s.textContent = sub;
+}
+
 function renderLagHeatmap() {
   const root = document.getElementById('lag-heatmap-body');
   if (!root) return;
   const cells = (lastLagClusters && lastLagClusters.causeContext) || [];
 
   if (cells.length === 0) {
+    setLagHeatmapTitle('lag events by cause', 'ranked by event count');
     root.innerHTML = emptyState('no events observed');
     return;
   }
@@ -4675,20 +4999,27 @@ function renderLagHeatmap() {
     const rows = causes.map(cause => ({ cause, ...(agg.get(cause) || { eventCount: 0, totalMs: 0 }) }))
                        .sort((a, b) => b.eventCount - a.eventCount);
     // Only one context exists, so the cross-tab degenerates to a single column.
-    // Label the body for what it actually shows — lag events ranked by cause —
+    // Label the panel for what it actually shows — lag events ranked by cause —
     // rather than presenting a 'single context · —' degenerate matrix frame. The
-    // sole context (when one is named) goes in the sub-label, not the title.
-    const ctxSub = realContexts.length === 1 ? realContexts[0] : 'one context this session';
+    // sole context (when one is named) goes in the panel sub, and the body is a
+    // plain ranked bar list with no redundant inner heading above it.
+    const ctxSub = realContexts.length === 1
+      ? 'ranked by event count · ' + realContexts[0]
+      : 'ranked by event count · one context this session';
+    setLagHeatmapTitle('lag events by cause', ctxSub);
     const bars = rows.map(r => ({
       value: r.eventCount,
       label: humanizeLabel(r.cause) || '—',
       valueLabel: fmtInt(r.eventCount),
       color: 'var(--accent)',
     }));
-    root.innerHTML = sectionHeader('lag events by cause', ctxSub) +
-      barChart({ horizontal: true, bars });
+    root.innerHTML = barChart({ horizontal: true, bars });
     return;
   }
+
+  // A real multi-context grid is rendered, so the frame honestly earns the
+  // 'cause × context' framing the single-context body could not.
+  setLagHeatmapTitle('cause × context', 'events by cause and surrounding context');
 
   // 2D grid via heatmapMatrix: look the cell up by (cause, context).
   const key = (a, b) => a + '\x1f' + b;
@@ -4753,13 +5084,17 @@ function renderLagGalaxy() {
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
   // The context column is dead width when no cluster carries a real context, so
-  // it is dropped from both the header and the rows in that case. The guard
-  // counts rows that would actually render a chip (a non-empty biome / weather
-  // string, or hardmode true) rather than truthiness of the raw fields, so an
-  // all-'—' column never survives when every row's context is empty.
-  const hasCtx = c => (typeof c.primaryBiome === 'string' && c.primaryBiome.trim() !== '')
-    || (typeof c.weatherFlags === 'string' && c.weatherFlags.trim() !== '')
-    || c.hardmode === true;
+  // it is dropped from both the header and the rows in that case. A field counts
+  // as real context only if it is a non-empty string that is NOT a placeholder
+  // sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no context',
+  // and the prior guard let them through, so an all-'—' column survived. The
+  // same realCtx() decides whether a chip is drawn below, so guard and rows agree.
+  const realCtx = s => {
+    if (typeof s !== 'string') return false;
+    const t = s.trim().toLowerCase();
+    return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
+  };
+  const hasCtx = c => realCtx(c.primaryBiome) || realCtx(c.weatherFlags) || c.hardmode === true;
   const anyContext = clusters.filter(hasCtx).length >= 1;
   const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
 
@@ -4777,8 +5112,8 @@ function renderLagGalaxy() {
     let ctxCell = '';
     if (anyContext) {
       let ctxChips = '';
-      if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-      if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (realCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (realCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
       if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
       if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
       ctxCell = `<td class='l'>${ctxChips}</td>`;
@@ -4813,8 +5148,8 @@ function renderLagGalaxy() {
   const pick = clusters.find(c => c.fingerprintId === lagGalaxySelected);
   if (pick) {
     const subBits = [];
-    if (pick.primaryBiome) subBits.push(pick.primaryBiome);
-    if (pick.weatherFlags) subBits.push(pick.weatherFlags);
+    if (realCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
+    if (realCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
     const ctxText = subBits.join(' · ') || 'no context';
     // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
@@ -4954,12 +5289,12 @@ function renderLagGcPressure() {
   // padTop + a wider niceScale headroom (pad) push the peak rule down off the
   // plot's top edge so its 'N GB peak' label reads as an annotation on the line
   // rather than colliding with the top-right corner of the frame. The rule label
-  // anchors at (w - padX), so a wider padX nudges the 'N GB peak' text in off the
-  // right boundary instead of hugging it.
+  // is right-anchored at (w - padX), so the wider padX ends the 'N GB peak' text
+  // a comfortable gutter in from the right boundary instead of hugging it.
   const chart = n > 0
     ? lineChart({
         series: [{ values: series, color: 'var(--gc)', area: true }],
-        h: 138, padTop: 22, padX: 16, pad: 0.2, axis: true, fmt: gb,
+        h: 138, padTop: 22, padX: 28, pad: 0.2, axis: true, fmt: gb,
         rules: [{ value: maxHeap, color: 'var(--gc)', label: gb(maxHeap) + ' peak' }],
         markers: n > 1 ? [{ index: peakI, color: 'var(--gc)' }] : [],
       })
@@ -5172,16 +5507,20 @@ let engagementSort = { key: 'cpuShare', dir: -1 };     // costliest first
 // steps (~0.065 L apart) stays perceptibly separable in OKLCH's uniform L, and
 // the 0.40 floor matches the Memory footprint ramp's dimmest step so even the
 // last category clears the --surface split-bar track (oklch 0.235).
+// The ramp top is capped at 0.84 (not near-white): white is the brightest thing
+// in the monochrome chrome and reads as a highlight, so a DATA swatch must stay
+// clearly below it. The 0.84 -> 0.42 span over nine steps keeps each category a
+// distinct grey while the brightest no longer competes with the chrome accent.
 const ROSTER_CATS = [
-  ['items',       'items',       'oklch(0.920 0 0)'],
-  ['npcs',        'npcs',        'oklch(0.855 0 0)'],
-  ['buffs',       'buffs',       'oklch(0.790 0 0)'],
-  ['projectiles', 'projectiles', 'oklch(0.725 0 0)'],
-  ['mounts',      'mounts',      'oklch(0.660 0 0)'],
-  ['accessories', 'accessories', 'oklch(0.595 0 0)'],
-  ['biomes',      'biomes',      'oklch(0.530 0 0)'],
-  ['invasions',   'invasions',   'oklch(0.465 0 0)'],
-  ['bosses',      'bosses',      'oklch(0.400 0 0)'],
+  ['items',       'items',       'oklch(0.840 0 0)'],
+  ['npcs',        'npcs',        'oklch(0.788 0 0)'],
+  ['buffs',       'buffs',       'oklch(0.735 0 0)'],
+  ['projectiles', 'projectiles', 'oklch(0.683 0 0)'],
+  ['mounts',      'mounts',      'oklch(0.630 0 0)'],
+  ['accessories', 'accessories', 'oklch(0.578 0 0)'],
+  ['biomes',      'biomes',      'oklch(0.525 0 0)'],
+  ['invasions',   'invasions',   'oklch(0.473 0 0)'],
+  ['bosses',      'bosses',      'oklch(0.420 0 0)'],
 ];
 
 async function pollInsightsData() {
@@ -5247,47 +5586,44 @@ function sortableHead(cols, state, onSort, rootId) {
   return `<tr>${ths}</tr>`;
 }
 
-// ----- KPI strip ------------------------------------------------------
-// Four full-ring gauges (sweep 360), one per modlist bucket. Each ring's
-// arc-fill encodes that bucket's share of the loaded modlist; the centre
-// carries the count. Descriptive only — the gauge shows the measured
-// fraction, no thresholds or judgement. Built once into a panel body; the
-// counts change rarely so a plain innerHTML rebuild is fine here.
+// ----- Modlist composition (waffle) ----------------------------------
+// The loaded modlist as a unit grid: one cell per mod, coloured by engagement
+// bucket (active >= 5% usage / under 5% / dormant at zero usage), so the
+// composition reads as countable area. Replaces four separate ring gauges (one
+// shape, one read) and is paired with a legend + the headline count. Descriptive
+// only — the buckets are measured usage thresholds, not judgements.
 function renderInsightsKpiStrip() {
   const root = document.getElementById('ins-kpi');
   if (!root) return;
   const obs = lastModObservatory || {};
   const dor = lastDormant || {};
-  const active = obs.activeCount != null ? obs.activeCount : 0;
-  const dormant = obs.dormantCount != null ? obs.dormantCount : (dor.modsWithZeroUsage || 0);
-  const loaded = dor.modsLoaded != null ? dor.modsLoaded : (active + dormant);
-  const lowUse = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : 0;
+  const loaded = dor.modsLoaded != null ? dor.modsLoaded
+    : ((obs.activeCount || 0) + (obs.dormantCount || 0));
+  const dormant = dor.modsWithZeroUsage != null ? dor.modsWithZeroUsage : (obs.dormantCount || 0);
+  const below5 = dor.modsBelowFivePercentUsage != null ? dor.modsBelowFivePercentUsage : dormant;
+  // Three disjoint buckets that sum to the loaded count.
+  const partial = Math.max(0, below5 - dormant);            // nonzero but under 5%
+  const active = Math.max(0, loaded - below5);              // >= 5% usage
   const denom = Math.max(1, loaded);
 
-  function kpi(label, value, frac, sub) {
-    const g = gauge({
-      ratio: Math.max(0, Math.min(1, frac)), sweep: 360, w: 64, stroke: 6,
-      color: 'var(--accent)', centerValue: value,
-    });
-    return `<div class='kpi-cell'>${g}<div class='kpi-meta'>` +
-      `<span class='kpi-lbl'>${escapeHtml(label)}</span>` +
-      `<span class='kpi-sub'>${escapeHtml(sub)}</span></div></div>`;
-  }
+  const ACTIVE = 'var(--good-bar)', PARTIAL = 'var(--amber)', DORMANT = 'var(--muted)';
+  const cells = [
+    { count: active,  color: ACTIVE,  label: 'active (≥5% usage)' },
+    { count: partial, color: PARTIAL, label: 'under 5% usage' },
+    { count: dormant, color: DORMANT, label: 'dormant (zero usage)' },
+  ];
+  const grid = waffle({ cells, total: loaded, cols: Math.min(20, Math.max(8, Math.ceil(Math.sqrt(loaded)))) });
+  const key = legend(cells.map(c => ({ color: c.color, label: c.label, value: fmtInt(c.count) })), { inline: true });
+  const sub = `${fmtInt(loaded)} mods · ${(100 * active / denom).toFixed(0)}% active · ${(100 * dormant / denom).toFixed(0)}% dormant`;
 
-  // One gauge vocabulary across all four KPIs: identical full-ring gauge on the
-  // single neutral --accent. These are four magnitude counts of the same roster,
-  // not perf states, so they must not borrow the green/amber perf ramp (that hue
-  // is reserved for actual cost/engagement data and would mis-signal 'active' as
-  // good and 'under 5%' as a warning). The differentiating signal is each ring's
-  // arc-fill + centre count + label, not the colour — so the strip reads as one
-  // coherent component family in monochrome chrome.
-  const body = `<div class='kpi-grid'>` +
-    kpi('mods loaded',    fmtInt(loaded),  1,               'profiled this session') +
-    kpi('active',         fmtInt(active),  active / denom,   (100 * active / denom).toFixed(0) + '% of roster') +
-    kpi('dormant',        fmtInt(dormant), dormant / denom,  (100 * dormant / denom).toFixed(0) + '% zero usage') +
-    kpi('under 5% usage', fmtInt(lowUse),  lowUse / denom,   (100 * lowUse / denom).toFixed(0) + '% sub-5%') +
-    `</div>`;
-  root.innerHTML = panel({ title: 'modlist overview', body });
+  let body = root.querySelector('#kpi-waffle');
+  if (!body) {
+    root.innerHTML = panel({ title: 'modlist composition', sub, body: `<div id='kpi-waffle'></div>` });
+    body = root.querySelector('#kpi-waffle');
+  }
+  const subEl = root.querySelector('.panel-sub');
+  if (subEl) subEl.textContent = sub;
+  setHTML(body, `<div class='wf-wrap'>${grid}</div><div class='wf-key'>${key}</div>`);
 }
 
 // ----- I2 dormant surface --------------------------------------------
@@ -5646,102 +5982,68 @@ function renderCrossCutting() {
     `${groups.length} classes · ${distinct.size} mods`);
 }
 
-// ----- I6 engagement vs cost -----------------------------------------
-// Sortable perf .dtable in a panel. Columns: mod, usage share, cpu share,
-// roster size, and a 'tilt' chip describing where the mod sits on the
-// usage-vs-cost ratio. cost-heavy (cpu materially above usage) -> .bad;
-// usage-heavy (usage materially above cpu) -> .good; otherwise balanced.
-// The tilt is a measurement of the share ratio, not a verdict. Scroll region
-// stable across polls.
+// ----- I6 engagement vs cost (bubble scatter) ------------------------
+// A real relationship plot: usage share (x) vs cpu share (y), bubble area =
+// roster size, with a y=x balance reference. A mod ABOVE the line costs more cpu
+// than it earns in engagement (cost-heavy); BELOW the line it earns more
+// engagement than it costs (usage-heavy); on the line it is balanced. Colour
+// encodes that tilt; position + size carry the rest. Clicking a bubble opens the
+// mod card. Descriptive throughout — the plot measures the ratio, names no verdict.
 function renderEngagementScatter() {
   const root = document.getElementById('ins-scatter');
   if (!root) return;
   const ec = lastEngagementCost;
 
-  let scroll = root.querySelector('#scatter-scroll');
-  if (!scroll) {
+  let body = root.querySelector('#scatter-body');
+  if (!body) {
     root.innerHTML = panel({
       title: 'engagement vs cost', sub: '—',
-      body: scrollRegion('scatter-scroll', '', { maxH: '360px' }),
-      pad: 'flush',
+      body: `<div id='scatter-body'></div>`,
     });
-    scroll = root.querySelector('#scatter-scroll');
+    body = root.querySelector('#scatter-body');
   }
   const subEl = root.querySelector('.panel-sub');
 
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, emptyState('no engagement vs cost data yet'));
+    setHTML(body, emptyState('no engagement vs cost data yet'));
     return;
   }
-  if (subEl) subEl.textContent = `${ec.dots.length} mods`;
+  if (subEl) subEl.textContent = `${ec.dots.length} mods · bubble = roster size`;
 
-  // Tilt classification from the usage-vs-cost share ratio.
-  // Returns {cls, label} where cls maps to a chip variant.
-  function tilt(d) {
+  // Tilt from the usage-vs-cost share ratio (−1 pure usage .. +1 pure cost).
+  const COST = 'var(--spike)', USE = 'var(--good-bar)', BAL = 'var(--muted)';
+  function tiltColor(d) {
     const sum = (d.usageShare || 0) + (d.cpuShare || 0);
-    if (sum < 1e-6) return { cls: '', label: 'idle' };
-    const t = ((d.cpuShare || 0) - (d.usageShare || 0)) / sum;  // -1 pure usage .. +1 pure cost
-    if (t > 0.15)  return { cls: 'bad',  label: 'cost-heavy' };
-    if (t < -0.15) return { cls: 'good', label: 'usage-heavy' };
-    return { cls: 'cool', label: 'balanced' };
+    if (sum < 1e-9) return BAL;
+    const t = ((d.cpuShare || 0) - (d.usageShare || 0)) / sum;
+    return t > 0.15 ? COST : t < -0.15 ? USE : BAL;
   }
 
-  const dots = ec.dots.slice();
-  const getters = {
-    modName:    d => (d.modName || '').toLowerCase(),
-    usageShare: d => d.usageShare,
-    cpuShare:   d => d.cpuShare,
-    rosterSize: d => d.rosterSize,
-  };
-  const g = getters[engagementSort.key] || getters.cpuShare;
-  dots.sort((a, b) => {
-    const va = g(a), vb = g(b);
-    if (va < vb) return -1 * engagementSort.dir;
-    if (va > vb) return  1 * engagementSort.dir;
-    return 0;
+  // Shared axis scale so the y=x balance line is a true 45°: both axes run
+  // 0..max(any usage or cpu share). Percent-formatted ticks.
+  const dots = ec.dots;
+  const scale = Math.max(1e-9, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
+  const points = dots.map(d => ({
+    x: d.usageShare || 0, y: d.cpuShare || 0, r: d.rosterSize || 0,
+    color: tiltColor(d), label: d.modName, id: d.modId,
+  }));
+  const chart = scatter({
+    points, w: 440, h: 300, xMax: scale, yMax: scale, diag: true,
+    xLabel: 'usage share →', yLabel: 'cpu share →',
+    fmt: v => (v * 100).toFixed(1) + '%',
   });
+  const key = legend([
+    { color: COST, label: 'cost-heavy (above the line)' },
+    { color: USE,  label: 'usage-heavy (below)' },
+    { color: BAL,  label: 'balanced' },
+  ], { inline: true });
+  setHTML(body, chart + `<div class='sc-foot'>${key}</div>`);
 
-  // A true scatter (usage axis × cpu axis) is deferred — there is no scatter
-  // component and building one blind would be fragile. The relationship is made
-  // legible in-place instead: each row carries a usage bar and a cpu bar on a
-  // SHARED axis (both scaled to the max share across all mods), so a long usage
-  // bar over a short cpu bar reads as usage-heavy at a glance, and the inverse as
-  // cost-heavy — the same split the tilt chip names, now visible per row.
-  const maxShare = Math.max(1e-6, ...dots.map(d => Math.max(d.usageShare || 0, d.cpuShare || 0)));
-
-  const cols = [
-    { key: 'modName',    label: 'mod',         l: true },
-    { key: 'usageShare', label: 'usage share', l: true, title: 'share of all engagement attributed to this mod (bar scaled to the busiest mod)' },
-    { key: 'cpuShare',   label: 'cpu share',   l: true, title: 'share of all measured cpu attributed to this mod (bar scaled to the busiest mod)' },
-    { key: 'rosterSize', label: 'roster' },
-  ];
-  const headRow = sortableHead(cols, engagementSort, renderEngagementScatter, 'ins-scatter')
-    .replace('</tr>', `<th class='l'>tilt</th></tr>`);
-
-  const rows = dots.map(d => {
-    const tl = tilt(d);
-    const chipCls = tl.cls ? ` ${tl.cls}` : '';
-    const uPct = ((d.usageShare||0)*100).toFixed(1);
-    const cPct = ((d.cpuShare||0)*100).toFixed(1);
-    // Usage rides the engagement teal, cpu the ramp green: two distinguishable
-    // data colours on one shared axis so the bars are directly comparable.
-    const usageCell = `<div class='ins-usage'>${cellBar((d.usageShare||0)/maxShare, 'var(--good-bar)')}<span class='ins-pct'>${uPct}%</span></div>`;
-    const cpuCell   = `<div class='ins-usage'>${cellBar((d.cpuShare||0)/maxShare, 'var(--cpu)')}<span class='ins-pct'>${cPct}%</span></div>`;
-    return `<tr title='${escapeHtml(d.modName + ' — usage ' + uPct + '% · cpu ' + cPct + '% · roster ' + fmtInt(d.rosterSize))}'>
-      <td class='l'>${escapeHtml(d.modName)}</td>
-      <td class='l'>${usageCell}</td>
-      <td class='l'>${cpuCell}</td>
-      <td>${fmtInt(d.rosterSize)}</td>
-      <td class='l'><span class='chip${chipCls}'>${tl.label}</span></td>
-    </tr>`;
-  }).join('');
-
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead>${headRow}</thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  // Bubbles open the mod card, same as the donut / observatory.
+  body.querySelectorAll('.sc-dot.hit').forEach(el => {
+    el.addEventListener('click', () => { if (typeof openModCard === 'function') openModCard(parseInt(el.dataset.mod, 10)); });
+  });
 }
 
 // ----- I7 mod-pair cost correlation ----------------------------------
@@ -5860,10 +6162,16 @@ function renderSelf() {
   ], { tall: true });
 
   // ---- process context (managed / native split) ----
+  // The managed share is the panel's headline answer ('managed heap vs total
+  // working set'), so it leads as a hero stat tile; the two raw byte figures
+  // read as its supporting detail below, not as three equal rows.
   document.getElementById('self-process').innerHTML =
+    `<div class='self-share-hero'>` +
+    statTile({ k: 'managed share', v: dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'),
+               big: true, sub: 'of total working set' }) +
+    `</div>` +
     statLine('working set', dash(s.processWorkingSetMb, v => v.toFixed(0) + ' MB')) +
-    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB')) +
-    statLine('managed share', dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'));
+    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB'));
   const ws = s.processWorkingSetMb || 1, managed = s.processManagedHeapMb || 0, native = Math.max(0, ws - managed);
   // managed = near-white accent fill; native = a clear mid-grey (--muted), not
   // the near-panel --surface-2 that vanishes against the dark panel and reads as

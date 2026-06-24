@@ -120,12 +120,23 @@ function renderLagKpiStrip() {
 // empty placeholder dropped) -> a ranked barChart({horizontal:true}), one
 // bar per cause. The conditional is kept; the genuine multi-context case
 // still gets the real grid.
+// Rewrite the outer panel title/sub so the frame never oversells the body:
+// the single-context body is a ranked bar list, so the frame says 'lag events
+// by cause'; only a real 2D grid earns the 'cause × context' framing.
+function setLagHeatmapTitle(title, sub) {
+  const t = document.getElementById('lag-heatmap-title');
+  const s = document.getElementById('lag-heatmap-sub');
+  if (t) t.textContent = title;
+  if (s) s.textContent = sub;
+}
+
 function renderLagHeatmap() {
   const root = document.getElementById('lag-heatmap-body');
   if (!root) return;
   const cells = (lastLagClusters && lastLagClusters.causeContext) || [];
 
   if (cells.length === 0) {
+    setLagHeatmapTitle('lag events by cause', 'ranked by event count');
     root.innerHTML = emptyState('no events observed');
     return;
   }
@@ -152,20 +163,27 @@ function renderLagHeatmap() {
     const rows = causes.map(cause => ({ cause, ...(agg.get(cause) || { eventCount: 0, totalMs: 0 }) }))
                        .sort((a, b) => b.eventCount - a.eventCount);
     // Only one context exists, so the cross-tab degenerates to a single column.
-    // Label the body for what it actually shows — lag events ranked by cause —
+    // Label the panel for what it actually shows — lag events ranked by cause —
     // rather than presenting a 'single context · —' degenerate matrix frame. The
-    // sole context (when one is named) goes in the sub-label, not the title.
-    const ctxSub = realContexts.length === 1 ? realContexts[0] : 'one context this session';
+    // sole context (when one is named) goes in the panel sub, and the body is a
+    // plain ranked bar list with no redundant inner heading above it.
+    const ctxSub = realContexts.length === 1
+      ? 'ranked by event count · ' + realContexts[0]
+      : 'ranked by event count · one context this session';
+    setLagHeatmapTitle('lag events by cause', ctxSub);
     const bars = rows.map(r => ({
       value: r.eventCount,
       label: humanizeLabel(r.cause) || '—',
       valueLabel: fmtInt(r.eventCount),
       color: 'var(--accent)',
     }));
-    root.innerHTML = sectionHeader('lag events by cause', ctxSub) +
-      barChart({ horizontal: true, bars });
+    root.innerHTML = barChart({ horizontal: true, bars });
     return;
   }
+
+  // A real multi-context grid is rendered, so the frame honestly earns the
+  // 'cause × context' framing the single-context body could not.
+  setLagHeatmapTitle('cause × context', 'events by cause and surrounding context');
 
   // 2D grid via heatmapMatrix: look the cell up by (cause, context).
   const key = (a, b) => a + '\x1f' + b;
@@ -230,13 +248,17 @@ function renderLagGalaxy() {
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
   // The context column is dead width when no cluster carries a real context, so
-  // it is dropped from both the header and the rows in that case. The guard
-  // counts rows that would actually render a chip (a non-empty biome / weather
-  // string, or hardmode true) rather than truthiness of the raw fields, so an
-  // all-'—' column never survives when every row's context is empty.
-  const hasCtx = c => (typeof c.primaryBiome === 'string' && c.primaryBiome.trim() !== '')
-    || (typeof c.weatherFlags === 'string' && c.weatherFlags.trim() !== '')
-    || c.hardmode === true;
+  // it is dropped from both the header and the rows in that case. A field counts
+  // as real context only if it is a non-empty string that is NOT a placeholder
+  // sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no context',
+  // and the prior guard let them through, so an all-'—' column survived. The
+  // same realCtx() decides whether a chip is drawn below, so guard and rows agree.
+  const realCtx = s => {
+    if (typeof s !== 'string') return false;
+    const t = s.trim().toLowerCase();
+    return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
+  };
+  const hasCtx = c => realCtx(c.primaryBiome) || realCtx(c.weatherFlags) || c.hardmode === true;
   const anyContext = clusters.filter(hasCtx).length >= 1;
   const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
 
@@ -254,8 +276,8 @@ function renderLagGalaxy() {
     let ctxCell = '';
     if (anyContext) {
       let ctxChips = '';
-      if (c.primaryBiome) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-      if (c.weatherFlags) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (realCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (realCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
       if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
       if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
       ctxCell = `<td class='l'>${ctxChips}</td>`;
@@ -290,8 +312,8 @@ function renderLagGalaxy() {
   const pick = clusters.find(c => c.fingerprintId === lagGalaxySelected);
   if (pick) {
     const subBits = [];
-    if (pick.primaryBiome) subBits.push(pick.primaryBiome);
-    if (pick.weatherFlags) subBits.push(pick.weatherFlags);
+    if (realCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
+    if (realCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
     const ctxText = subBits.join(' · ') || 'no context';
     // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
@@ -431,12 +453,12 @@ function renderLagGcPressure() {
   // padTop + a wider niceScale headroom (pad) push the peak rule down off the
   // plot's top edge so its 'N GB peak' label reads as an annotation on the line
   // rather than colliding with the top-right corner of the frame. The rule label
-  // anchors at (w - padX), so a wider padX nudges the 'N GB peak' text in off the
-  // right boundary instead of hugging it.
+  // is right-anchored at (w - padX), so the wider padX ends the 'N GB peak' text
+  // a comfortable gutter in from the right boundary instead of hugging it.
   const chart = n > 0
     ? lineChart({
         series: [{ values: series, color: 'var(--gc)', area: true }],
-        h: 138, padTop: 22, padX: 16, pad: 0.2, axis: true, fmt: gb,
+        h: 138, padTop: 22, padX: 28, pad: 0.2, axis: true, fmt: gb,
         rules: [{ value: maxHeap, color: 'var(--gc)', label: gb(maxHeap) + ' peak' }],
         markers: n > 1 ? [{ index: peakI, color: 'var(--gc)' }] : [],
       })

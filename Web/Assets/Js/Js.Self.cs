@@ -66,10 +66,16 @@ function renderSelf() {
   ], { tall: true });
 
   // ---- process context (managed / native split) ----
+  // The managed share is the panel's headline answer ('managed heap vs total
+  // working set'), so it leads as a hero stat tile; the two raw byte figures
+  // read as its supporting detail below, not as three equal rows.
   document.getElementById('self-process').innerHTML =
+    `<div class='self-share-hero'>` +
+    statTile({ k: 'managed share', v: dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'),
+               big: true, sub: 'of total working set' }) +
+    `</div>` +
     statLine('working set', dash(s.processWorkingSetMb, v => v.toFixed(0) + ' MB')) +
-    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB')) +
-    statLine('managed share', dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'));
+    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB'));
   const ws = s.processWorkingSetMb || 1, managed = s.processManagedHeapMb || 0, native = Math.max(0, ws - managed);
   // managed = near-white accent fill; native = a clear mid-grey (--muted), not
   // the near-panel --surface-2 that vanishes against the dark panel and reads as

@@ -45,13 +45,14 @@ internal static partial class DashboardAssets
 
 /* Lag rhythm: interval histogram beside the cluster table. The two halves
    carry different row counts (a coarse ~handful-bucket histogram on the left, a
-   taller cluster table on the right), so they are stretched to a shared height
-   and the shorter side's bar group is centred within it. That closes the dead
-   space that opened under whichever half is shorter, in either direction,
-   without forcing artificial inter-row gaps. */
+   taller cluster table on the right), so the histogram column is stretched to
+   the table's height and its handful of bars are top-aligned (starting just
+   under the sub-header) then spread down the full extent with taller rows, so
+   the left column reads full rather than clustering centred-but-short. */
 .lag-rhythm-body { display: grid; grid-template-columns: minmax(14rem, 20rem) 1fr; gap: 0.9rem; align-items: stretch; }
 .lag-rhythm-body > #lag-rhythm-hist { display: flex; flex-direction: column; }
-.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: center; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows { flex: 1 1 auto; justify-content: space-between; gap: 0.6rem; }
+.lag-rhythm-body > #lag-rhythm-hist > .bar-rows > .bar-row { min-height: 1.9rem; }
 @media (max-width: 760px) { .lag-rhythm-body { grid-template-columns: 1fr; align-items: start; } }
 ";
 }

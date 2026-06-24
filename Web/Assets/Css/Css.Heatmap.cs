@@ -45,11 +45,13 @@ internal static partial class DashboardAssets
 .hm-cell.p2 { background: var(--perf-2); }
 .hm-cell.p3 { background: var(--perf-3); }
 .hm-cell.p4 { background: var(--perf-4); }
-/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge.
-   A faster minute lifts toward 1.16 brightness, a slower one drops toward 0.84,
-   so an all-smooth session still shows minute-to-minute texture instead of a flat
-   block — the colour still ENCODES exact ms within the band, never decorates. */
-.hm-cell { filter: brightness(calc(1.16 - 0.32 * var(--hm-t, 0.5))); }
+/* Within-band shade: --hm-t is 0 at the band's cool edge, 1 at its hot edge (on a
+   sqrt curve, so the cool fifth where smooth sessions live gets usable resolution).
+   A faster minute lifts toward 1.3 brightness, a slower one drops toward 0.7, with
+   the band midpoint neutral — a wide-enough swing that an all-smooth session's real
+   ms differences read as minute-to-minute texture instead of a flat block. The
+   colour still ENCODES exact ms within the band, never decorates. */
+.hm-cell { filter: brightness(calc(1.3 - 0.6 * var(--hm-t, 0.5))); }
 .hm-cell:hover { filter: none; }
 /* State overlay — boss fight cells get a red glow halo around them */
 .hm-cell.boss::after {
