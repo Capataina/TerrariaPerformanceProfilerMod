@@ -22,23 +22,36 @@ namespace PerformanceProfiler.Insights.Shared;
 public static class ModMetrics
 {
     /// <summary>
-    /// Engagement-event weight attributed to a mod this session: items created
-    /// + NPCs spawned + bosses fought + buffs applied, plus invasions fought
-    /// when <paramref name="includeInvasions"/> is true.
+    /// Active-use weight for a mod this session: the tick-credits its content
+    /// accrued while actually wielded or worn — held item + accessories + armour
+    /// + time stood in the mod's biomes. This is the "is this mod's content in
+    /// use" signal, and it is the single home for the formula the duplication
+    /// census found copied across four surfaces.
     ///
     /// <para>
-    /// <b>Known divergence (preserved deliberately):</b> the I1/I6 surfaces
-    /// (<see cref="PerformanceProfiler.Data.Contracts.ModObservatorySnapshot"/>,
-    /// engagement-cost) include invasions; the I2 dormant surface historically
-    /// did not. The flag captures that one difference explicitly rather than
-    /// letting it drift silently across copies. Wave 4 (the active-use rework)
-    /// replaces this creation-weighted proxy with a real "actively used" signal,
-    /// at which point the divergence is reconciled at its root.
+    /// <b>Wave 4 — the meaning changed at the root.</b> The old weight was
+    /// <c>ItemsCreated + NpcsSpawned + BossesFought + BuffsApplied (+ Invasions)</c>,
+    /// i.e. content <i>created or encountered</i>. That was the Flute-reads-zero
+    /// bug: holding or swinging an already-owned weapon fires no creation hook, so
+    /// a wielded-but-not-crafted item read as unused and a session that crafted
+    /// nothing collapsed every usage share to 0%. The creation / encounter counts
+    /// are still on <see cref="ModUsageEntry"/> as their own legitimate axis (what
+    /// was made), via <see cref="CreationWeight"/>; they are simply no longer a
+    /// proxy for use.
     /// </para>
     /// </summary>
-    public static long UsageWeight(in ModUsageEntry u, bool includeInvasions = true) =>
-        u.ItemsCreated + u.NpcsSpawned + u.BossesFought + u.BuffsApplied
-        + (includeInvasions ? u.InvasionsFought : 0L);
+    public static long UsageWeight(in ModUsageEntry u) =>
+        u.ItemsHeldTicks + u.AccessoryEquippedTicks + u.ArmorEquippedTicks + u.TicksInOwnedBiomes;
+
+    /// <summary>
+    /// Creation / encounter weight: content this mod made or the player met this
+    /// session (items created + NPCs spawned + bosses fought + buffs applied +
+    /// invasions fought). A distinct, legitimate signal from <see cref="UsageWeight"/>
+    /// — "what got made" rather than "what is in use" — kept so a surface that
+    /// genuinely wants the creation count has one home for it too.
+    /// </summary>
+    public static long CreationWeight(in ModUsageEntry u) =>
+        u.ItemsCreated + u.NpcsSpawned + u.BossesFought + u.BuffsApplied + u.InvasionsFought;
 
     /// <summary>
     /// Total registered-content count for a mod: items + NPCs + buffs +

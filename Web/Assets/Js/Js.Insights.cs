@@ -207,29 +207,31 @@ function renderDormantSurface() {
   });
 
   const cols = [
-    { key: 'modName',    label: 'mod',           l: true },
-    { key: 'usageRatio', label: 'usage',         title: 'engaged share of this roster' },
-    { key: 'usedCount',  label: 'used / roster', title: 'roster entries observed in use this session' },
-    { key: 'rosterSize', label: 'roster' },
+    { key: 'modName',    label: 'mod',        l: true },
+    { key: 'usageRatio', label: 'engagement', title: 'active-use intensity vs your most-used mod (held / worn / in-biome ticks)' },
+    { key: 'usedCount',  label: 'active use', title: 'tick-credits of active use this session' },
+    { key: 'rosterSize', label: 'roster',     title: 'count of content this mod registers' },
   ];
   // The dominant-unused-category column is presentational only (not sorted).
   const headRow = sortableHead(cols, dormantSort, renderDormantSurface, 'ins-dormant')
     .replace('</tr>', `<th class='l'>dominant unused</th></tr>`);
 
   const rows = entries.map(e => {
+    // usageRatio is active-use intensity in [0,1] (relative to the most-used mod);
+    // the bar reads engagement vs headroom, not a roster fraction.
     const ratio = Math.max(0, Math.min(1, e.usageRatio || 0));
     const pct = (ratio * 100).toFixed(1);
     const bar = splitBar([
-      { frac: ratio,     color: 'var(--good)',    label: 'engaged', value: fmtInt(e.usedCount) },
-      { frac: 1 - ratio, color: 'var(--surface)', label: 'unused',  value: fmtInt(Math.max(0, (e.rosterSize||0) - (e.usedCount||0))) },
+      { frac: ratio,     color: 'var(--good)',    label: 'engaged',  value: pct + '%' },
+      { frac: 1 - ratio, color: 'var(--surface)', label: 'headroom', value: '' },
     ], { thin: true });
     const cat = e.dominantUnusedCategory
       ? `<span class='chip'>${escapeHtml(e.dominantUnusedCategory)}</span>`
       : `<span class='dim'>—</span>`;
-    return `<tr title='${escapeHtml(e.modName + ' — ' + pct + '% engaged · ' + fmtInt(e.usedCount) + '/' + fmtInt(e.rosterSize) + ' entries used')}'>
+    return `<tr title='${escapeHtml(e.modName + ' — ' + pct + '% active-use intensity · ' + fmtInt(e.usedCount) + ' tick-credits · roster ' + fmtInt(e.rosterSize))}'>
       <td class='l'>${escapeHtml(e.modName)}</td>
       <td class='l'><div class='ins-usage'>${bar}<span class='ins-pct'>${pct}%</span></div></td>
-      <td>${fmtInt(e.usedCount)} / ${fmtInt(e.rosterSize)}</td>
+      <td>${fmtInt(e.usedCount)}</td>
       <td>${fmtInt(e.rosterSize)}</td>
       <td class='l'>${cat}</td>
     </tr>`;

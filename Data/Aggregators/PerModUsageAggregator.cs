@@ -63,6 +63,11 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
         public long BiomeTicks;
         public long InvasionsFought;
         public long AccessoryEquippedTicks;
+        // Active-use tick counters (Wave 4): one credit per tick the mod's
+        // content is wielded or worn, the real "is this in use" signal the
+        // creation counts above could not give.
+        public long ItemsHeldTicks;
+        public long ArmorEquippedTicks;
     }
 
     private Counters[] _counters = Array.Empty<Counters>();
@@ -231,14 +236,17 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
         _lastBossTypes.Clear();
         foreach (int t in _curBossTypes) _lastBossTypes.Add(t);
 
-        // ---- Accessory attendance: 7 slots, armor[3..9] are accessories
-        // in vanilla. One tick credit per non-air accessory's owning mod.
+        // ---- Worn equipment attendance: armor[0..2] are the head/chest/legs
+        // armour slots, armor[3..9] the accessory slots. One tick credit per
+        // non-air, modded item to its owning mod, split by slot kind so armour
+        // and accessory usage stay distinguishable. Invariant 5: ownership comes
+        // from the generic ModOwnerCache, never a mod-name match.
         Player? lp = Main.LocalPlayer;
         if (lp != null && lp.armor != null)
         {
             Item[] armor = lp.armor;
             int end = armor.Length < 10 ? armor.Length : 10;
-            for (int i = 3; i < end; i++)
+            for (int i = 0; i < end; i++)
             {
                 Item it = armor[i];
                 if (it == null || it.type == ItemID.None) continue;
@@ -246,9 +254,31 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
                 string mn = ModOwnerCache.ForItem(it.type);
                 if (mn == "Terraria") continue;
                 int modId = ModIdForName(mn);
-                if ((uint)modId < (uint)counters.Length)
+                if ((uint)modId >= (uint)counters.Length) continue;
+                if (i < 3) counters[modId].ArmorEquippedTicks++;
+                else counters[modId].AccessoryEquippedTicks++;
+            }
+        }
+
+        // ---- Held-item attendance: one tick credit to the owning mod of the
+        // wielded item (Player.HeldItem, a generic surface). This is the fix for
+        // the Flute-reads-zero bug: holding or swinging an already-owned weapon
+        // fires no creation hook, so without this a wielded-but-not-crafted item
+        // never registered as used. Reading HeldItem each tick is a single field
+        // access + cached owner lookup — no allocation (Invariant 2).
+        if (lp != null)
+        {
+            Item held = lp.HeldItem;
+            if (held != null && held.type != ItemID.None && held.type >= ItemID.Count)
+            {
+                string mn = ModOwnerCache.ForItem(held.type);
+                if (mn != "Terraria")
                 {
-                    counters[modId].AccessoryEquippedTicks++;
+                    int modId = ModIdForName(mn);
+                    if ((uint)modId < (uint)counters.Length)
+                    {
+                        counters[modId].ItemsHeldTicks++;
+                    }
                 }
             }
         }
@@ -286,7 +316,9 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
                 BuffsApplied: c.BuffsApplied,
                 TicksInOwnedBiomes: c.BiomeTicks,
                 InvasionsFought: c.InvasionsFought,
-                AccessoryEquippedTicks: c.AccessoryEquippedTicks));
+                AccessoryEquippedTicks: c.AccessoryEquippedTicks,
+                ItemsHeldTicks: c.ItemsHeldTicks,
+                ArmorEquippedTicks: c.ArmorEquippedTicks));
         }
         return new ModUsageSnapshot(worldLoaded: true, entries);
     }
@@ -297,6 +329,6 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
     {
         return (c.ItemsCreated | c.NpcsSpawned | c.NpcsKilled | c.BossesFought
               | c.BuffsApplied | c.BiomeTicks | c.InvasionsFought
-              | c.AccessoryEquippedTicks) != 0L;
+              | c.AccessoryEquippedTicks | c.ItemsHeldTicks | c.ArmorEquippedTicks) != 0L;
     }
 }

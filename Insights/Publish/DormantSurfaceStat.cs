@@ -52,12 +52,18 @@ public sealed class DormantSurfaceStat : IDataStat<DormantSurfaceSnapshot>
             return DormantSurfaceSnapshot.Empty;
         }
 
-        // Index usage by ModId.
+        // Index usage by ModId, and find the most-used mod so the ratio is a
+        // normalised active-use intensity (0..1) rather than the old
+        // used/roster fraction — which is no longer meaningful now that "used"
+        // is active-use ticks, not a content count (Wave 4).
         var usageById = new Dictionary<int, ModUsageEntry>(usage.Entries.Count);
+        long maxUsed = 0;
         for (int i = 0; i < usage.Entries.Count; i++)
         {
             var u = usage.Entries[i];
             usageById[u.ModId] = u;
+            long w = ModMetrics.UsageWeight(u);
+            if (w > maxUsed) maxUsed = w;
         }
 
         var entries = new List<DormantEntry>(roster.Mods.Count);
@@ -67,15 +73,18 @@ public sealed class DormantSurfaceStat : IDataStat<DormantSurfaceSnapshot>
             ModRosterEntry r = roster.Mods[i];
             int rosterSize = ModMetrics.RosterSize(r);
             usageById.TryGetValue(r.ModId, out ModUsageEntry u);
-            // I2 historically excludes invasions from the usage weight (see
-            // ModMetrics.UsageWeight); preserved verbatim until Wave 4.
-            long used = ModMetrics.UsageWeight(u, includeInvasions: false);
+            // Active-use ticks: content held / worn / stood-in this session. Zero
+            // means genuinely dormant; a wielded-but-not-crafted weapon now counts
+            // (the Flute-reads-zero fix), where the old creation-only weight read 0.
+            long used = ModMetrics.UsageWeight(u);
             int usedCount = used > int.MaxValue ? int.MaxValue : (int)used;
 
-            double ratio = Shares.SafeShare(usedCount, rosterSize);
+            // Intensity relative to your most-used mod (0..1): 1.0 = the mod whose
+            // content you engaged with most, 0 = never touched.
+            double ratio = Shares.SafeShare(used, maxUsed);
             string dominant = DominantUnusedCategory(r, u);
 
-            if (usedCount == 0) zero++;
+            if (used == 0) zero++;
             if (ratio < 0.05d) lowUse++;
 
             entries.Add(new DormantEntry(

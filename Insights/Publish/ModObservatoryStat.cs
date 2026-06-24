@@ -132,7 +132,7 @@ public sealed class ModObservatoryStat : IDataStat<ModObservatorySnapshot>
             usageById.TryGetValue(m, out ModUsageEntry uEntry);
             if (uEntry.ModId == 0 && m != 0 && !usageById.ContainsKey(m))
             {
-                uEntry = new ModUsageEntry(m, 0, 0, 0, 0, 0, 0, 0, 0);
+                uEntry = new ModUsageEntry(m, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
             }
 
             bool isActive = perModSmoothed[m] > 0 || usageWeightPerMod[m] > 0;

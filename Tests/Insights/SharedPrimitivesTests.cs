@@ -16,35 +16,48 @@ public sealed class SharedPrimitivesTests
 {
     private static ModUsageEntry Usage(
         long items = 0, long npcs = 0, long npcsKilled = 0, long bosses = 0,
-        long buffs = 0, long biomeTicks = 0, long invasions = 0, long accTicks = 0)
-        => new ModUsageEntry(1, items, npcs, npcsKilled, bosses, buffs, biomeTicks, invasions, accTicks);
+        long buffs = 0, long biomeTicks = 0, long invasions = 0, long accTicks = 0,
+        long heldTicks = 0, long armorTicks = 0)
+        => new ModUsageEntry(1, items, npcs, npcsKilled, bosses, buffs, biomeTicks,
+            invasions, accTicks, heldTicks, armorTicks);
 
-    // ---- UsageWeight ----------------------------------------------------
+    // ---- UsageWeight (Wave 4: active-use, not creation) -----------------
 
     [Fact]
-    public void UsageWeight_Default_IncludesInvasions()
+    public void UsageWeight_IsTheSumOfActiveUseTicks()
     {
-        // items 3 + npcs 5 + bosses 2 + buffs 4 + invasions 7 = 21.
-        ModUsageEntry u = Usage(items: 3, npcs: 5, bosses: 2, buffs: 4, invasions: 7);
-        Assert.Equal(21L, ModMetrics.UsageWeight(u));
+        // held 100 + accessory 50 + armour 30 + biome 20 = 200.
+        ModUsageEntry u = Usage(heldTicks: 100, accTicks: 50, armorTicks: 30, biomeTicks: 20);
+        Assert.Equal(200L, ModMetrics.UsageWeight(u));
     }
 
     [Fact]
-    public void UsageWeight_ExcludeInvasions_MatchesDormantLegacyFormula()
+    public void UsageWeight_HeldItemAloneCounts_TheFluteFix()
     {
-        // The I2 dormant surface historically dropped invasions; the flag must
-        // reproduce exactly items + npcs + bosses + buffs = 14 (no +7).
-        ModUsageEntry u = Usage(items: 3, npcs: 5, bosses: 2, buffs: 4, invasions: 7);
-        Assert.Equal(14L, ModMetrics.UsageWeight(u, includeInvasions: false));
+        // The Flute case: a weapon wielded but never crafted. ItemsCreated is 0,
+        // but the item is held — the old creation-weighted formula read 0 (the bug);
+        // the active-use weight reads the held ticks.
+        ModUsageEntry flute = Usage(items: 0, heldTicks: 36000);
+        Assert.Equal(36000L, ModMetrics.UsageWeight(flute));
+        Assert.True(ModMetrics.UsageWeight(flute) > 0, "a held-but-not-crafted item must register as used");
     }
 
     [Fact]
-    public void UsageWeight_IgnoresNonEngagementCounters()
+    public void UsageWeight_IgnoresCreationAndEncounterCounters()
     {
-        // NpcsKilled, TicksInOwnedBiomes, AccessoryEquippedTicks are NOT part of
-        // the weight (they are separate axes); only the five engagement counts are.
-        ModUsageEntry u = Usage(npcsKilled: 99, biomeTicks: 1234, accTicks: 5678);
+        // ItemsCreated / NpcsSpawned / BossesFought / BuffsApplied / Invasions are
+        // the *creation* axis (CreationWeight), never the use axis. None contribute.
+        ModUsageEntry u = Usage(items: 9, npcs: 9, bosses: 9, buffs: 9, invasions: 9, npcsKilled: 9);
         Assert.Equal(0L, ModMetrics.UsageWeight(u));
+    }
+
+    [Fact]
+    public void CreationWeight_SumsTheCreationEncounterAxis()
+    {
+        // items 3 + npcs 5 + bosses 2 + buffs 4 + invasions 7 = 21; held/worn ignored.
+        ModUsageEntry u = Usage(items: 3, npcs: 5, bosses: 2, buffs: 4, invasions: 7,
+            heldTicks: 999, accTicks: 999);
+        Assert.Equal(21L, ModMetrics.CreationWeight(u));
     }
 
     // ---- RosterSize -----------------------------------------------------

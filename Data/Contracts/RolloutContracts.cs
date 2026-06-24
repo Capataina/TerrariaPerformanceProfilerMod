@@ -55,7 +55,21 @@ public readonly struct ModRosterSnapshot
     public static readonly ModRosterSnapshot Empty = new(false, Array.Empty<ModRosterEntry>());
 }
 
-/// <summary>Per-mod session usage counters from F2 PerModUsageAggregator.</summary>
+/// <summary>
+/// Per-mod session usage counters from F2 PerModUsageAggregator.
+///
+/// <para>
+/// Two distinct axes live here, deliberately not conflated (Wave 4 of the
+/// insights rework): the <b>creation / encounter</b> counts (ItemsCreated,
+/// NpcsSpawned, NpcsKilled, BossesFought, BuffsApplied, InvasionsFought) record
+/// what was made or met this session, while the <b>active-use tick</b> counts
+/// (ItemsHeldTicks, AccessoryEquippedTicks, ArmorEquippedTicks, TicksInOwnedBiomes)
+/// record what was actually wielded, worn, or stood in. The usage weight
+/// (<see cref="PerformanceProfiler.Insights.Shared.ModMetrics.UsageWeight"/>) reads
+/// the active-use axis only — a weapon held but not crafted now counts, which the
+/// old creation-only proxy missed (the Flute-reads-zero bug).
+/// </para>
+/// </summary>
 public readonly record struct ModUsageEntry(
     int ModId,
     long ItemsCreated,
@@ -65,7 +79,9 @@ public readonly record struct ModUsageEntry(
     long BuffsApplied,
     long TicksInOwnedBiomes,
     long InvasionsFought,
-    long AccessoryEquippedTicks);
+    long AccessoryEquippedTicks,
+    long ItemsHeldTicks,
+    long ArmorEquippedTicks);
 
 public readonly struct ModUsageSnapshot
 {
