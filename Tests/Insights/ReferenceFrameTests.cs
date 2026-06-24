@@ -120,6 +120,27 @@ public sealed class ReferenceFrameTests
     }
 
     [Fact]
+    public void ContextBaseline_AttributesSpikesToActiveContexts()
+    {
+        var cb = new ContextBaseline(modCount: 1);
+        long boss = ContextBaseline.MakeBucket(ContextBaselineDimBoss, 1);
+        var inCtx = new List<long> { boss };
+        var noCtx = new List<long>();
+        var cost = new double[] { 1d };
+
+        // 30 ticks with a boss (3 spikes occur during them), 70 without (1 spike).
+        for (int i = 0; i < 30; i++) cb.Observe(inCtx, cost);
+        cb.ObserveSpikes(3, inCtx);
+        for (int i = 0; i < 70; i++) cb.Observe(noCtx, cost);
+        cb.ObserveSpikes(1, noCtx); // attributed to nothing tracked
+
+        Assert.Equal(100, cb.TotalSamples);
+        Assert.Equal(30, cb.BucketSampleCount(boss));   // dwell
+        Assert.Equal(4, cb.TotalSpikes);
+        Assert.Equal(3, cb.BucketSpikeCount(boss));     // 3 of 4 spikes in 30% of the time
+    }
+
+    [Fact]
     public void ContextBaseline_EvictsLeastSampledOverCap()
     {
         var cb = new ContextBaseline(modCount: 1);

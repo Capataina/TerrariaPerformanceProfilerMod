@@ -20,27 +20,9 @@ namespace PerformanceProfiler.Insights.Detectors;
 // its Evaluate body, no engine refactor. See plan §4 for the full design
 // of each pattern.
 
-/// <summary>
-/// CONTEXT_CORRELATED_SPIKE — within K ticks of a context transition the
-/// per-mod ms rises sharply against a rolling baseline. Gated on the Events
-/// tab's transition stream (sibling plan <c>events-tab-plan.md</c>); the
-/// detector is wired in so the catalog is complete and the JSONL exporter
-/// can declare the gate honestly.
-/// </summary>
-public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
-{
-    public PatternKey Pattern => PatternKey.ContextCorrelatedSpike;
-    public Audience DefaultAudience => Audience.Both;
-    public bool IsGated => true;
-    public string? GatedOn => "events-tab";
-
-    public bool IsAvailable(MetricCollector collector) => false;
-
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
-    {
-        // TODO: requires Events tab GameContext + transition stream. See plan §4.1 and §11 step 8.
-    }
-}
+// CONTEXT_CORRELATED_SPIKE moved to its own file
+// (Detectors/ContextCorrelatedSpikeDetector.cs) when it was un-gated in Wave 5
+// against the per-context spike counts the ContextBaseline accumulates.
 
 // CONTEXT_CONDITIONAL_COST moved to its own file
 // (Detectors/ContextConditionalCostDetector.cs) when it was un-gated in Wave 3

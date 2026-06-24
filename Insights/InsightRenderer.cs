@@ -78,6 +78,7 @@ public static class InsightRenderer
             PatternKey.SegmentTopMod => RenderSegmentTopMod(rec, density),
             PatternKey.SegmentDeathCorrelation => RenderSegmentDeathCorrelation(rec, density),
             PatternKey.ContextConditionalCost => RenderContextConditionalCost(rec, density),
+            PatternKey.ContextCorrelatedSpike => RenderContextCorrelatedSpike(rec, density),
             PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
             PatternKey.CostConcentration => RenderCostConcentration(rec, density),
             PatternKey.FrameJitter => RenderFrameJitter(rec, density),
@@ -269,6 +270,22 @@ public static class InsightRenderer
         if (density == Density.Short)
             return $"your frame times swing ±{cv} around {median} ms — frequent small hitches.";
         return $"your median frame is {median} ms but the typical swing is ±{spread} ms ({cv} of the median) — a stutter pattern (many small hitches) rather than a steady-but-slow frame.";
+    }
+
+    private static string RenderContextCorrelatedSpike(Insight rec, Density density)
+    {
+        string ctx = ContextLabel(rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string lift = Multiple(rec.Magnitude.RatioOrDelta);
+        int spikes = rec.Magnitude.Count;
+
+        if (density == Density.Short)
+            return $"spikes hit {lift} more often while {ctx} than its share of playtime.";
+        if (density == Density.Medium)
+            return $"{spikes} of your {rec.Evidence.BaselineN} spikes landed while {ctx} — {lift} the rate its share of playtime predicts. {BaselineClause(rec.Evidence.Baseline)}.";
+        return $"[CONTEXT_CORRELATED_SPIKE]\n" +
+               $"  Context: {ctx}\n" +
+               $"  Spikes in context: {spikes} of {rec.Evidence.BaselineN} total ({lift} the dwell-predicted rate).\n" +
+               $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
     private static string RenderHeapLeak(Insight rec, Density density)

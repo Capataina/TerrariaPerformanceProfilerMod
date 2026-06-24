@@ -79,6 +79,7 @@ public sealed class InsightsEngine
     private TemporalBaseline? _temporalBaseline;
     private readonly List<long> _activeBuckets = new List<long>(8);
     private double[] _perModScratch = Array.Empty<double>();
+    private int _lastSpikeCount;
     private static readonly HeapDriver _heapDriver = new HeapDriver();
     private static readonly EntityCountDriver _entityDriver = new EntityCountDriver();
 
@@ -104,8 +105,9 @@ public sealed class InsightsEngine
             new FreeRemovalCandidateDetector(),
             new PeakContributorToSpikeDetector(),
             new GcPauseCulpritDetector(),
-            // Un-gated in Wave 3 against the ContextBaseline reference frame.
+            // Un-gated against the ContextBaseline reference frame (Wave 3 + Wave 5).
             new ContextConditionalCostDetector(),
+            new ContextCorrelatedSpikeDetector(),
             // Wave 5 family detectors: D (headroom), E (structure), C (distribution),
             // B (behaviour over time, against the TemporalBaseline).
             new FrameHeadroomDetector(),
@@ -116,7 +118,6 @@ public sealed class InsightsEngine
             new NewContributorDetector(),
 
             // Gated detectors (data not yet exposed; emit nothing today).
-            new ContextCorrelatedSpikeDetector(),
             new HookFrequencyTailDetector(),
 
             // v0.5 interaction-tracking detectors. The first two query the
@@ -265,6 +266,13 @@ public sealed class InsightsEngine
         // The global per-mod distribution always updates; buckets update only when active.
         var perMod = new System.ArraySegment<double>(_perModScratch, 0, modCount);
         _contextBaseline.Observe(_activeBuckets, perMod);
+
+        // Attribute any spikes detected since the last pass to the active contexts, so
+        // ContextCorrelatedSpike can compare a context's spike share to its dwell share.
+        int spikeCount = collector.Spikes.Count;
+        int newSpikes = spikeCount - _lastSpikeCount;
+        if (newSpikes > 0) _contextBaseline.ObserveSpikes(newSpikes, _activeBuckets);
+        _lastSpikeCount = spikeCount;
 
         // Feed the Family-B early/late baseline with the same per-mod cost plus the
         // workload + heap driver dimensions, so the leak detector can control for

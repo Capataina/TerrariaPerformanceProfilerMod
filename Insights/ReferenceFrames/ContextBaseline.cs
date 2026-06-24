@@ -45,7 +45,10 @@ public sealed class ContextBaseline
     private readonly int _modCount;
     private readonly RunningStat[] _global;                       // [modId] session-wide
     private readonly Dictionary<long, RunningStat[]> _byBucket;   // bucketId -> [modId]
-    private readonly Dictionary<long, long> _bucketSamples;       // bucketId -> sample count
+    private readonly Dictionary<long, long> _bucketSamples;       // bucketId -> sample count (dwell)
+    private readonly Dictionary<long, long> _bucketSpikes;        // bucketId -> spikes seen while active
+    private long _totalSamples;
+    private long _totalSpikes;
     private int _evictions;
 
     public ContextBaseline(int modCount)
@@ -54,6 +57,38 @@ public sealed class ContextBaseline
         _global = new RunningStat[_modCount];
         _byBucket = new Dictionary<long, RunningStat[]>(MaxBuckets);
         _bucketSamples = new Dictionary<long, long>(MaxBuckets);
+        _bucketSpikes = new Dictionary<long, long>(MaxBuckets);
+    }
+
+    /// <summary>Total 1 Hz samples folded in — the denominator for a context's dwell fraction.</summary>
+    public long TotalSamples => _totalSamples;
+
+    /// <summary>Total spikes attributed across all contexts.</summary>
+    public long TotalSpikes => _totalSpikes;
+
+    /// <summary>1 Hz samples while a context was active (its dwell), 0 if untracked.</summary>
+    public long BucketSampleCount(long bucket) => _bucketSamples.TryGetValue(bucket, out long c) ? c : 0L;
+
+    /// <summary>Spikes attributed to a context, 0 if untracked.</summary>
+    public long BucketSpikeCount(long bucket) => _bucketSpikes.TryGetValue(bucket, out long c) ? c : 0L;
+
+    /// <summary>
+    /// Attributes <paramref name="newSpikes"/> spikes (detected since the last pass) to
+    /// every currently-active context. An approximation: a spike is credited to the
+    /// context live at the 1 Hz pass that first sees it, which is exact unless the
+    /// context changed within that ~1 s window. Lets the ContextCorrelatedSpike
+    /// detector compare a context's spike share against its dwell share.
+    /// </summary>
+    public void ObserveSpikes(long newSpikes, IReadOnlyList<long> activeBuckets)
+    {
+        if (newSpikes <= 0) return;
+        _totalSpikes += newSpikes;
+        for (int i = 0; i < activeBuckets.Count; i++)
+        {
+            long b = activeBuckets[i];
+            if (!_byBucket.ContainsKey(b)) continue; // only attribute to tracked (admitted) contexts
+            _bucketSpikes[b] = (_bucketSpikes.TryGetValue(b, out long c) ? c : 0L) + newSpikes;
+        }
     }
 
     public int ModCount => _modCount;
@@ -88,6 +123,7 @@ public sealed class ContextBaseline
     public void Observe(IReadOnlyList<long> activeBuckets, IReadOnlyList<double> perModCost)
     {
         int n = _modCount < perModCost.Count ? _modCount : perModCost.Count;
+        _totalSamples++;
         for (int m = 0; m < n; m++) _global[m].Add(perModCost[m]);
 
         for (int i = 0; i < activeBuckets.Count; i++)
@@ -185,6 +221,7 @@ public sealed class ContextBaseline
         if (!found) return;
         _byBucket.Remove(victim);
         _bucketSamples.Remove(victim);
+        _bucketSpikes.Remove(victim);
         _evictions++;
     }
 }
