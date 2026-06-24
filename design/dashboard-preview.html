@@ -552,8 +552,10 @@ html, body {
 
 /* ===== Stacked-area stream ======================================== */
 .chart-stream { display: block; width: 100%; height: 100%; }
-.chart-stream .st-band { stroke: none; }
-.chart-stream .st-band:hover { filter: brightness(1.12); }
+/* Lower band opacity reads as a soft, layered gradient (modern/sleek) rather
+   than hard saturated blocks; the perf-ramp hue still encodes impact. */
+.chart-stream .st-band { stroke: none; fill-opacity: 0.68; }
+.chart-stream .st-band:hover { fill-opacity: 0.92; }
 /* The total envelope + its sample markers (drawn over the stack). */
 .chart-stream .st-line { fill: none; stroke: var(--perf-3); stroke-width: 1.3; opacity: 0.8; }
 .chart-stream .st-dot { fill: var(--bg-deep); stroke: var(--perf-3); stroke-width: 1.3; }
@@ -1032,12 +1034,19 @@ html, body {
      no rainbow gradient sits behind the text any more. */
   color: oklch(0.985 0 0);
   text-shadow: 0 1px 2px oklch(0.16 0 0 / 0.95), 0 0 2px oklch(0.16 0 0 / 0.9);
-  padding: 0 2px;
-  background: linear-gradient(oklch(0.16 0 0 / 0.55), oklch(0.16 0 0 / 0));
-  border-radius: 2px 2px 0 0;
+  padding: 0 3px;
+  /* A FLAT readable scrim (was a fade-to-transparent that left the lower glyphs
+     unprotected over a bright fill / the per-mod waterfall), and z-index above
+     the waterfall so the rainbow split bar is never painted over the text. A
+     label over data always gets a guaranteed-contrast backing, never a scrim the
+     data bleeds through. */
+  background: oklch(0.16 0 0 / 0.66);
+  border-radius: 0 0 3px 0;
+  z-index: 2;
 }
 .tl-segment .tl-waterfall {
   position: absolute; left: 0; right: 0; bottom: 0;
+  z-index: 1;
 }
 .tl-segment .tl-waterfall .split-bar {
   border-radius: 0;
@@ -1244,7 +1253,11 @@ html, body {
   gap: 0.8rem 0.9rem;
   align-items: start;
 }
-.cc-sections > .section-block { min-width: 0; overflow: hidden; }
+/* The grid gap owns the spacing here, so the shared vertical-flow rule
+   (.section-block + .section-block margin-top) must be cancelled: left on, it
+   pushes columns 2..n down by that margin and the column TOPS no longer align
+   (the recurring first-column-higher-than-the-rest bug). */
+.cc-sections > .section-block { min-width: 0; overflow: hidden; margin-top: 0; }
 .cc-sections .dtable thead th { position: static; }
 .cc-sections .section-h > span:first-child {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -3704,13 +3717,14 @@ function sampleModStream() {
   }
   if (activeTab === 'summary') renderModStream();
 }
-// Warm-coloured ramp across the stack by rank: the heaviest mod sits at the base
-// in deep warm red, lighter contributors stack up toward pale yellow — so the
-// gradient itself encodes magnitude rank, distinct from the per-mod categorical
-// hues used elsewhere (here the question is 'how big', not 'which mod').
+// Colour encodes performance impact via the perf ramp: the heaviest mod sits at
+// the base in hot red, lighter contributors stack up toward calm green — so a
+// band's colour AND its thickness both say 'how much frame cost'. The bands are
+// drawn at lower opacity (see .st-band) so the stack reads as a soft, layered
+// gradient rather than hard blocks.
 function streamRamp(i, n) {
-  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base) .. 1 = smallest (top)
-  return `oklch(${(0.55 + 0.34 * t).toFixed(3)} ${(0.15 - 0.07 * t).toFixed(3)} ${(25 + 60 * t).toFixed(0)})`;
+  const t = n > 1 ? i / (n - 1) : 0;            // 0 = biggest (base, hot) .. 1 = smallest (top, calm)
+  return `oklch(${(0.64 + 0.08 * t).toFixed(3)} ${(0.17 - 0.07 * t).toFixed(3)} ${(25 + 125 * t).toFixed(0)})`;
 }
 function renderModStream() {
   const root = document.getElementById('mod-stream');
@@ -5957,7 +5971,12 @@ function renderObservatoryList() {
   const cols = '2.2em minmax(0,1fr) 5em';
   setHTML(scroll, rowList(cards.map((c, i) => {
     const costFrac = c.cpuSharePct / maxCpu;
-    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${c.cpuSharePct.toFixed(1)}% cpu · ${c.usageSharePct.toFixed(1)}% usage`;
+    // cpuSharePct / usageSharePct are FRACTIONS (0..1, each sums to 1 across the
+    // roster), so they must be ×100 to read as percentages — without it a 92.9%
+    // share rendered as '0.9%' (100× too small), disagreeing with the scatter and
+    // the donut. (The sort/maxCpu uses above keep the raw fraction; only the
+    // display scales.)
+    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${(c.cpuSharePct * 100).toFixed(1)}% cpu · ${(c.usageSharePct * 100).toFixed(1)}% usage`;
     const bodyCell = `<div class='obs-body'>` +
       `<div class='nm'>${escapeHtml(c.modName)}</div>` +
       `<div class='obs-micro'>${micro}</div>` +
@@ -6030,10 +6049,10 @@ function renderObservatoryDetail() {
 
   // Headline stats as shared stat lines.
   const statsHtml =
-    statLine('cpu share', dash(card.cpuSharePct, v => v.toFixed(2) + '%')) +
+    statLine('cpu share', dash(card.cpuSharePct, v => (v * 100).toFixed(2) + '%')) +
     statLine('smoothed ms this tick', dash(card.smoothedMsThisTick, v => fmtMs(v) + ' ms')) +
     statLine('average ms', dash(card.averageMs, v => fmtMs(v) + ' ms')) +
-    statLine('usage share', dash(card.usageSharePct, v => v.toFixed(2) + '%'));
+    statLine('usage share', dash(card.usageSharePct, v => (v * 100).toFixed(2) + '%'));
 
   // Roster vs usage table — perf-vocabulary dtable.
   const rosterRows = [
@@ -6405,7 +6424,7 @@ function renderHookDistribution() {
       `<span class='nm'>${escapeHtml(m.name)}</span>`,
       cellBar(m.count / max, modColor(m.id)),
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
-      cellBar(m.ms / maxMs, 'var(--surface-2)'),
+      cellBar(m.ms / maxMs, modColor(m.id)),
       `<span style='text-align:right;color:var(--muted)'>${fmtMs(m.ms)} ms</span>`,
     ] : [
       `<span class='rk'>${i + 1}</span>`,
