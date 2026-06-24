@@ -94,44 +94,131 @@ public enum BaselineKind : byte
 }
 
 /// <summary>
-/// Identifies the subject of an insight. <see cref="ModId"/> is the offset
-/// into <c>HookInterceptor.ProfiledModNames</c>; <see cref="HookId"/> is
-/// the offset into <c>PerModAttribution.Hooks</c> (or -1 if the insight is
-/// mod-level). Context fields default to (-1, 0) when the insight is not
-/// context-scoped, which is the only shape currently emitted because the
-/// Events tab plan has not landed yet.
+/// What kind of thing an insight is about. Mod/Hook/Context are the per-entity
+/// subjects the original detectors emit; Session/Runtime/Machine are the
+/// process-level subjects Family B (restart, leak, warmup) needs — a heap leak
+/// is about the runtime, not a mod, and could not be expressed before. Stable
+/// numeric values — never reorder. Part of the dedup key, so a Session-subject
+/// and a Mod-subject with the same (now -1) ids never collide.
+/// </summary>
+public enum SubjectKind : byte
+{
+    Mod     = 0,
+    Hook    = 1,
+    Context = 2,
+    Session = 3,
+    Runtime = 4,
+    Machine = 5,
+}
+
+/// <summary>
+/// Identifies the subject of an insight. <see cref="ModId"/> is the offset into
+/// <c>HookInterceptor.ProfiledModNames</c>; <see cref="HookId"/> is the offset
+/// into <c>PerModAttribution.Hooks</c> (or -1 if mod-level); <see cref="ContextKey"/>
+/// / <see cref="ContextDim"/> identify a game context (a segment, a biome bit).
+/// <see cref="Kind"/> disambiguates which fields are meaningful and carries the
+/// process-level subjects that have no entity id at all.
 /// </summary>
 public readonly struct SubjectRef
 {
+    public readonly SubjectKind Kind;
     public readonly int ModId;
     public readonly int HookId;
     public readonly int ContextKey;
     public readonly byte ContextDim;
 
-    public SubjectRef(int modId, int hookId, int contextKey, byte contextDim)
+    public SubjectRef(SubjectKind kind, int modId, int hookId, int contextKey, byte contextDim)
     {
+        Kind = kind;
         ModId = modId;
         HookId = hookId;
         ContextKey = contextKey;
         ContextDim = contextDim;
     }
 
-    public static SubjectRef ForMod(int modId) => new SubjectRef(modId, -1, -1, 0);
-    public static SubjectRef ForHook(int modId, int hookId) => new SubjectRef(modId, hookId, -1, 0);
+    public static SubjectRef ForMod(int modId) => new SubjectRef(SubjectKind.Mod, modId, -1, -1, 0);
+    public static SubjectRef ForHook(int modId, int hookId) => new SubjectRef(SubjectKind.Hook, modId, hookId, -1, 0);
+    public static SubjectRef ForContext(int contextKey, byte contextDim) => new SubjectRef(SubjectKind.Context, -1, -1, contextKey, contextDim);
+    /// <summary>The whole play session (e.g. "this session ran 34% above your boss-fight baseline").</summary>
+    public static SubjectRef ForSession() => new SubjectRef(SubjectKind.Session, -1, -1, -1, 0);
+    /// <summary>The .NET runtime / process (heap, GC) — Family B leak/warmup.</summary>
+    public static SubjectRef ForRuntime() => new SubjectRef(SubjectKind.Runtime, -1, -1, -1, 0);
+    /// <summary>The machine / modlist fingerprint — cross-session durability subjects.</summary>
+    public static SubjectRef ForMachine() => new SubjectRef(SubjectKind.Machine, -1, -1, -1, 0);
 }
 
 /// <summary>
-/// The numeric heart of an insight: baseline value, observed value, the
-/// derived ratio or delta, and the sample count that produced them.
-/// AllocBytes is non-zero only for allocation-flavoured patterns.
+/// The numeric shape an insight's <see cref="Magnitude"/> carries. The five
+/// families need different numbers (a deviation, a rate, a scaling law, a
+/// headroom, a distribution), so the meaningful <see cref="Magnitude"/> fields
+/// are keyed off this tag rather than forcing every family into the
+/// baseline/observed/ratio mould. <see cref="Deviation"/> is the default and the
+/// only shape the pre-rework detectors emit, so an unset shape reads as a classic
+/// baseline-vs-observed record. Stable numeric values — never reorder.
+/// </summary>
+public enum MagnitudeShape : byte
+{
+    /// <summary>Family A: baseline vs observed, expressed in <see cref="Magnitude.RatioOrDelta"/>.</summary>
+    Deviation    = 0,
+    /// <summary>Share patterns: <see cref="Magnitude.RatioOrDelta"/> is a fraction in [0,1].</summary>
+    Share        = 1,
+    /// <summary>Family B: a change per unit time/work, carried in <see cref="Magnitude.Rate"/>.</summary>
+    Rate         = 2,
+    /// <summary>Family E: observed ≈ Slope·driver + Intercept up to <see cref="Magnitude.CliffAt"/>.</summary>
+    Scaling      = 3,
+    /// <summary>Family D: how much of a <see cref="Magnitude.Ceiling"/> is <see cref="Magnitude.Remaining"/>.</summary>
+    Headroom     = 4,
+    /// <summary>Family C: the percentile / modality / recovery shape of a distribution.</summary>
+    Distribution = 5,
+}
+
+/// <summary>
+/// The numeric heart of an insight. The Deviation block (baseline, observed,
+/// ratio-or-delta, bytes, count) is what every Family-A and share pattern uses
+/// and what the original detectors populate. The shape-specific blocks are
+/// populated only when <see cref="Shape"/> selects them, so a Temporal /
+/// Distribution / Headroom / Scaling insight carries its own number honestly
+/// instead of being squeezed into a ratio. Adding fields is cheap: an
+/// <c>Insight</c> is a class allocated off-thread at ≤1 Hz, never per tick.
 /// </summary>
 public struct Magnitude
 {
+    /// <summary>Which fields below are meaningful. Default <see cref="MagnitudeShape.Deviation"/>.</summary>
+    public MagnitudeShape Shape;
+
+    // ---- Deviation / Share (the original block) ----
     public double BaselineMs;
     public double ObservedMs;
     public double RatioOrDelta;
     public long   AllocBytes;
     public int    Count;
+
+    // ---- Rate (Family B: drift / leak / warmup) ----
+    /// <summary>Change per unit (e.g. heap MB per minute, ms per 1000 ticks).</summary>
+    public double Rate;
+
+    // ---- Scaling (Family E: cost ~ driver) ----
+    /// <summary>observed ≈ <see cref="Slope"/>·driver + <see cref="Intercept"/>.</summary>
+    public double Slope;
+    /// <summary>The fixed cost at driver = 0.</summary>
+    public double Intercept;
+    /// <summary>The driver value past which the linear fit breaks (a cliff); 0 if none observed.</summary>
+    public double CliffAt;
+
+    // ---- Headroom (Family D: relative to a ceiling) ----
+    /// <summary>The limit the signal is measured against (e.g. the 16.6 ms frame budget, a RAM ceiling).</summary>
+    public double Ceiling;
+    /// <summary>How much of <see cref="Ceiling"/> is still free.</summary>
+    public double Remaining;
+
+    // ---- Distribution (Family C: shape of the spread) ----
+    public double P50;
+    public double P90;
+    public double P99;
+    /// <summary>Number of modes (1 = unimodal, 2 = bimodal "stutter vs slowdown", …).</summary>
+    public int    Modality;
+    /// <summary>Median time to return to baseline after a disturbance, in ms.</summary>
+    public double RecoveryMs;
 }
 
 /// <summary>
@@ -159,7 +246,7 @@ public struct Evidence
 /// on the record to avoid re-formatting per draw; they are populated lazily
 /// and never serialised.
 /// </summary>
-public sealed class InsightRecord
+public sealed class Insight
 {
     public PatternKey Pattern;
     public SubjectRef Subject;

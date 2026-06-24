@@ -52,7 +52,7 @@ public sealed class AllocationBurstDetector : IInsightDetector
     /// </summary>
     private double[] _perModBytesScratch = System.Array.Empty<double>();
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         IReadOnlyList<double>? categoryBytes = collector.PerModCategoryAverageBytes;
         if (categoryBytes == null) return;
@@ -85,7 +85,7 @@ public sealed class AllocationBurstDetector : IInsightDetector
             double share = bytes / sessionTotal;
             if (share < ShareFloor) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Subject = SubjectRef.ForMod(modId),

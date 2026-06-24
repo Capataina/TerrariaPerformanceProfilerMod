@@ -52,7 +52,7 @@ internal sealed class InsightsTab : IOverlayTab
     private const int RefreshIntervalTicks = 60;
 
     private readonly InsightsEngine _engine = InsightsEngine.GetOrCreateShared();
-    private readonly List<InsightRecord> _ranked = new List<InsightRecord>(VisibleCards);
+    private readonly List<Insight> _ranked = new List<Insight>(VisibleCards);
     private readonly List<string> _rankedBodies = new List<string>(VisibleCards);
     private const int BodyTruncateMax = 96;
     private long _nowTick;
@@ -136,7 +136,7 @@ internal sealed class InsightsTab : IOverlayTab
         }
     }
 
-    private static void DrawInsightCard(SpriteBatch sb, Rectangle cardRect, InsightRecord rec, string body)
+    private static void DrawInsightCard(SpriteBatch sb, Rectangle cardRect, Insight rec, string body)
     {
         // Title strip: pattern name + right-side stat ("12 hits" confirmation count).
         string title = rec.Pattern.ToString();

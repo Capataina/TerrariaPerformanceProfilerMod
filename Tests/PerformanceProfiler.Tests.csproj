@@ -70,7 +70,7 @@
     <Compile Include="..\Profiling\Events\GameMode.cs" Link="Source\Events\GameMode.cs" />
     <Compile Include="..\Profiling\Events\BossSlotArray.cs" Link="Source\Events\BossSlotArray.cs" />
     <Compile Include="..\Profiling\Events\EventContext.cs" Link="Source\Events\EventContext.cs" />
-    <Compile Include="..\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
+    <Compile Include="..\Insights\Insight.cs" Link="Source\Insights\Insight.cs" />
     <Compile Include="..\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
     <!-- Wave 1 Shared primitives (pure math over the pure RolloutContracts

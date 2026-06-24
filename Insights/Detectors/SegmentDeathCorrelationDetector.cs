@@ -48,7 +48,7 @@ public sealed class SegmentDeathCorrelationDetector : IInsightDetector
         return sys?.SegmentStore != null;
     }
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
         SegmentStore? store = sys?.SegmentStore;
@@ -95,7 +95,7 @@ public sealed class SegmentDeathCorrelationDetector : IInsightDetector
         double delta = (deathAvg / cleanAvg) - 1d;
         if (delta < DeltaThreshold) return;
 
-        emit.Add(new InsightRecord
+        emit.Add(new Insight
         {
             Pattern = PatternKey.SegmentDeathCorrelation,
             Subject = SubjectRef.ForMod(-1),

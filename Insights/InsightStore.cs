@@ -16,13 +16,13 @@ using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.Insights;
 
 /// <summary>
-/// Live store of <see cref="InsightRecord"/>s: dedup on submit, TTL eviction
+/// Live store of <see cref="Insight"/>s: dedup on submit, TTL eviction
 /// to a history list, hysteresis-driven confidence promotion, ranking.
 ///
 /// <para>
 /// Detectors call <see cref="Submit"/> with a fresh record each pass. Records
 /// for the same <see cref="PatternKey"/> + <see cref="SubjectRef"/> collapse
-/// onto the existing entry: <see cref="InsightRecord.ConfirmationCount"/>
+/// onto the existing entry: <see cref="Insight.ConfirmationCount"/>
 /// increments, magnitude / evidence refresh, last-seen advances. Confidence
 /// is promoted Preliminary → Low → Medium → High as confirmations and the
 /// adjusted p-value clear stricter thresholds (see plan §6.4).
@@ -46,38 +46,29 @@ public sealed class InsightStore
     /// <summary>Ticks of silence after which a record drops from live to history (≈5 minutes at 60 Hz).</summary>
     public const long DefaultTtlTicks = 60L * 60L * 5L;
 
-    private readonly Dictionary<long, InsightRecord> _live = new Dictionary<long, InsightRecord>(32);
-    private readonly List<InsightRecord> _history = new List<InsightRecord>(64);
+    private readonly Dictionary<InsightKey, Insight> _live = new Dictionary<InsightKey, Insight>(32);
+    private readonly List<Insight> _history = new List<Insight>(64);
     private readonly long _ttlTicks;
 
     // Reusable scratch buffers for Top(). Allocated once; the previous
     // implementation allocated a fresh List + Dictionary per call which ran
     // ~60×/sec under the InsightsTab's per-frame refresh, ironically generating
-    // garbage in a profiler designed to measure it.
-    private readonly List<InsightRecord> _topAllScratch = new List<InsightRecord>(LiveCap);
+    // garbage in a profiler designed to measure it. Guarded by _topGate so two
+    // concurrent TopInto callers (an exporter on the HTTP thread + the eval
+    // thread) cannot corrupt them or read a torn comparison tick (gap G5).
+    private readonly List<Insight> _topAllScratch = new List<Insight>(LiveCap);
     private readonly Dictionary<PatternKey, int> _topPerPattern = new Dictionary<PatternKey, int>();
-    private readonly Comparison<InsightRecord> _topComparer;
-    private long _topComparerNowTick;
+    private readonly object _topGate = new object();
 
     public InsightStore() : this(DefaultTtlTicks) { }
 
     public InsightStore(long ttlTicks)
     {
         _ttlTicks = ttlTicks;
-        // Capture _topComparerNowTick by reference via the closure; only allocates
-        // the comparer once instead of per Top() call. _topComparerNowTick is
-        // refreshed in TopInto() before each Sort.
-        _topComparer = (a, b) =>
-        {
-            double sa = RankingScorer.Score(a, _topComparerNowTick, _ttlTicks);
-            double sb = RankingScorer.Score(b, _topComparerNowTick, _ttlTicks);
-            int cmp = sb.CompareTo(sa);
-            return cmp != 0 ? cmp : b.LastSeenTick.CompareTo(a.LastSeenTick);
-        };
     }
 
     /// <summary>Every record ever surfaced this session, including ones evicted from live.</summary>
-    public IReadOnlyList<InsightRecord> History => _history;
+    public IReadOnlyList<Insight> History => _history;
 
     /// <summary>Current live count after the last <see cref="Tick"/>.</summary>
     public int LiveCount => _live.Count;
@@ -88,10 +79,10 @@ public sealed class InsightStore
     /// place; otherwise a new entry is inserted, evicting the stalest live
     /// record if the cap is exceeded.
     /// </summary>
-    public void Submit(InsightRecord rec, long nowTick)
+    public void Submit(Insight rec, long nowTick)
     {
-        long key = StableKey(rec.Pattern, rec.Subject);
-        if (_live.TryGetValue(key, out InsightRecord? existing) && existing != null)
+        InsightKey key = StableKey(rec.Pattern, rec.Subject);
+        if (_live.TryGetValue(key, out Insight? existing) && existing != null)
         {
             existing.Magnitude = rec.Magnitude;
             existing.Evidence = rec.Evidence;
@@ -124,21 +115,21 @@ public sealed class InsightStore
     public void Tick(long nowTick)
     {
         if (_live.Count == 0) return;
-        List<long>? toRemove = null;
-        foreach (KeyValuePair<long, InsightRecord> kv in _live)
+        List<InsightKey>? toRemove = null;
+        foreach (KeyValuePair<InsightKey, Insight> kv in _live)
         {
             if (nowTick - kv.Value.LastSeenTick > _ttlTicks)
             {
-                toRemove ??= new List<long>(4);
+                toRemove ??= new List<InsightKey>(4);
                 toRemove.Add(kv.Key);
             }
         }
         if (toRemove == null) return;
-        foreach (long k in toRemove) _live.Remove(k);
+        foreach (InsightKey k in toRemove) _live.Remove(k);
     }
 
     /// <summary>The full live set, unranked. Order is insertion order.</summary>
-    public IEnumerable<InsightRecord> AllLive() => _live.Values;
+    public IEnumerable<Insight> AllLive() => _live.Values;
 
     /// <summary>
     /// Writes up to <paramref name="n"/> ranked records into <paramref name="destination"/>,
@@ -148,29 +139,42 @@ public sealed class InsightStore
     /// to whatever growth that List needs to fit the result.
     ///
     /// <para>
-    /// Reuses scratch buffers and a captured comparer so steady-state operation
-    /// (the InsightsTab refresh path) is allocation-free past the initial warmup.
+    /// Reuses scratch buffers so steady-state operation is allocation-free past
+    /// the comparer closure. The whole body runs under <c>_topGate</c>: the
+    /// comparison tick is a Sort-local captured into the comparer (not a shared
+    /// field), and the scratch buffers cannot be touched by a second concurrent
+    /// caller — closing gap G5 (the prior shared <c>_topComparerNowTick</c> raced
+    /// an exporter on the HTTP thread against the eval thread).
     /// </para>
     /// </summary>
-    public void TopInto(List<InsightRecord> destination, int n, long nowTick)
+    public void TopInto(List<Insight> destination, int n, long nowTick)
     {
         destination.Clear();
-        if (_live.Count == 0) return;
-
-        _topAllScratch.Clear();
-        foreach (InsightRecord r in _live.Values) _topAllScratch.Add(r);
-
-        _topComparerNowTick = nowTick;
-        _topAllScratch.Sort(_topComparer);
-
-        _topPerPattern.Clear();
-        for (int i = 0; i < _topAllScratch.Count && destination.Count < n; i++)
+        lock (_topGate)
         {
-            InsightRecord rec = _topAllScratch[i];
-            _topPerPattern.TryGetValue(rec.Pattern, out int seen);
-            if (seen >= PerPatternCap) continue;
-            _topPerPattern[rec.Pattern] = seen + 1;
-            destination.Add(rec);
+            if (_live.Count == 0) return;
+
+            _topAllScratch.Clear();
+            foreach (Insight r in _live.Values) _topAllScratch.Add(r);
+
+            long ttl = _ttlTicks;
+            _topAllScratch.Sort((a, b) =>
+            {
+                double sa = RankingScorer.Score(a, nowTick, ttl);
+                double sb = RankingScorer.Score(b, nowTick, ttl);
+                int cmp = sb.CompareTo(sa);
+                return cmp != 0 ? cmp : b.LastSeenTick.CompareTo(a.LastSeenTick);
+            });
+
+            _topPerPattern.Clear();
+            for (int i = 0; i < _topAllScratch.Count && destination.Count < n; i++)
+            {
+                Insight rec = _topAllScratch[i];
+                _topPerPattern.TryGetValue(rec.Pattern, out int seen);
+                if (seen >= PerPatternCap) continue;
+                _topPerPattern[rec.Pattern] = seen + 1;
+                destination.Add(rec);
+            }
         }
     }
 
@@ -179,19 +183,19 @@ public sealed class InsightStore
     /// <see cref="TopInto"/> from the hot path; this exists for tests and
     /// exporters that don't run per-frame.
     /// </summary>
-    public IReadOnlyList<InsightRecord> Top(int n, long nowTick)
+    public IReadOnlyList<Insight> Top(int n, long nowTick)
     {
-        if (_live.Count == 0) return Array.Empty<InsightRecord>();
-        List<InsightRecord> result = new List<InsightRecord>(n);
+        if (_live.Count == 0) return Array.Empty<Insight>();
+        List<Insight> result = new List<Insight>(n);
         TopInto(result, n, nowTick);
         return result;
     }
 
     private void EvictStalest(long nowTick)
     {
-        long stalestKey = 0;
+        InsightKey stalestKey = default;
         long stalestTick = long.MaxValue;
-        foreach (KeyValuePair<long, InsightRecord> kv in _live)
+        foreach (KeyValuePair<InsightKey, Insight> kv in _live)
         {
             if (kv.Value.LastSeenTick < stalestTick)
             {
@@ -202,17 +206,19 @@ public sealed class InsightStore
         _live.Remove(stalestKey);
     }
 
-    private static long StableKey(PatternKey pattern, SubjectRef subject)
-    {
-        // Pack (pattern:8, contextDim:8, modId:16, hookId:16, contextKey:16) into a 64-bit key.
-        // Modest collision risk if a single mod has > 65k hooks; not happening.
-        long k = (long)pattern;
-        k = (k << 8) | subject.ContextDim;
-        k = (k << 16) | (uint)(subject.ModId & 0xFFFF);
-        k = (k << 16) | (uint)(subject.HookId & 0xFFFF);
-        k = (k << 16) | (uint)(subject.ContextKey & 0xFFFF);
-        return k;
-    }
+    /// <summary>
+    /// Identity of a live record for dedup: same (pattern, subject) collapses onto
+    /// one entry. A full-width value-equality key — the prior version packed the
+    /// ids into a 64-bit long with 16 bits each for modId/hookId/contextKey, which
+    /// collided once a single mod exceeded 65k hooks (gap G6). The record struct
+    /// carries each id at full int width and folds in <see cref="SubjectKind"/>,
+    /// so a Session subject and a mod subject with the same (-1) ids never alias.
+    /// </summary>
+    private readonly record struct InsightKey(
+        PatternKey Pattern, SubjectKind Kind, int ModId, int HookId, int ContextKey, byte ContextDim);
+
+    private static InsightKey StableKey(PatternKey pattern, SubjectRef subject) =>
+        new InsightKey(pattern, subject.Kind, subject.ModId, subject.HookId, subject.ContextKey, subject.ContextDim);
 
     /// <summary>
     /// Maps (confirmationCount, pAdjusted) onto the four confidence buckets.

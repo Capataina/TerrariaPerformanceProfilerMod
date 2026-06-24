@@ -25,7 +25,7 @@ public class InsightStoreTests
             store.Submit(MakeUntestedRecord(), nowTick: 1000 + i);
         }
 
-        InsightRecord live = AssertSingleLive(store);
+        Insight live = AssertSingleLive(store);
         Assert.Equal(10, live.ConfirmationCount);
         Assert.True(live.Confidence <= Confidence.Low,
             $"Untested record should not promote past Low, got {live.Confidence}");
@@ -41,7 +41,7 @@ public class InsightStoreTests
             store.Submit(MakeTestedRecord(), nowTick: 2000 + i);
         }
 
-        InsightRecord live = AssertSingleLive(store);
+        Insight live = AssertSingleLive(store);
         Assert.Equal(4, live.ConfirmationCount);
         // 4 confirmations + pAdjusted <= 0.05 → High.
         Assert.Equal(Confidence.High, live.Confidence);
@@ -58,14 +58,53 @@ public class InsightStoreTests
         Assert.Equal(1, store.LiveCount);
     }
 
-    private static InsightRecord AssertSingleLive(InsightStore store)
+    [Fact]
+    public void Submit_DistinguishesSubjectsBySubjectKind()
+    {
+        // G6: a Mod subject and a Session subject share every id (all -1) and
+        // differ only in Kind. The prior packed-long key dropped Kind and would
+        // have collapsed these onto one entry; the full-width InsightKey keeps
+        // them distinct.
+        InsightStore store = new InsightStore();
+        store.Submit(new Insight
+        {
+            Pattern = PatternKey.SustainedCostShift,
+            Subject = SubjectRef.ForMod(-1),
+            Evidence = new Evidence { PValueAdjusted = 1d },
+        }, nowTick: 10);
+        store.Submit(new Insight
+        {
+            Pattern = PatternKey.SustainedCostShift,
+            Subject = SubjectRef.ForSession(),
+            Evidence = new Evidence { PValueAdjusted = 1d },
+        }, nowTick: 11);
+
+        Assert.Equal(2, store.LiveCount);
+    }
+
+    [Fact]
+    public void SubjectRef_Factories_SetTheRightKind()
+    {
+        Assert.Equal(SubjectKind.Mod, SubjectRef.ForMod(3).Kind);
+        Assert.Equal(SubjectKind.Hook, SubjectRef.ForHook(3, 1).Kind);
+        Assert.Equal(SubjectKind.Context, SubjectRef.ForContext(7, 2).Kind);
+        Assert.Equal(SubjectKind.Session, SubjectRef.ForSession().Kind);
+        Assert.Equal(SubjectKind.Runtime, SubjectRef.ForRuntime().Kind);
+        Assert.Equal(SubjectKind.Machine, SubjectRef.ForMachine().Kind);
+    }
+
+    [Fact]
+    public void Magnitude_DefaultShapeIsDeviation()
+        => Assert.Equal(MagnitudeShape.Deviation, new Magnitude().Shape);
+
+    private static Insight AssertSingleLive(InsightStore store)
     {
         Assert.Equal(1, store.LiveCount);
-        foreach (InsightRecord r in store.AllLive()) return r;
+        foreach (Insight r in store.AllLive()) return r;
         throw new System.InvalidOperationException("unreachable");
     }
 
-    private static InsightRecord MakeUntestedRecord() => new InsightRecord
+    private static Insight MakeUntestedRecord() => new Insight
     {
         Pattern = PatternKey.FreeRemovalCandidate,
         Subject = SubjectRef.ForMod(0),
@@ -75,7 +114,7 @@ public class InsightStoreTests
         Scope = EvidenceScope.NeedsPersistence,
     };
 
-    private static InsightRecord MakeTestedRecord() => new InsightRecord
+    private static Insight MakeTestedRecord() => new Insight
     {
         Pattern = PatternKey.HotHookDominance,
         Subject = SubjectRef.ForHook(0, 0),

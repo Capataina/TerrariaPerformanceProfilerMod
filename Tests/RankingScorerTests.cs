@@ -21,8 +21,8 @@ public class RankingScorerTests
     [Fact]
     public void SharePattern_FractionalShare_RanksAboveSmallerShare()
     {
-        InsightRecord big = ShareRecord(PatternKey.HotHookDominance, ratioOrDelta: 0.90);
-        InsightRecord small = ShareRecord(PatternKey.HotHookDominance, ratioOrDelta: 0.40);
+        Insight big = ShareRecord(PatternKey.HotHookDominance, ratioOrDelta: 0.90);
+        Insight small = ShareRecord(PatternKey.HotHookDominance, ratioOrDelta: 0.40);
 
         double scoreBig = RankingScorer.Score(big, nowTick: 100, ttlTicks: TtlTicks);
         double scoreSmall = RankingScorer.Score(small, nowTick: 100, ttlTicks: TtlTicks);
@@ -34,8 +34,8 @@ public class RankingScorerTests
     [Fact]
     public void RatioPattern_TenXRatio_ScoresHigherThanTwoXRatio()
     {
-        InsightRecord ten = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 10.0);
-        InsightRecord two = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 2.0);
+        Insight ten = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 10.0);
+        Insight two = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 2.0);
 
         double scoreTen = RankingScorer.Score(ten, nowTick: 100, ttlTicks: TtlTicks);
         double scoreTwo = RankingScorer.Score(two, nowTick: 100, ttlTicks: TtlTicks);
@@ -49,12 +49,12 @@ public class RankingScorerTests
     {
         // The ratio curve clamps anything <= 1 to 0; a sub-baseline measurement
         // is not a positive signal.
-        InsightRecord weak = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 0.5);
+        Insight weak = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 0.5);
 
         // Only the magnitude component should be zeroed; the others (confidence,
         // recency, actionability, novelty, audience) still contribute. So we
         // bound by comparing against the same record at exactly 1.0×.
-        InsightRecord baseline = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 1.0);
+        Insight baseline = RatioRecord(PatternKey.SustainedCostShift, ratioOrDelta: 1.0);
 
         double scoreWeak = RankingScorer.Score(weak, nowTick: 100, ttlTicks: TtlTicks);
         double scoreBaseline = RankingScorer.Score(baseline, nowTick: 100, ttlTicks: TtlTicks);
@@ -62,7 +62,7 @@ public class RankingScorerTests
         Assert.Equal(scoreWeak, scoreBaseline);
     }
 
-    private static InsightRecord ShareRecord(PatternKey pattern, double ratioOrDelta) => new InsightRecord
+    private static Insight ShareRecord(PatternKey pattern, double ratioOrDelta) => new Insight
     {
         Pattern = pattern,
         Subject = SubjectRef.ForMod(0),
@@ -74,6 +74,6 @@ public class RankingScorerTests
         ConfirmationCount = 1,
     };
 
-    private static InsightRecord RatioRecord(PatternKey pattern, double ratioOrDelta) =>
+    private static Insight RatioRecord(PatternKey pattern, double ratioOrDelta) =>
         ShareRecord(pattern, ratioOrDelta);
 }

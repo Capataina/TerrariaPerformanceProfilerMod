@@ -36,7 +36,7 @@ public sealed class LoadoutCorrelatedCostDetector : IInsightDetector
     public bool IsGated => false;
     public string? GatedOn => null;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         var db = PerformanceProfiler.Database;
         var system = Terraria.ModLoader.ModContent.GetInstance<ProfilerSystem>();
@@ -92,7 +92,7 @@ public sealed class LoadoutCorrelatedCostDetector : IInsightDetector
         double overBaseline = afterMean / baseline;
         if (ratio < 1.5d || overBaseline < 2d) return;
 
-        emit.Add(new InsightRecord
+        emit.Add(new Insight
         {
             Pattern = Pattern,
             Audience = DefaultAudience,
@@ -148,7 +148,7 @@ public sealed class EventConditionalCostDetector : IInsightDetector
     public bool IsGated => false;
     public string? GatedOn => null;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         var db = PerformanceProfiler.Database;
         var system = Terraria.ModLoader.ModContent.GetInstance<ProfilerSystem>();
@@ -205,7 +205,7 @@ public sealed class EventConditionalCostDetector : IInsightDetector
             double overBaseline = inWindowMean / baseline;
             if (overBaseline < 3d) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Audience = DefaultAudience,
@@ -265,7 +265,7 @@ public sealed class LoadoutCombinationCostDetector : IInsightDetector
     public bool IsGated => true;
     public string? GatedOn => "cross-session-loadout-aggregation";
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // Within a single session it's rare to have enough distinct
         // loadout fingerprints to triangulate a synergy claim. Wired

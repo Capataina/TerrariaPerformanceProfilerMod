@@ -43,7 +43,7 @@ public sealed class HotHookDominanceDetector : IInsightDetector
     public bool IsAvailable(MetricCollector collector) =>
         collector.History.Count > 0 && PerModAttribution.Hooks.Count > 0;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         IReadOnlyList<double> hookMs = collector.PerHookAverageMs;
         IReadOnlyList<double> categoryMs = collector.PerModCategoryAverageMs;
@@ -75,7 +75,7 @@ public sealed class HotHookDominanceDetector : IInsightDetector
             double share = topHookMs / modTotal;
             if (share < ShareFloor) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Subject = SubjectRef.ForHook(modId, topHookId),

@@ -17,7 +17,7 @@ namespace PerformanceProfiler.Insights;
 /// <summary>
 /// One detector class per insight pattern. Detectors are stateless functions
 /// over the collector's exposed views: pull whichever accessor the pattern
-/// reads, emit zero or more <see cref="InsightRecord"/>s into the
+/// reads, emit zero or more <see cref="Insight"/>s into the
 /// <paramref name="emit"/> list, return. The host (<see cref="InsightsEngine"/>)
 /// owns the BH-FDR pass and the store submission; detectors never touch the
 /// store directly.
@@ -70,5 +70,5 @@ public interface IInsightDetector
     /// the records themselves; detectors that need scratch storage own a
     /// reusable buffer as an instance field.
     /// </summary>
-    void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit);
+    void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit);
 }

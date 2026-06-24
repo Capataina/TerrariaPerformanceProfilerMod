@@ -20,9 +20,9 @@ namespace PerformanceProfiler.Insights.Publish;
 public readonly struct InsightsSnapshot
 {
     public readonly bool WorldLoaded;
-    public readonly IEnumerable<InsightRecord>? Live;
+    public readonly IEnumerable<Insight>? Live;
 
-    public InsightsSnapshot(bool worldLoaded, IEnumerable<InsightRecord>? live)
+    public InsightsSnapshot(bool worldLoaded, IEnumerable<Insight>? live)
     {
         WorldLoaded = worldLoaded;
         Live = live;

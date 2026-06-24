@@ -46,7 +46,7 @@ public sealed class CrossCuttingSignalStat : IDataStat<CrossCuttingSnapshot>
         // Group records by PatternKey; within each group, count Appearances per ModId.
         // Outer dict: PatternKey -> (modId -> appearances).
         var byPattern = new Dictionary<PatternKey, Dictionary<int, int>>();
-        foreach (InsightRecord rec in engine.Store.AllLive())
+        foreach (Insight rec in engine.Store.AllLive())
         {
             int modId = rec.Subject.ModId;
             if (modId < 0) continue;

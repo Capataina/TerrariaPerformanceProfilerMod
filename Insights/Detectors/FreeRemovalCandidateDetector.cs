@@ -26,7 +26,7 @@ namespace PerformanceProfiler.Insights.Detectors;
 /// detector currently emits zero records — it's registered solely so the
 /// roster + gate visibility is honest in the overlay's gated-pattern label.
 /// The <see cref="Evaluate"/> implementation stays in place against the day
-/// the gate clears, and the resulting record's <see cref="InsightRecord.Scope"/>
+/// the gate clears, and the resulting record's <see cref="Insight.Scope"/>
 /// is already set to <see cref="EvidenceScope.NeedsPersistence"/>.
 /// </para>
 ///
@@ -69,7 +69,7 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => collector.History.Count > 0;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         if (sessionLengthTicks < MinSessionTicks) return;
 
@@ -95,7 +95,7 @@ public sealed class FreeRemovalCandidateDetector : IInsightDetector
             }
             if (modTotal > epsilonMsPerTick) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Subject = SubjectRef.ForMod(modId),

@@ -65,7 +65,7 @@ public sealed class InsightsEngine
 
     private readonly List<IInsightDetector> _detectors;
     private readonly InsightStore _store;
-    private readonly List<InsightRecord> _scratch = new List<InsightRecord>(16);
+    private readonly List<Insight> _scratch = new List<Insight>(16);
 
     // Gated-pattern map is computed once at construction (detector roster is
     // static). The previous shape rebuilt it per call from inside Draw, which

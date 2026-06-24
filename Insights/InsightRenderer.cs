@@ -1,6 +1,6 @@
 // SLOT FILLING ONLY -- DO NOT INTRODUCE LLM.
 // Every rendered insight is a deterministic interpolation of fields on the
-// InsightRecord. Free-form string composition is forbidden by plan §8 and
+// Insight. Free-form string composition is forbidden by plan §8 and
 // by Invariant 3 (the honesty contract). Banned vocabulary: "caused by",
 // "must remove", "core mod", "removable", "bad mod". See plan §8.3.
 
@@ -29,7 +29,7 @@ namespace PerformanceProfiler.Insights;
 public enum Density : byte { Short = 0, Medium = 1, Long = 2 }
 
 /// <summary>
-/// Renders an <see cref="InsightRecord"/> into a string. Templates are
+/// Renders an <see cref="Insight"/> into a string. Templates are
 /// hardcoded here (no external file, no DSL parser) so the banned-vocab
 /// rule is enforced at the call site by inspection rather than a regex.
 ///
@@ -50,7 +50,7 @@ public static class InsightRenderer
     /// rebuilding if the cache slot is empty (e.g. after rank-driven
     /// invalidation). Never allocates per-frame for the same record.
     /// </summary>
-    public static string Render(InsightRecord rec, Audience audience, Density density)
+    public static string Render(Insight rec, Audience audience, Density density)
     {
         if (audience == Audience.Player && density == Density.Short && rec.CachedShortPlayer != null)
             return rec.CachedShortPlayer;
@@ -66,7 +66,7 @@ public static class InsightRenderer
         return s;
     }
 
-    private static string Build(InsightRecord rec, Audience audience, Density density)
+    private static string Build(Insight rec, Audience audience, Density density)
     {
         return rec.Pattern switch
         {
@@ -81,7 +81,7 @@ public static class InsightRenderer
         };
     }
 
-    private static string RenderSegmentOutlier(InsightRecord rec, Density density)
+    private static string RenderSegmentOutlier(Insight rec, Density density)
     {
         string segName = SegmentNameTable.For(
             (SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
@@ -101,7 +101,7 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
-    private static string RenderSegmentTopMod(InsightRecord rec, Density density)
+    private static string RenderSegmentTopMod(Insight rec, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
         string segName = SegmentNameTable.For(
@@ -120,7 +120,7 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
-    private static string RenderSegmentDeathCorrelation(InsightRecord rec, Density density)
+    private static string RenderSegmentDeathCorrelation(Insight rec, Density density)
     {
         string deathMs = Ms(rec.Magnitude.ObservedMs);
         string cleanMs = Ms(rec.Magnitude.BaselineMs);
@@ -141,7 +141,7 @@ public static class InsightRenderer
 
     // ---- Per-pattern templates -----------------------------------------------
 
-    private static string RenderHotHook(InsightRecord rec, Audience audience, Density density)
+    private static string RenderHotHook(Insight rec, Audience audience, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
         string hook = HookName(rec.Subject.HookId);
@@ -160,7 +160,7 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
-    private static string RenderAllocBurst(InsightRecord rec, Audience audience, Density density)
+    private static string RenderAllocBurst(Insight rec, Audience audience, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
         string share = Pct(rec.Magnitude.RatioOrDelta);
@@ -177,7 +177,7 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
-    private static string RenderFreeRemoval(InsightRecord rec, Audience audience, Density density)
+    private static string RenderFreeRemoval(Insight rec, Audience audience, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
         string cost = Ms(rec.Magnitude.ObservedMs);
@@ -188,7 +188,7 @@ public static class InsightRenderer
                $"Engagement signal (items used, NPCs killed, biome touched) is not yet measured by the profiler, so this is a one-sided observation: cost is low, engagement is unknown.";
     }
 
-    private static string RenderPeakContributor(InsightRecord rec, Audience audience, Density density)
+    private static string RenderPeakContributor(Insight rec, Audience audience, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
         string share = Pct(rec.Magnitude.RatioOrDelta);
@@ -205,7 +205,7 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
-    private static string RenderUnsupported(InsightRecord rec) =>
+    private static string RenderUnsupported(Insight rec) =>
         $"[{rec.Pattern}] no template registered (gated detector should not emit records).";
 
     // ---- Slot helpers --------------------------------------------------------

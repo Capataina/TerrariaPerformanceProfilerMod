@@ -43,7 +43,7 @@ public sealed class PeakContributorToSpikeDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => collector.Spikes.Count > 0;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         IReadOnlyList<SpikeWindow> spikes = collector.Spikes;
         int catCount = PerModAttribution.CategoryCount;
@@ -77,7 +77,7 @@ public sealed class PeakContributorToSpikeDetector : IInsightDetector
             double share = bestMs / totalMs;
             if (share < ShareFloor) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Subject = SubjectRef.ForMod(bestMod),

@@ -40,7 +40,7 @@ public static class RankingScorer
     /// <paramref name="nowTick"/>. Higher wins. The <paramref name="ttlTicks"/>
     /// argument is the store's TTL window, used by the recency component.
     /// </summary>
-    public static double Score(InsightRecord rec, long nowTick, long ttlTicks)
+    public static double Score(Insight rec, long nowTick, long ttlTicks)
     {
         double mag = NormaliseMagnitude(rec);
         double conf = ConfidenceWeight(rec.Confidence);
@@ -74,7 +74,7 @@ public static class RankingScorer
     /// erasing the strongest live signal the in-scope detectors produce.
     /// </para>
     /// </summary>
-    private static double NormaliseMagnitude(InsightRecord rec)
+    private static double NormaliseMagnitude(Insight rec)
     {
         double v = rec.Magnitude.RatioOrDelta;
         return IsSharePattern(rec.Pattern)

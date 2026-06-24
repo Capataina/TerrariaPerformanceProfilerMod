@@ -74,7 +74,7 @@ public sealed class GcPauseCulpritDetector : IInsightDetector
     /// </summary>
     private double[] _modBytesScratch = System.Array.Empty<double>();
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         if (!collector.TracksAllocations) return;
         IReadOnlyList<StallEvent> stalls = collector.Stalls;
@@ -131,7 +131,7 @@ public sealed class GcPauseCulpritDetector : IInsightDetector
             double share = topBytes / totalBytes;
             if (share < MinShareToFlag) continue;
 
-            emit.Add(new InsightRecord
+            emit.Add(new Insight
             {
                 Pattern = Pattern,
                 Subject = SubjectRef.ForMod(topMod),

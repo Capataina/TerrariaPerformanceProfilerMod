@@ -46,7 +46,7 @@ public sealed class SegmentTopModDetector : IInsightDetector
         return sys?.SegmentStore != null;
     }
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
         SegmentStore? store = sys?.SegmentStore;
@@ -100,10 +100,12 @@ public sealed class SegmentTopModDetector : IInsightDetector
             if (share < Threshold) continue;
 
             Segment first = segs[0];
-            var rec = new InsightRecord
+            var rec = new Insight
             {
                 Pattern = PatternKey.SegmentTopMod,
-                Subject = new SubjectRef(modId: bestMod, hookId: -1, contextKey: first.Key, contextDim: (byte)first.Family),
+                // A mod-in-context subject: the top mod (bestMod) within this
+                // segment class. Kind=Context so the dedup key is per-(segment,mod).
+                Subject = new SubjectRef(SubjectKind.Context, bestMod, -1, first.Key, (byte)first.Family),
                 Magnitude = new Magnitude
                 {
                     RatioOrDelta = share,

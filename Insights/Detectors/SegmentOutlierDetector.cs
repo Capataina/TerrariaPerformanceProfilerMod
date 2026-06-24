@@ -48,7 +48,7 @@ public sealed class SegmentOutlierDetector : IInsightDetector
         return sys?.SegmentStore != null;
     }
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         ProfilerSystem? sys = ModContent.GetInstance<ProfilerSystem>();
         SegmentStore? store = sys?.SegmentStore;
@@ -80,10 +80,10 @@ public sealed class SegmentOutlierDetector : IInsightDetector
             double ratio = avg / lifetimeAvg;
             if (ratio < OutlierMultiplier) continue;
 
-            var rec = new InsightRecord
+            var rec = new Insight
             {
                 Pattern = PatternKey.SegmentOutlier,
-                Subject = new SubjectRef(modId: -1, hookId: -1, contextKey: seg.Key, contextDim: (byte)seg.Family),
+                Subject = SubjectRef.ForContext(seg.Key, (byte)seg.Family),
                 Magnitude = new Magnitude
                 {
                     BaselineMs = lifetimeAvg,

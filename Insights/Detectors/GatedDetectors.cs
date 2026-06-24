@@ -36,7 +36,7 @@ public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => false;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // TODO: requires Events tab GameContext + transition stream. See plan §4.1 and §11 step 8.
     }
@@ -55,7 +55,7 @@ public sealed class ContextConditionalCostDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => false;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // TODO: requires Events tab BucketStats. See plan §4.2.
     }
@@ -75,7 +75,7 @@ public sealed class SustainedCostShiftDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => false;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // TODO: requires per-tick per-mod ms history (LiteDB). See plan §4.6.
     }
@@ -95,7 +95,7 @@ public sealed class NewContributorDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => false;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // TODO: requires session-half slicing of per-mod ms history. See plan §4.7.
     }
@@ -120,7 +120,7 @@ public sealed class HookFrequencyTailDetector : IInsightDetector
 
     public bool IsAvailable(MetricCollector collector) => false;
 
-    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<InsightRecord> emit)
+    public void Evaluate(MetricCollector collector, long nowTick, long sessionLengthTicks, List<Insight> emit)
     {
         // TODO: requires per-hook call counts + per-call ms distribution. See plan §4.10.
     }
