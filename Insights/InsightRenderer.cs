@@ -77,6 +77,9 @@ public static class InsightRenderer
             PatternKey.SegmentOutlier => RenderSegmentOutlier(rec, density),
             PatternKey.SegmentTopMod => RenderSegmentTopMod(rec, density),
             PatternKey.SegmentDeathCorrelation => RenderSegmentDeathCorrelation(rec, density),
+            PatternKey.ContextConditionalCost => RenderContextConditionalCost(rec, density),
+            PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
+            PatternKey.CostConcentration => RenderCostConcentration(rec, density),
             _ => RenderUnsupported(rec),
         };
     }
@@ -205,8 +208,72 @@ public static class InsightRenderer
                $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
     }
 
+    private static string RenderContextConditionalCost(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        string ctx = ContextLabel(rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string ratio = Multiple(rec.Magnitude.RatioOrDelta);
+        string obs = Ms(rec.Magnitude.ObservedMs);
+        string baseMs = Ms(rec.Magnitude.BaselineMs);
+
+        if (density == Density.Short)
+            return $"{mod} runs {ratio} its usual cost while {ctx}.";
+        if (density == Density.Medium)
+            return $"{mod} costs {obs} ms/t while {ctx} vs {baseMs} ms/t otherwise — a {ratio} difference across {rec.Evidence.SampleN} in-context samples. {BaselineClause(rec.Evidence.Baseline)}.";
+        return $"[CONTEXT_CONDITIONAL_COST] {mod} (modId={rec.Subject.ModId})\n" +
+               $"  Context: {ctx}\n" +
+               $"  In-context avg ms/t: {obs} (n={rec.Evidence.SampleN})\n" +
+               $"  Out-of-context avg ms/t: {baseMs} (n={rec.Evidence.BaselineN})\n" +
+               $"  Effect size (Cohen's d): {rec.Evidence.EffectSize.ToString("F2", Invariant)}; p(adj)={rec.Evidence.PValueAdjusted.ToString("G3", Invariant)}.\n" +
+               $"  Confidence: {rec.Confidence}. {BaselineClause(rec.Evidence.Baseline)}.";
+    }
+
+    private static string RenderFrameHeadroom(Insight rec, Density density)
+    {
+        double remaining = rec.Magnitude.Remaining;
+        string ceiling = Ms(rec.Magnitude.Ceiling);
+        string median = Ms(rec.Magnitude.ObservedMs);
+        bool over = remaining < 0d;
+        string mag = Ms(over ? -remaining : remaining);
+
+        if (density == Density.Short)
+            return over
+                ? $"your median frame is {mag} ms over the 60 fps budget."
+                : $"you sustain 60 fps with {mag} ms of frame budget free.";
+        return over
+            ? $"your median frame is {median} ms against the {ceiling} ms 60 fps budget — {mag} ms over. Frames are exceeding the budget on a typical tick."
+            : $"your median frame is {median} ms against the {ceiling} ms 60 fps budget — {mag} ms of headroom remains on a typical tick.";
+    }
+
+    private static string RenderCostConcentration(Insight rec, Density density)
+    {
+        int count = rec.Magnitude.Count;
+        int totalMods = rec.Evidence.SampleN;
+        string share = Pct(rec.Magnitude.RatioOrDelta);
+
+        if (density == Density.Short)
+            return $"{count} of {totalMods} mods account for {share} of measured mod cost.";
+        return $"{count} of {totalMods} cost-contributing mods carry {share} of the measured per-mod cost this session; the rest is spread across the remaining {totalMods - count}.";
+    }
+
     private static string RenderUnsupported(Insight rec) =>
         $"[{rec.Pattern}] no template registered (gated detector should not emit records).";
+
+    /// <summary>Descriptive label for a context bucket (matches the engine's Dim* ids).</summary>
+    private static string ContextLabel(byte dim, int key) => dim switch
+    {
+        1 => "in hardmode",
+        2 => "a boss is alive",
+        3 => "a vanilla invasion is active",
+        4 => "inside a subworld",
+        _ => "a game context is active",
+    };
+
+    /// <summary>Formats a ratio as a multiple ("1.8×"); below 1 keeps two places.</summary>
+    private static string Multiple(double ratio) =>
+        ratio >= 10d
+            ? ratio.ToString("F0", Invariant) + "×"
+            : ratio.ToString("F1", Invariant) + "×";
 
     // ---- Slot helpers --------------------------------------------------------
 

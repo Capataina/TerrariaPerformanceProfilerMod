@@ -91,6 +91,10 @@ public static class RankingScorer
         // GcPauseCulprit's RatioOrDelta is the share of allocations the top
         // contributor held in the K=60 ticks before a GC stall fired.
         PatternKey.GcPauseCulprit         => true,
+        // Wave 5: CostConcentration's RatioOrDelta is the lever's share of cost;
+        // FrameHeadroom stores the fraction of the 60 fps budget used (both [0,1]).
+        PatternKey.CostConcentration      => true,
+        PatternKey.FrameHeadroom          => true,
         _                                 => false,
     };
 

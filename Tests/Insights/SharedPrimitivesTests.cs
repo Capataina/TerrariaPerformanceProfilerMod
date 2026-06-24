@@ -117,6 +117,24 @@ public sealed class SharedPrimitivesTests
         Assert.Equal(new[] { 9, 5, 4 }, list);
     }
 
+    [Theory]
+    // Two of {50,30,10,5,5}=100 reach 70% (50+30=80 >= 70).
+    [InlineData(new double[] { 50, 30, 10, 5, 5 }, 0.70, 2)]
+    // The single 90 already covers 70% of 100.
+    [InlineData(new double[] { 90, 4, 3, 2, 1 }, 0.70, 1)]
+    // Perfectly even: need 4 of 5 (each 20%) to clear 70%.
+    [InlineData(new double[] { 20, 20, 20, 20, 20 }, 0.70, 4)]
+    public void ParetoCount_FindsTheLeverSet(double[] sortedDesc, double fraction, int expected)
+    {
+        double total = 0;
+        foreach (double v in sortedDesc) total += v;
+        Assert.Equal(expected, Shares.ParetoCount(sortedDesc, total, fraction));
+    }
+
+    [Fact]
+    public void ParetoCount_ZeroTotal_IsZero()
+        => Assert.Equal(0, Shares.ParetoCount(new double[] { 0, 0 }, 0d, 0.7));
+
     // ---- ModNames -------------------------------------------------------
 
     [Fact]

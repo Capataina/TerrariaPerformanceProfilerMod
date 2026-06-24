@@ -56,4 +56,24 @@ public static class Shares
         list.Sort(comparison);
         Truncate(list, n);
     }
+
+    /// <summary>
+    /// How many of the largest contributors are needed to reach
+    /// <paramref name="fraction"/> of <paramref name="total"/>, given
+    /// <paramref name="sortedDesc"/> already in descending order — the Pareto /
+    /// concentration count behind "N mods are X% of cost". Returns 0 when the
+    /// total is non-positive, and the full length if the fraction is never reached.
+    /// </summary>
+    public static int ParetoCount(IReadOnlyList<double> sortedDesc, double total, double fraction)
+    {
+        if (total <= 0d) return 0;
+        double target = total * fraction;
+        double acc = 0d;
+        for (int i = 0; i < sortedDesc.Count; i++)
+        {
+            acc += sortedDesc[i];
+            if (acc >= target) return i + 1;
+        }
+        return sortedDesc.Count;
+    }
 }

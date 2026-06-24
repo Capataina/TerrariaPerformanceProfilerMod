@@ -38,6 +38,10 @@ public enum PatternKey : byte
     SegmentOutlier         = 14,
     SegmentTopMod          = 15,
     SegmentDeathCorrelation = 16,
+    // Wave 5 family detectors: D (headroom relative to a ceiling) and
+    // E (structure across signals).
+    FrameHeadroom          = 17,
+    CostConcentration      = 18,
 }
 
 /// <summary>
