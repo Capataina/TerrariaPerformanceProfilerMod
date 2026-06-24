@@ -27,6 +27,11 @@ internal static partial class DashboardAssets
   grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
   gap: 0.75rem;
   grid-auto-flow: dense;
+  /* Hug content: panels size to what they hold instead of stretching to match
+     their tallest grid neighbour (which left install-footprint with a long empty
+     tail under its few rows). The dense flow packs the shorter panels up. This is
+     the systemic dead-space fix — no per-panel height tuning. */
+  align-items: start;
 }
 @media (max-width: 900px) { .self-layout { grid-template-columns: 1fr; } }
 .self-hero { grid-column: 1 / -1; }
