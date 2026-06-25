@@ -113,6 +113,9 @@
     <Compile Include="..\Persistence\*.cs" Link="Source\Persistence\%(Filename)%(Extension)" />
     <Compile Include="..\Persistence\Records\*.cs" Link="Source\Persistence\Records\%(Filename)%(Extension)" />
     <Compile Include="..\Persistence\Streams\*.cs" Link="Source\Streams\%(Filename)%(Extension)" />
+    <!-- Wave 1 cross-session rollup: the pure fold (RollupFold) + its DTO + the read
+         layer (HistoryStore) are runtime-free and unit-tested against synthetic rows. -->
+    <Compile Include="..\Persistence\History\*.cs" Link="Source\History\%(Filename)%(Extension)" />
     <!-- Files that reference Terraria types must be excluded from the
          test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
          imports legacy JSON via game-runtime calls, ProfilerCompactCommand

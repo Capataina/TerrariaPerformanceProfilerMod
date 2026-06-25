@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using LiteDB;
 using PerformanceProfiler.Persistence.Records;
+using PerformanceProfiler.Persistence.History;
 
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
@@ -70,6 +71,14 @@ public sealed class SessionRecorder
 
     /// <summary>Count of each StallCause seen in the live cluster. Resolves "dominant cause".</summary>
     private readonly Dictionary<string, int> _clusterCauseCounts = new Dictionary<string, int>();
+
+    /// <summary>Session-cumulative count of spike windows each ModId was a top contributor to;
+    /// folded into the cross-session rollup at session-end (DB rework wave 1).</summary>
+    private readonly Dictionary<int, int> _spikeContribByMod = new Dictionary<int, int>();
+
+    /// <summary>Session-cumulative count of stall clusters each ModId dominated; folded into
+    /// the cross-session rollup at session-end.</summary>
+    private readonly Dictionary<int, int> _stallDominanceByMod = new Dictionary<int, int>();
 
     /// <summary>Stall events with unix-ms gaps larger than this break the cluster (start a new one).</summary>
     private const long ClusterIdleMs = 2000;
@@ -306,7 +315,11 @@ public sealed class SessionRecorder
     /// and session-end op. The whole set is enqueued; the writer thread
     /// drains everything during <see cref="ProfilerDatabase.Dispose"/>.
     /// </summary>
-    public void End(MetricCollector collector, string endReason = "clean")
+    /// <param name="engagementByMod">Per-ModId weighted usage captured on the game thread
+    /// before this (background) call, since the live usage snapshot is reset at world
+    /// unload and would race this read. Null/short → the affected mods fold 0 engagement.</param>
+    public void End(MetricCollector collector, string endReason = "clean",
+                    IReadOnlyList<double>? engagementByMod = null)
     {
         // Flush any final spike/stall windows that arrived after the last OnTick.
         DrainSpikes(collector);
@@ -327,8 +340,63 @@ public sealed class SessionRecorder
         }
         _db.Writer.Enqueue(DbWriteOp.ArchiveAggregate(archive));
 
+        // Fold this session into the cross-session rollup (DB rework wave 1). One op
+        // carrying every present mod (idle ones included, flagged WasActive=false, so the
+        // "unused in last N" detector can see the gap); the writer thread reads each
+        // mod's rollup rows, folds, upserts.
+        SessionRollupInput rollup = BuildRollupInput(modAggs, engagementByMod);
+        if (rollup.Mods.Count > 0)
+        {
+            _db.Writer.Enqueue(DbWriteOp.RollupFold(rollup));
+        }
+
         long durationMs = (long)(DateTime.UtcNow - _startedUtc).TotalMilliseconds;
         _db.Writer.Enqueue(DbWriteOp.SessionEnd(_sessionId, endReason, durationMs, _ticksObserved));
+    }
+
+    /// <summary>
+    /// Assembles this session's contribution to the cross-session rollup from the
+    /// per-mod aggregates (cost + alloc), the spike/stall tallies accumulated during the
+    /// session, and the game-thread-captured engagement weights. Every mod present in the
+    /// modlist is included — idle mods carry WasActive=false so a run of inactivity is
+    /// recoverable from the ring.
+    /// </summary>
+    private SessionRollupInput BuildRollupInput(List<PerSessionModAggregate> modAggs,
+                                                IReadOnlyList<double>? engagementByMod)
+    {
+        string[] versions = HookInterceptor.ProfiledModVersions;
+        var input = new SessionRollupInput
+        {
+            SessionId = _sessionId,
+            WorldId = null, // populated when the playthrough-arc (per-world) work lands
+            Fingerprint = _modlistFingerprint,
+            EndedUtc = DateTime.UtcNow,
+            TicksObserved = _ticksObserved,
+        };
+
+        for (int i = 0; i < modAggs.Count; i++)
+        {
+            PerSessionModAggregate a = modAggs[i];
+            int modId = a.ModId;
+            double engagement = (engagementByMod != null && modId >= 0 && modId < engagementByMod.Count)
+                ? engagementByMod[modId] : 0d;
+            bool active = a.AvgMs > RollupFold.ActiveCostFloorMs || engagement > 0d;
+
+            input.Mods.Add(new ModSessionContribution
+            {
+                InternalName = a.ModInternalName,
+                DisplayName = a.ModInternalName,
+                Version = (modId >= 0 && modId < versions.Length) ? versions[modId] : string.Empty,
+                CostMs = a.AvgMs,
+                AllocBytes = a.AvgBytes,
+                EngagementScore = engagement,
+                SpikeContributions = _spikeContribByMod.TryGetValue(modId, out int sc) ? sc : 0,
+                StallContributions = _stallDominanceByMod.TryGetValue(modId, out int st) ? st : 0,
+                WasActive = active,
+            });
+        }
+
+        return input;
     }
 
     // ---- private accumulation paths --------------------------------------
@@ -355,6 +423,13 @@ public sealed class SessionRecorder
                 TopContributors = BuildSpikeTopContributors(w),
             };
             _db.Writer.Enqueue(DbWriteOp.Spike(row));
+
+            // Tally each contributing mod for the cross-session rollup fold (wave 1).
+            for (int tc = 0; tc < row.TopContributors.Count; tc++)
+            {
+                int cmid = row.TopContributors[tc].ModId;
+                if (cmid >= 0) _spikeContribByMod[cmid] = (_spikeContribByMod.TryGetValue(cmid, out int n) ? n : 0) + 1;
+            }
 
             // Inline narration to client.log for spikes that are at least
             // SpikeLogMultiplier × the captured baseline — what the player
@@ -495,6 +570,7 @@ public sealed class SessionRecorder
         string[] names = HookInterceptor.ProfiledModNames;
         _liveCluster.DominantContributorName =
             (domModId >= 0 && domModId < names.Length) ? names[domModId] : "(no attribution)";
+        if (domModId >= 0) _stallDominanceByMod[domModId] = (_stallDominanceByMod.TryGetValue(domModId, out int sd) ? sd : 0) + 1;
 
         _db.Writer.Enqueue(DbWriteOp.StallCluster(_liveCluster));
 

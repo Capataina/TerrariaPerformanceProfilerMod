@@ -16,6 +16,8 @@ using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Stats;
 using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
+using PerformanceProfiler.Data.Contracts;
+using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Profiling;
 
@@ -384,11 +386,34 @@ public sealed class ProfilerSystem : ModSystem
         }
         catch { capturedInsights = null; }
 
+        // Capture per-mod engagement weights on the game thread (wave 1). The live usage
+        // snapshot is cleared by OnWorldUnload's DataRegistry.ResetAll, which can race the
+        // background End below, so the rollup's engagement axis must be read here, indexed
+        // by ModId. Guarded — a failure just folds 0 engagement this session.
+        double[]? capturedEngagement = null;
+        try
+        {
+            ModUsageSnapshot usage = Data.DataRegistry.Shared
+                .Lookup<ModUsageSnapshot>(RolloutStreamNames.PerModUsage)?.CurrentSnapshot()
+                ?? ModUsageSnapshot.Empty;
+            if (usage.Entries.Count > 0)
+            {
+                int modCount = HookInterceptor.ProfiledModNames.Length;
+                capturedEngagement = new double[modCount];
+                for (int i = 0; i < usage.Entries.Count; i++)
+                {
+                    ModUsageEntry u = usage.Entries[i];
+                    if ((uint)u.ModId < (uint)modCount) capturedEngagement[u.ModId] = ModMetrics.UsageWeight(u);
+                }
+            }
+        }
+        catch { capturedEngagement = null; }
+
         _ = Task.Run(() =>
         {
             try
             {
-                capturedRecorder.End(capturedCollector, endReason: "clean");
+                capturedRecorder.End(capturedCollector, endReason: "clean", capturedEngagement);
                 capturedDb?.DrainAndTruncateJournalForSessionEnd();
                 if (capturedDb != null && capturedLogger != null)
                 {

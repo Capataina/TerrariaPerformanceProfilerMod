@@ -93,6 +93,13 @@ public sealed class ProfilerDatabase : IDisposable
     // migration — old DBs simply have none until a session writes one.
     public ILiteCollection<ContextBaselineRow>      ContextBaselines      => _db.GetCollection<ContextBaselineRow>("contextBaselines");
 
+    // The cross-session history rollup (DB rework wave 1). Two levels: one row per mod
+    // (global lifetime, keyed InternalName) and one per (mod, modlist). Both additive —
+    // LiteDB creates them on first fold; old DBs have none until the backfill or the
+    // first session-end fold writes one. Permanent + tiny, so retention never trims them.
+    public ILiteCollection<ModLifetimeRollupRow>    ModLifetimeRollups    => _db.GetCollection<ModLifetimeRollupRow>("modLifetimeRollups");
+    public ILiteCollection<ModModlistRollupRow>     ModModlistRollups     => _db.GetCollection<ModModlistRollupRow>("modModlistRollups");
+
     public ProfilerDatabase(string root, Action<string, Exception?>? log = null, string profilerVersion = "")
         : this(root, StreamRegistry.Default(), log, profilerVersion) { }
 

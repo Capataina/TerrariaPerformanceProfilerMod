@@ -44,6 +44,7 @@ public enum DbOpKind : byte
     LoadoutSnapshot,
     BuffEvent,
     Segment,
+    RollupFold,
 }
 
 /// <summary>
@@ -149,4 +150,7 @@ public readonly struct DbWriteOp
 
     public static DbWriteOp Segment(SegmentRow row)
         => new DbWriteOp(DbOpKind.Segment, row.SessionId, row);
+
+    public static DbWriteOp RollupFold(History.SessionRollupInput input)
+        => new DbWriteOp(DbOpKind.RollupFold, input.SessionId, input);
 }
