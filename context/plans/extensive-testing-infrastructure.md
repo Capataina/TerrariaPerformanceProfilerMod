@@ -14,13 +14,19 @@
 > surface (UI) and the agent surface (`client.log` + JSON-lines). Testing
 > infrastructure is how we *exercise* both surfaces off a real game where we can.
 >
-> Status: **PROPOSED — not started.** This is a directional strategy doc, kept
-> current as each axis advances. Some axes already have a foothold (see the
-> state column); the load-bearing new work is now the **agent-driven UI/UX audit
-> axis (L8)** — a self-driving screenshot-and-review loop — sitting on the
-> deterministic interaction/layout axis (L4).
+> Status: **PARTIALLY EXECUTED (2026-06-24).** The load-bearing axes are now BUILT
+> under `tools/testing/` (commit `fe2d57b` + the fix-wave follow-ups): **L4**
+> (deterministic Playwright layout/interaction invariants), **L6** (generative
+> fixtures from the discovered `/api` contract), and **L8** (the agent-driven UI/UX
+> audit — capture → fan-out review → synthesize → per-page dossiers under
+> `context/pages/`). The harness is self-describing (tabs/panes/endpoints discovered
+> from the DOM/JS), so it scales with the app. **L1** (xUnit pure-logic) predates
+> this plan. Canonical reality: `systems/dashboard-audit-harness.md` (L4/L6/L8) and
+> `systems/test-harness.md` (L1). **Still open:** L2 (hot-path overhead budget), L5
+> (visual regression — falls out of an L8 re-run diff), L7 (in-game runtime). This
+> doc is kept as the directional axis-map the remaining layers grow against.
 >
-> Date opened: 2026-06-23. Mod version at open: `0.18.1`.
+> Date opened: 2026-06-23. L4/L6/L8 executed: 2026-06-24. Mod version at open: `0.18.1`.
 > Expanded: 2026-06-24 (`0.19.0`) with the agent-driven UI/UX audit axis (L8), the
 > visual-quality bar the audit measures against, and the synthetic-data
 > completeness discipline that makes both honest.

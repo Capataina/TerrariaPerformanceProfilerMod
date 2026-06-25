@@ -27,9 +27,9 @@ Files (every line under `Profiling/Persistence/`):
 | Append-only redo log | `EventJournal.cs` |
 | Schema migrations | `Migrations.cs` |
 | Producer op shape | `DbWriteOp.cs` |
-| Stream contract + registry | `IPersistenceStream.cs`, `StreamRegistry.cs` |
-| Per-collection writer logic | `Streams/{Session,Spike,Stall,ContextTransition,TickAggregate,PerSessionAggregate,Modlist,Insight}Stream.cs` |
 | BSON document shapes | `Records/*.cs` (one file per collection) |
+
+The stream contract + registry and the per-collection writer logic moved out of `Profiling/Persistence/` into `Data/Streams/` in v0.11 (`Data/Streams/IPersistenceStream.cs`, `StreamRegistry.cs`, `SessionRecorder.cs`, `{Session,Spike,Stall,ContextTransition,TickAggregate,PerSessionAggregate,Modlist,Insight,PlayerDeath,WorldSnapshot,Interaction}Stream.cs`). This folder still owns the database, the writer thread, and the side-channel detectors that feed those streams; the streams themselves now live alongside the rest of the data pipeline (`systems/data-pipeline.md`).
 
 Owns:
 

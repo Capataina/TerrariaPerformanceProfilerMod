@@ -4,13 +4,13 @@
 
 ## Status model
 
-The mod is past its dashboard-first pivot (v0.9), its `Data/`-pipeline consolidation (v0.10–v0.11), and its v0.12 Timeline/Lag/Insights rework. Persistence is LiteDB-backed (the legacy JSON `SessionLogWriter` was deleted in v0.3). The status model is "what's live, what's gated, what's deferred":
+The mod is past its dashboard-first pivot (v0.9), its `Data/`-pipeline consolidation (v0.10–v0.11), its v0.12 Timeline/Lag/Insights rework, and the v0.13→v0.22 arc: the insights engine consolidated into a **top-level `Insights/` module** (5 families, reference frames + drivers + cross-session baselines), the dashboard rebuilt on a shadcn-neutral OKLCH **component library** with four new chart encodings and a sixth **Memory** tab, and an off-game **L4/L6/L8 testing harness** (`tools/testing/`). Persistence is LiteDB-backed (the legacy JSON `SessionLogWriter` was deleted in v0.3). The status model is "what's live, what's gated, what's deferred":
 
 | Status | Items |
 |--------|-------|
-| **Live** | Hook instrumentation (both backends, ILHook default), metric collection, spike + stall detection, allocation tracking, events-and-context + segment detection, the unified `Data/` pipeline (foundations F1/F2/F3 + 17 v0.12 tab streams), insights engine, LiteDB persistence (`SessionRecorder` + streams), the browser dashboard (loopback HTTP + 5-tab SPA), test harness |
-| **Gated** | Several insight detectors awaiting the per-tick context-transition stream (`ContextCorrelatedSpike`, `ContextConditionalCost`) and cross-session persistence (`SustainedCostShift`, `NewContributor`); see `systems/insights-engine.md` for the current gated roster |
-| **Deferred** | Player settings UI (sketched, `notes/future-settings-design.md`); post-session HTML report sibling (`notes/future-html-report.md`); cross-session lifetime aggregates; per-hook `CallCount`; multiplayer hook coverage (v2) |
+| **Live** | Hook instrumentation (both backends, ILHook default), metric collection, spike + stall detection, allocation tracking, events-and-context + segment detection, the unified `Data/` pipeline (foundations F1/F2/F3 + the v0.12 tab streams), the top-level `Insights/` engine (5 families, 13 live detectors, cross-session `contextBaselines`), LiteDB persistence (`SessionRecorder` + streams), the browser dashboard (loopback HTTP + **6-tab SPA**: Summary/Timeline/Lag/Insights/Self/Memory), the L1 xUnit test harness, the L4/L6/L8 dashboard audit harness |
+| **Gated** | Three insight detectors await their prerequisites: `FreeRemovalCandidate` (engagement-signal), `LoadoutCombinationCost` (cross-session loadout aggregation), `HookFrequencyTail` (per-hook call-time histograms — an unmeasured hot-path addition, blocked by Invariant 2). See `systems/insights-engine.md` for the current roster |
+| **Deferred** | The player-facing **insight feed** on the Insights tab (the engine ranks insights; the tab renders observatory + charts, not the feed yet — the named next item); player settings UI (`notes/future-settings-design.md`); post-session HTML report (`notes/future-html-report.md`); the per-insight LiteDB collection has a writer scaffold but no producer (the live feed is in-memory only); per-hook `CallCount`; multiplayer hook coverage (v2) |
 | **Archived** | The in-game overlay (`UI/`) — kept on disk for a Steam-Deck revival, not in the player path; see `systems/overlay.md` |
 
 ## Per-component integration

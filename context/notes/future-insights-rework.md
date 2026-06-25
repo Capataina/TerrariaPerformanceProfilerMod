@@ -1,9 +1,17 @@
-# Future: Insights rework — known correctness bugs
+# Insights rework — known correctness bugs (RESOLVED in the rework)
+
+> **Status: RESOLVED (v0.19.0, 2026-06-24).** Bug 1 below (the Flute "usage = content
+> created, not content used" root cause) was fixed in **Wave 4** of the insights
+> consolidation: the usage axis now reads active-use ticks (held / worn / in-biome) via
+> the new `ItemsHeldTicks` / `ArmorEquippedTicks` per-tick counters, not `OnCreated`
+> counts. See `notes/insights-rework-status.md` for the commit-by-commit receipt and
+> `systems/insights-engine.md` for the current implementation. This note is kept as the
+> why-record (the root-cause investigation the rework started from), not a live to-do.
 
 Captured 2026-06-23 from live in-game testing (v0.18.1). The Insights *rendering*
 was migrated onto the component library; the *data/attribution layer* behind it
-has correctness bugs that the rework should fix. Not fixed yet — recorded so the
-rework starts from the root cause, not a re-investigation.
+had correctness bugs that the rework fixed. Recorded so the rework started from the
+root cause, not a re-investigation.
 
 ## Bug 1 — "usage" measures content CREATED, not content USED (root cause)
 

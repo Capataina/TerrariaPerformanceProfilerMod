@@ -88,3 +88,27 @@ When a feature wave is built across parallel agents, every snapshot type and eve
 ## 20. Per-section partial-class asset bundles
 
 The dashboard's CSS, JS, and HTML are each split into per-section partial classes (`Css.Palette.cs`, `Js.Polling.cs`, `IndexHtml.Summary.cs`), each contributing one `private const string` fragment that `DashboardAssets.Css`/`Js` concatenates in a stable, order-sensitive sequence into a bundle cached once at type-init. `DashboardRouter` is likewise split into per-tab partials (`DashboardRouter.Lag.cs`, `.Insights.cs`). A new dashboard section adds a new partial and one line to the concatenation list; it never bloats a monolith. The concatenation order is load-bearing for CSS cascade and JS declaration order, so new fragments slot into the right position, not the end.
+
+## 21. The shared chart-component contract (`Js.Charts`)
+
+Every chart on the dashboard is a pure function `fn(o)` in `Js.Charts.cs` that takes an options object and returns an SVG/HTML string, built on a shared scale core (`niceScale`/`seriesPaths`) and geometry helpers (`_polar`/`_ring`/`_catmullSegs`). The vocabulary is `streamArea` (stacked smooth bands), `sankey` (left→right value-width ribbons), `waffle` (unit-square grid; returns cells, caller renders the key), `scatter` (x/y + optional bubble `r` + optional y=x `diag`), plus `lineChart`/`barChart`/`heatmapMatrix`/`gauge`/`donut`/`sparkline`. No pane hand-rolls SVG — the consistent idiom is that a datum carrying an `id` becomes a `data-mod` click target across `donut`/`scatter`/`legend`. A new chart is a new `fn(o)` in this module, never inline markup in a per-tab renderer.
+
+## 22. Monochrome chrome, colourful data (OKLCH tokens)
+
+The design language is shadcn-neutral over OKLCH: the chrome (surfaces, text, borders) is zero-chroma neutral grey plus one near-white accent (`--accent` == `--primary`), and the *only* colour on screen is the data-viz layer (`--perf-0..4` severity ramp, per-mod `MOD_COLORS`). Colour always *encodes* (a per-mod hue, a magnitude, a severity), never decorates. The rule, stated at `Css.Palette.cs`: "greying the chrome never greys the data." A decorative hue on a panel or a greyed data series is the failure this prevents.
+
+## 23. Insights are relative to a reference frame, never absolute (Welford-online)
+
+The insights engine's spine law (verbatim in `Insights/Contracts/IReferenceFrame.cs`): no insight is ever an absolute magnitude; every insight is the deviation of a signal from the comparable baseline for that signal, on this machine, expressed as an effect size. Baselines accumulate via Welford-online `RunningStat` (`Insights/Shared/Stats.cs`) — `Merge` (Chan's parallel) for cross-session fold, `Without` (reverse-merge) to recover an out-of-context complement; persistence round-trips the raw `(Count, Mean, M2)`. Multi-comparison detectors count `testsRun` in-loop and apply `pAdjusted = min(1, p·testsRun)` (Bonferroni) behind a candidate-gate (co-occurrence + Cohen's d ≥ 0.8). All detectors emit `Confidence.Preliminary`; the store's `PromoteConfidence` is the sole confidence authority. A detector that reports a raw absolute, or promotes on repetition rather than a p-value, breaks the honesty contract.
+
+## 24. The honesty contract is enforced at the render call site
+
+`Insights/InsightRenderer.cs` carries a hard header: slot-filling only, no LLM, with a banned vocabulary (`"caused by"`, `"must remove"`, `"core mod"`, `"removable"`, `"bad mod"`). Insight copy is assembled from templated slots, and the descriptive-never-prescriptive rule (Invariant 3) is enforced by inspection at this one call site rather than by a regex elsewhere. New rendered strings stay descriptive and declare their baseline; a verb of causation or a removal recommendation in a template is the failure this prevents.
+
+## 25. Interpretation publishes through the registry, like data
+
+The interpretation layer (`Insights/`) mirrors the data-pipeline discipline (§15) one level up: the I-series interpreted stats (`Insights/Publish/` — `ModObservatoryStat`, `DormantSurfaceStat`, `CrossCuttingSignalStat`, `EngagementCostScatterStat`, `ModInteractionAggregator`, `InsightsStat`) read foundation streams only via `DataRegistry.Shared.Lookup`, compute, and register back into the same registry under stable names with `Cadence = OnDemand`. So every consumer (dashboard router, persistence) reads interpretation the one way it reads data. An interpreted number derived inside a router instead of an `Insights/Publish` stat is the failure this prevents.
+
+## 26. The L4/L8 testing split + DOM-discovery genericisation
+
+The off-game dashboard audit harness (`tools/testing/`) splits by a hard rule: if a property can be a deterministic assertion it is **L4** (Playwright layout/interaction invariants), and if it needs a human-style eye it is **L8** (the agent-driven vision audit). Both are genericised — nothing hardcodes the dashboard's shape: tabs are discovered from `.tab[data-tab]`, panes from `.tab-pane[data-pane]`, panels from `.panel`, endpoints by regexing `/api/<name>` out of the extracted JS, poll fns from `window` keys matching `/^poll/`. A seventh tab is audited with zero harness change. The harness reuses `tools/preview/render.py`'s verbatim-string extractor so the tested dashboard is byte-identical to the preview — a second C#-string parser would be a second source of truth and the failure this avoids.

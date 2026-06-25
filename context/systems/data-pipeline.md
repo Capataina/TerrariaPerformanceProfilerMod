@@ -42,11 +42,13 @@ This subsystem owns the `Data/` tree: the registry (`DataRegistry`), the stream 
 
 **Insights streams** (5):
 
-- `Data/Stats/ModObservatoryStat.cs` — `"modObservatory"` (I1+I3+I4 per-mod cards composing roster + usage + cost + biome attendance + loadout influence).
-- `Data/Stats/DormantSurfaceStat.cs` — `"dormantSurface"` (I2 usage/roster ratios + dormant tier classification).
-- `Data/Stats/CrossCuttingSignalStat.cs` — `"crossCutting"` (I5 InsightRecord rollup grouped by pattern class).
-- `Data/Stats/EngagementCostScatterStat.cs` — `"engagementCost"` (I6 per-mod (usageShare, cpuShare, rosterSize) tuples).
-- `Data/Aggregators/ModInteractionAggregator.cs` — `"modInteraction"` (I7 pairwise Pearson correlation over F3 time series, cached 5s).
+- `Insights/Publish/ModObservatoryStat.cs` — `"modObservatory"` (I1+I3+I4 per-mod cards composing roster + usage + cost + biome attendance + loadout influence).
+- `Insights/Publish/DormantSurfaceStat.cs` — `"dormantSurface"` (I2 usage/roster ratios + dormant tier classification).
+- `Insights/Publish/CrossCuttingSignalStat.cs` — `"crossCutting"` (I5 InsightRecord rollup grouped by pattern class).
+- `Insights/Publish/EngagementCostScatterStat.cs` — `"engagementCost"` (I6 per-mod (usageShare, cpuShare, rosterSize) tuples).
+- `Insights/Publish/ModInteractionAggregator.cs` — `"modInteraction"` (I7 pairwise Pearson correlation over F3 time series, cached 5s).
+
+The interpreted I-series stats live in the top-level `Insights/` module (`Insights.Publish` namespace) rather than under `Data/`; they are still registered into `DataRegistry.Shared` like any other stream (`PerformanceProfiler.RegisterDataPipeline`). The insights engine itself (`Insights/InsightsEngine.cs` + `Insights/Detectors/`) is documented in `systems/insights-engine.md`.
 
 All 17 + foundations registered in `PerformanceProfiler.RegisterDataPipeline`. Honest limitations documented in each file's class doc-comment (e.g. lag clusters lack per-event EventContext yet; ModObservatory's biome attendance is per-mod aggregate not per-biome breakdown; etc.).
 
@@ -98,25 +100,16 @@ Data/
 │   ├── SelfHealthStat.cs           Process WorkingSet + per-hook overhead.
 │   ├── SpikesStat.cs               Latest spike windows.
 │   ├── StallsStat.cs               Latest stall events.
-│   ├── InsightsStat.cs             Live insights from InsightsEngine.
 │   ├── Baseline.cs                 Rolling baseline statistics.
 │   ├── ModImpactScorer.cs          Per-mod impact ranking model.
 │   └── HookCoverageView.cs         Backend-aware coverage projection.
 ├── Detectors/
 │   ├── SpikeDetector.cs            Frame-time spike threshold detector.
-│   ├── StallDetector.cs            Multi-tick stall + GC pause detector.
-│   └── Insights/
-│       ├── InsightsEngine.cs       Off-thread evaluation driver.
-│       ├── InsightStore.cs         Live + history records, confidence promotion.
-│       ├── InsightRecord.cs        Immutable record value type.
-│       ├── InsightRenderer.cs      Descriptive string templates.
-│       ├── RankingScorer.cs        Pattern-aware insight ranking.
-│       ├── IInsightDetector.cs     Detector contract.
-│       └── Detectors/              10 concrete detectors (HotHookDominance,
-│                                   AllocationBurst, FreeRemovalCandidate,
-│                                   PeakContributorToSpike, SegmentOutlier,
-│                                   SegmentTopMod, SegmentDeathCorrelation,
-│                                   GcPauseCulprit, etc.).
+│   └── StallDetector.cs            Multi-tick stall + GC pause detector.
+│                                   (The insights engine + its detectors no
+│                                    longer live here — they moved to the
+│                                    top-level Insights/ module. See
+│                                    systems/insights-engine.md.)
 └── Streams/
     ├── IPersistenceStream.cs       Contract: Apply(DbWriteOp), Reconstruct.
     ├── StreamRegistry.cs           Maps DbOpKind → IPersistenceStream.
@@ -144,7 +137,7 @@ Data/
 | Aggregator | Group / fold many ticks into structured bins | HeatmapAggregator |
 | Stat | Derive numbers from aggregator/collector state | KpiStat |
 | Detector | Run threshold logic + emit events (off-thread OK) | SpikeDetector (Profiling/) |
-| Stream | Persistence-facing writer | TickAggregateStream (Profiling/Persistence/Streams/) |
+| Stream | Persistence-facing writer | TickAggregateStream (Data/Streams/) |
 | Exporter | Output-facing reader (HTTP, future Mod.Call) | DashboardRouter |
 
 ## Key Interfaces / Data Flow

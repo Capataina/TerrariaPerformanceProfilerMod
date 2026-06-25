@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PerformanceProfiler · Architecture Explorer</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="topbar" id="topbar"></header>
+
+  <div class="workbench" id="workbench">
+    <aside class="left-rail">
+      <div class="lr-head"><span class="lr-title">Explorer</span><span class="lr-count" id="lrCount"></span></div>
+      <div class="lr-scroll" id="leftScroll"></div>
+    </aside>
+
+    <main class="center" style="position:relative">
+      <button class="rail-edge-toggle left" id="edgeLeft" title="toggle explorer">‹</button>
+      <div class="ws-tabs" id="wsTabs"></div>
+      <div class="ws-body" id="wsBody"></div>
+      <button class="rail-edge-toggle right" id="edgeRight" title="toggle context">›</button>
+    </main>
+
+    <aside class="right-rail">
+      <div class="rr-scroll" id="rrScroll"></div>
+    </aside>
+  </div>
+
+  <footer class="bottom" id="bottom"></footer>
+</div>
+
+<script src="data.js"></script>
+<script src="graph.js"></script>
+<script src="features.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

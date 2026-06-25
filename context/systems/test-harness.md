@@ -4,13 +4,15 @@
 
 ## Scope / Purpose
 
-A non-shipping xUnit test project that pins the pure-logic surfaces the audit rounds identified as load-bearing: insights ranking and confidence promotion, ring-buffer wrap-around, the baseline service, stall detection / classification, the time helper, the object pools, the `BoolIndex` helper, and the LiteDB persistence round-trip + benchmark. It does **not** exercise any code that touches tModLoader, the game runtime, or any IL emission — those are tested manually via the in-game build cycle.
+A non-shipping xUnit test project that pins the pure-logic surfaces the audit rounds and the insights rework identified as load-bearing: insights ranking and confidence promotion, the `Insights/Shared` primitives (mod metrics, shares, names), the reference-frame substrate (stats, per-context baselines, temporal early/late baselines, the cross-session LiteDB round-trip), ring-buffer wrap-around, the baseline service, stall detection / classification, the time helper, the object pools, the `BoolIndex` helper, and the LiteDB persistence round-trip + benchmark. It does **not** exercise any code that touches tModLoader, the game runtime, or any IL emission — those are tested manually via the in-game build cycle.
+
+It is the **L1 axis** of the layered testing strategy in `context/plans/extensive-testing-infrastructure.md`; the dashboard-driving L4/L6/L8 axis lives in `systems/dashboard-audit-harness.md`.
 
 The discipline is "every pure-logic regression that would break behaviour silently gets a test before the production code is allowed to change shape."
 
 ## Boundaries / Ownership
 
-Files: `Tests/PerformanceProfiler.Tests.csproj` plus the fixtures `Tests/BaselineTests.cs`, `Tests/BoolIndexTests.cs`, `Tests/InsightStoreTests.cs`, `Tests/PoolsTests.cs`, `Tests/RankingScorerTests.cs`, `Tests/RingBufferTests.cs`, `Tests/StallClassifierTests.cs`, `Tests/StallDetectorTests.cs`, `Tests/TimeTests.cs`, `Tests/Persistence/PersistenceBenchmarkTests.cs`, `Tests/Persistence/PersistenceRoundTripTests.cs`.
+Files: `Tests/PerformanceProfiler.Tests.csproj`; the support files `Tests/_TestNamespaceStubs.cs` (xUnit serial-execution config + empty namespace stubs) and `Tests/HookInstallRetentionDiagnostics.cs` (a pure System/xUnit diagnostic, no mod deps); and the fixtures `Tests/BaselineTests.cs`, `Tests/BoolIndexTests.cs`, `Tests/InsightStoreTests.cs`, `Tests/PoolsTests.cs`, `Tests/RankingScorerTests.cs`, `Tests/RingBufferTests.cs`, `Tests/StallClassifierTests.cs`, `Tests/StallDetectorTests.cs`, `Tests/TimeTests.cs`, `Tests/Insights/CrossSessionStoreTests.cs`, `Tests/Insights/ReferenceFrameTests.cs`, `Tests/Insights/SharedPrimitivesTests.cs`, `Tests/Insights/TemporalBaselineTests.cs`, `Tests/Persistence/PersistenceBenchmarkTests.cs`, `Tests/Persistence/PersistenceRoundTripTests.cs`.
 
 Owns:
 
@@ -46,39 +48,53 @@ Does not own:
     <Reference Include="LiteDB"><HintPath>..\lib\LiteDB.dll</HintPath></Reference>
   </ItemGroup>
   <ItemGroup>
+    <!-- Test files in this folder (the Compile Include="**\*.cs" glob; includes
+         the folded-in HookInstallRetentionDiagnostics.cs — pure System/xUnit). -->
     <Compile Include="**\*.cs" Exclude="bin\**;obj\**" />
   </ItemGroup>
   <ItemGroup>
     <!-- Pure-logic source lifted in by Compile Include + Link. Each must have
-         zero Terraria.ModLoader references. The Events bitsets/flags are dragged
-         in because TickFrame carries an EventContext field. -->
-    <Compile Include="..\Profiling\RingBuffer.cs"        Link="Source\RingBuffer.cs" />
-    <Compile Include="..\Profiling\TickFrame.cs"         Link="Source\TickFrame.cs" />
-    <Compile Include="..\Profiling\Time.cs"              Link="Source\Time.cs" />
-    <Compile Include="..\Profiling\EnumStringTable.cs"   Link="Source\EnumStringTable.cs" />
-    <Compile Include="..\Profiling\Pools\*.cs"           Link="Source\Pools\%(Filename)%(Extension)" />
-    <Compile Include="..\Profiling\Util\BoolIndex.cs"    Link="Source\Util\BoolIndex.cs" />
-    <Compile Include="..\Profiling\Events\*.cs"          Link="Source\Events\%(Filename)%(Extension)" />
-    <!-- Persistence sources reference LiteDB only; lifted whole-folder with the
-         game-runtime-touching files Compile-Removed (ProfilerPaths, SessionRecorder, etc). -->
-    <Compile Include="..\Profiling\Persistence\*.cs"          Link="..." />
-    <Compile Include="..\Profiling\Persistence\Records\*.cs"  Link="..." />
-    <Compile Include="..\Profiling\Persistence\Streams\*.cs"  Link="..." />
+         zero Terraria.ModLoader references. The Events bitsets/flags stayed in
+         Profiling/Events/ and are dragged in because TickFrame carries an
+         EventContext field. The stream-shaped classes moved Profiling/ -> Data/
+         in v0.10/v0.11; the insights module moved to a top-level Insights/ in the
+         v0.13-v0.22 rework. The paths below point at those CURRENT locations. -->
+    <Compile Include="..\Profiling\RingBuffer.cs"            Link="Source\RingBuffer.cs" />
+    <Compile Include="..\Profiling\TickFrame.cs"             Link="Source\TickFrame.cs" />
+    <Compile Include="..\Profiling\Time.cs"                  Link="Source\Time.cs" />
+    <Compile Include="..\Profiling\EnumStringTable.cs"       Link="Source\EnumStringTable.cs" />
+    <Compile Include="..\Profiling\Pools\*.cs"               Link="Source\Pools\%(Filename)%(Extension)" />
+    <Compile Include="..\Profiling\Util\BoolIndex.cs"        Link="Source\Util\BoolIndex.cs" />
+    <Compile Include="..\Profiling\Events\*.cs"              Link="Source\Events\%(Filename)%(Extension)" />
+    <!-- Moved to Data/ in v0.11. -->
+    <Compile Include="..\Data\Aggregators\PerModSample.cs"      Link="Source\PerModSample.cs" />
+    <Compile Include="..\Data\Aggregators\PerModAttribution.cs" Link="Source\PerModAttribution.cs" />
+    <Compile Include="..\Data\Stats\Baseline.cs"               Link="Source\Baseline.cs" />
+    <Compile Include="..\Data\Detectors\StallDetector.cs"      Link="Source\StallDetector.cs" />
+    <Compile Include="..\Data\Contracts\RolloutContracts.cs"   Link="Source\Contracts\RolloutContracts.cs" />
+    <!-- Top-level Insights/ module (the v0.13-v0.22 rework): the canonical
+         Insight type + store + scorer, plus Shared primitives, reference frames,
+         drivers, and the cross-session store. -->
+    <Compile Include="..\Insights\Insight.cs"                  Link="Source\Insights\Insight.cs" />
+    <Compile Include="..\Insights\InsightStore.cs"             Link="Source\Insights\InsightStore.cs" />
+    <Compile Include="..\Insights\RankingScorer.cs"            Link="Source\Insights\RankingScorer.cs" />
+    <Compile Include="..\Insights\Shared\*.cs"                 Link="Source\Insights\Shared\%(Filename)%(Extension)" />
+    <Compile Include="..\Insights\ReferenceFrames\*.cs"        Link="Source\Insights\ReferenceFrames\%(Filename)%(Extension)" />
+    <Compile Include="..\Insights\Contracts\*.cs"              Link="Source\Insights\Contracts\%(Filename)%(Extension)" />
+    <Compile Include="..\Insights\Drivers\Drivers.cs"          Link="Source\Insights\Drivers\Drivers.cs" />
+    <!-- Persistence sources reference LiteDB only; the per-collection stream
+         classes moved to Data/Streams/ in v0.11. Lifted whole-folder with the
+         game-runtime-touching files Compile-Removed (ProfilerPaths,
+         SessionRecorder, DbReadModel, etc). -->
+    <Compile Include="..\Profiling\Persistence\*.cs"           Link="..." />
+    <Compile Include="..\Profiling\Persistence\Records\*.cs"   Link="..." />
+    <Compile Include="..\Data\Streams\*.cs"                    Link="..." />
     <Compile Remove="..\Profiling\Persistence\ProfilerPaths.cs" /> <!-- + ~10 other game-touching removes -->
-    <!-- The insights / baseline / stall pure-logic sources are also linked here.
-         NOTE: as committed these still point at the pre-v0.11 ..\Profiling\... paths
-         (Baseline.cs, StallDetector.cs, PerModAttribution.cs, Insights\*.cs) which
-         have since moved to Data\. See the Known Issues drift note below. -->
-    <Compile Include="..\Profiling\Baseline.cs"             Link="Source\Baseline.cs" />
-    <Compile Include="..\Profiling\StallDetector.cs"        Link="Source\StallDetector.cs" />
-    <Compile Include="..\Profiling\PerModSample.cs"         Link="Source\PerModSample.cs" />
-    <Compile Include="..\Profiling\PerModAttribution.cs"    Link="Source\PerModAttribution.cs" />
-    <Compile Include="..\Profiling\Insights\InsightRecord.cs" Link="Source\Insights\InsightRecord.cs" />
-    <Compile Include="..\Profiling\Insights\InsightStore.cs"  Link="Source\Insights\InsightStore.cs" />
-    <Compile Include="..\Profiling\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
   </ItemGroup>
 </Project>
 ```
+
+(See the actual `Tests/PerformanceProfiler.Tests.csproj` for the full `Compile Remove` list — `ProfilerPaths`, `LegacyJsonImporter`, `ProfilerCompactCommand`, `ModlistFingerprint`, `DbReadModel`, `SessionRecorder`, `TickDownsampler`, `ContextTransitionWatcher`, `WorldSnapshotter`, `PlayerDeathDetector`, `SessionSummaryLogger`, the `Commands\*`/`Interactions\*` folders, and `ProfilerFocusProbe`.)
 
 Key choices:
 
@@ -99,14 +115,14 @@ Without this, the main mod build would pick up the `*Tests.cs` files (xUnit refe
 
 ### `.tmod` package exclusion
 
-`build.txt` carries `buildIgnore=Tests/*` (added in commit `14fac59`). The `.tmod` packager skips the `Tests/` folder so the shipped Workshop artefact has zero test bytes.
+`build.txt`'s `buildIgnore` comma-list carries `Tests\*` (added in commit `14fac59`; it now also lists `tools\*`, `context\*`, `*.md`, etc.). The `.tmod` packager skips the `Tests/` folder so the shipped Workshop artefact has zero test bytes.
 
 ### Adding a new test fixture
 
 Per the docstring comment in `Tests/PerformanceProfiler.Tests.csproj`:
 
 1. Add the test file under `Tests/`. The `Compile Include="**\*.cs"` glob picks it up automatically.
-2. **If** the test needs a production source file not yet linked, add a `Compile Include="..\<Profiling-or-Data>\X.cs" Link="Source\X.cs"` entry — the pure-logic sources now live under both `Profiling/` (RingBuffer, TickFrame, Time, Pools, Events) and `Data/` (PerModAttribution, Baseline, StallDetector, Insights/*) after the v0.11 move.
+2. **If** the test needs a production source file not yet linked, add a `Compile Include="..\<dir>\X.cs" Link="Source\X.cs"` entry — the pure-logic sources live under `Profiling/` (RingBuffer, TickFrame, Time, Pools, Events), `Data/` (PerModAttribution, Baseline, StallDetector, Streams, Contracts) after the v0.11 move, and the **top-level `Insights/`** module (Insight, InsightStore, RankingScorer, Shared/*, ReferenceFrames/*, Contracts/*, Drivers) after the v0.13-v0.22 rework.
 3. **Verify** the linked file has zero `Terraria.ModLoader` references. Otherwise the runner will fail to load.
 4. Run `dotnet test Tests/PerformanceProfiler.Tests.csproj`.
 
@@ -127,8 +143,13 @@ The "verify zero tModLoader references" step is the load-bearing one. The whole 
 | `BoolIndexTests.cs` | The `BoolIndex` bitset helper. |
 | `Persistence/PersistenceRoundTripTests.cs` | LiteDB write → read fidelity across the streams (writer thread + records + streams). |
 | `Persistence/PersistenceBenchmarkTests.cs` | LiteDB write throughput / latency under the persistence layer. |
+| `Insights/SharedPrimitivesTests.cs` | The Wave-1 `Insights/Shared/` primitives (`ModMetrics`, `Shares`, `ModNames`) — pure math over the `RolloutContracts` entry types. |
+| `Insights/ReferenceFrameTests.cs` | The Wave-3 reference-frame substrate (`Stats`, `ContextBaseline` per-context accumulator). |
+| `Insights/TemporalBaselineTests.cs` | The Wave-5 family-B early/late temporal baseline + driver contracts. |
+| `Insights/CrossSessionStoreTests.cs` | The Wave-6 LiteDB round-trip of the per-context baselines. |
+| `HookInstallRetentionDiagnostics.cs` | A diagnostic fixture (not a regression pin): proves the `ProfilerSelfHealth` hook-install RAM measurement methodology conflates retained state with uncollected transient garbage, using a synthetic allocate-then-release. Pure System/xUnit, no mod deps. |
 
-Eleven fixtures as of v0.12 (re-run `dotnet test` for the current pass count). The earlier "10/10 in ~16 ms" figure (commit `14fac59`) predates the persistence + stall + pools + time fixtures.
+Sixteen `.cs` files carry test methods (the 15 `*Tests.cs` fixtures above plus the `HookInstallRetentionDiagnostics.cs` diagnostic); a 17th, `_TestNamespaceStubs.cs`, carries no tests (it sets `DisableTestParallelization` and provides empty namespace stubs so the lifted persistence sources' header `using`s resolve in the runtime-free harness). The csproj docstring and `_TestNamespaceStubs.cs` describe the suite as **~70 tests, sub-second**; re-run `dotnet test` for the exact current pass count. The earlier "10/10 in ~16 ms" figure (commit `14fac59`) and the "108 tests as of `0.19.0`" figure in `extensive-testing-infrastructure.md` are both point-in-time snapshots — `dotnet test` is the live count.
 
 ## Key Interfaces / Data Flow
 
@@ -158,7 +179,12 @@ The runner never starts Terraria, never loads `tModLoader.dll`, never touches a 
 
 ## Known Issues / Active Risks
 
-- **The committed csproj `Compile Include` paths are stale after the v0.11 `Data/` move.** Several linked entries still point at pre-move `..\Profiling\...` paths whose files have since relocated to `Data/`: `..\Profiling\PerModSample.cs`, `..\Profiling\PerModAttribution.cs`, `..\Profiling\Baseline.cs`, `..\Profiling\StallDetector.cs`, and `..\Profiling\Insights\{InsightRecord,InsightStore,RankingScorer}.cs`. Those files now live at `Data/Aggregators/`, `Data/Stats/Baseline.cs`, `Data/Detectors/StallDetector.cs`, and `Data/Detectors/Insights/`. As committed (last csproj change was `b2f023d`, before the move) those `Compile Include` globs resolve to nothing, so the test project would not compile against the current tree until the paths are repointed at `..\Data\...`. The fixtures themselves are present and correct; only the csproj link paths drifted. This is the single thing to fix before `dotnet test` will run again.
+- **The csproj `Compile Include` link paths are CURRENT (re-verified v0.22.0).** An earlier revision of this doc flagged the linked entries as stale `..\Profiling\...` paths left behind by the v0.11 `Data/` move. That drift has since been repaired and the doc note was itself stale; the **current** `Tests/PerformanceProfiler.Tests.csproj` points every entry at its real location, and all resolve on disk (verified by `find`):
+  - `..\Data\Aggregators\PerModSample.cs`, `..\Data\Aggregators\PerModAttribution.cs` (was `..\Profiling\`)
+  - `..\Data\Stats\Baseline.cs`, `..\Data\Detectors\StallDetector.cs` (was `..\Profiling\`)
+  - `..\Data\Streams\*.cs`, `..\Data\Contracts\RolloutContracts.cs`
+  - `..\Insights\Insight.cs`, `..\Insights\InsightStore.cs`, `..\Insights\RankingScorer.cs`, and `..\Insights\Shared\*`, `..\Insights\ReferenceFrames\*`, `..\Insights\Contracts\*`, `..\Insights\Drivers\Drivers.cs` — the v0.13-v0.22 rework moved insights to a **top-level `Insights/`** module, NOT `Data/Detectors/Insights/` (that path does not exist; an earlier draft of this note guessed it). The old type name `InsightRecord` is now `Insight.cs`.
+  The Events bitsets/flags + the `Time`/`Pools`/`BoolIndex`/`EnumStringTable`/`RingBuffer`/`TickFrame` helpers correctly stayed under `Profiling/`. The csproj has been changed many commits past `b2f023d` (e.g. through the Insights waves up to `398da95`), so the "last csproj change was `b2f023d`" claim was also stale. Net: `dotnet test` compiles against the current tree; no path repair outstanding.
 - **The "no tModLoader references in linked files" rule is not enforced.** A future addition could accidentally pull `using Terraria.ModLoader;` into a Link'd file; the test runner would then fail to compile. There is no lint or hook today; the docstring is the only protection.
 - **`build.txt`'s `buildIgnore` is the only thing keeping `Tests/*` out of the `.tmod`.** If a contributor edits `build.txt` and drops the entry, the next package would carry test bytes (and the test framework references) into the Workshop release. The `.csproj` `<Compile Remove>` would still keep the test `.cs` out of the mod DLL, so the runtime damage is bounded to size bloat.
 - **The link path duplicates each file's namespace in two compilation units.** This is fine in practice (the production assembly and the test assembly are separate), but it means a code-mod tool that operates on both might double-edit. Today the only such tool is `git`, which handles it correctly.
@@ -184,6 +210,7 @@ Nothing.
 
 ## Cross-references
 
+- `systems/dashboard-audit-harness.md` — the **other** testing axis. This file (L1) proves pure-logic correctness (ranking, insight promotion, ring buffers, persistence math) on synthetic input with no browser and no game; the audit harness (L4/L6/L8) proves the dashboard's layout, interaction, and visual quality by driving the real page with Playwright, with no game and no `.cs` build. The two are independent and neither imports the other; together they are the project's testing surface short of the irreducible in-game L7 check. Both are `buildIgnore`'d (`Tests\*` / `tools\*`).
 - `notes/conventions.md` — convention #14 on commit-message tagging (`CHA round N:` prefix).
 - `plans/code-health-audit/build-and-tests.md` — audit finding that drove the harness creation.
 - `systems/insights-engine.md` — the subsystem most-pinned by tests today.

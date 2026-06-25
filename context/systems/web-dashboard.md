@@ -1,6 +1,6 @@
 # Web Dashboard
 
-*Maturity: comprehensive · Stability: unstable — the server, asset pipeline, and routing are settled; per-tab endpoint shapes and JS renderers evolve with each measurement subsystem.*
+*Maturity: comprehensive · Stability: unstable — the server, asset pipeline, routing, component library (`Js.Components.cs`), and chart vocabulary (`Js.Charts.cs`) are settled; per-tab endpoint shapes and JS renderers evolve with each new measurement subsystem (six tabs at v0.22).*
 
 ## Scope / Purpose
 
@@ -24,11 +24,11 @@ Files (every line under `Web/`):
 | Raw-TCP HTTP/1.1 server (accept loop, request parse, response write) | `Web/Server/DashboardHttpServer.cs` |
 | Parsed inbound request (method, path, raw target) | `Web/Server/HttpRequest.cs` |
 | Outbound response + factory helpers (Html / Json / PlainText / NotFound) | `Web/Server/HttpResponse.cs` |
-| Route table + per-tab `Build*` builders + asset byte cache | `Web/DashboardRouter.cs` (+ `.Summary` / `.Mods` / `.Hooks` / `.Timeline` / `.Lag` / `.Insights` / `.Self` partials) |
+| Route table + per-tab `Build*` builders + asset byte cache | `Web/DashboardRouter.cs` (+ `.Summary` / `.Mods` / `.Hooks` / `.Timeline` / `.Lag` / `.Insights` / `.Self` / `.Memory` partials) |
 | Bundle assembly (concat CSS / JS / HTML fragments, cache once) | `Web/Assets/DashboardAssets.cs` |
-| SPA HTML shell | `Web/Assets/IndexHtml.cs` (+ `.Preamble` / `.Summary` / `.Timeline` / `.Lag` / `.Insights` / `.Self` / `.Closing` partials) |
-| Stylesheet fragments (17 partials) | `Web/Assets/Css/Css.*.cs` |
-| Script fragments (16 partials) | `Web/Assets/Js/Js.*.cs` |
+| SPA HTML shell | `Web/Assets/IndexHtml.cs` (+ `.Preamble` / `.Summary` / `.Timeline` / `.Lag` / `.Insights` / `.Self` / `.Memory` / `.Closing` partials) |
+| Stylesheet fragments (21 partials) | `Web/Assets/Css/Css.*.cs` |
+| Script fragments (18 partials) | `Web/Assets/Js/Js.*.cs` |
 | Mod-wide lifecycle (`Dashboard` singleton, bind, dispose) | `PerformanceProfiler.cs` |
 | F9 keybind registration + cross-platform browser open | `UI/ProfilerOverlaySystem.cs`, `PerformanceProfiler.cs` (`ProfilerPlayer`) |
 
@@ -69,7 +69,7 @@ Renamed from `TinyHttpServer` to `DashboardHttpServer` on 2026-05-21 (the "tiny"
 
 ### Route table (the full endpoint inventory)
 
-`DashboardRouter.Route(HttpRequest)` is a strict `switch` on `req.Path`. Non-GET → 405. Unmatched → 404. **32 named route arms + a default** (33 arms total): 4 asset/static + 28 JSON `/api/*` endpoints, plus the `_` fallthrough to 404. Each `Build*` reads one or more `Data/` snapshots and serialises a flat anonymous object via `System.Text.Json`.
+`DashboardRouter.Route(HttpRequest)` is a strict `switch` on `req.Path`. Non-GET → 405. Unmatched → 404. **33 named route arms + a default** (34 arms total): 4 asset/static + **29** JSON `/api/*` endpoints, plus the `_` fallthrough to 404. Each `Build*` reads one or more `Data/` snapshots and serialises a flat anonymous object via `System.Text.Json`.
 
 Static / asset routes (4):
 
@@ -112,13 +112,16 @@ JSON endpoints, grouped by the dashboard tab that consumes them:
 | Insights | `/api/engagement-cost` | `BuildEngagementCost` | `EngagementCost` (I6) |
 | Insights | `/api/mod-interaction` | `BuildModInteraction` | `ModInteraction` (I7) |
 
-The Timeline / Lag / Insights endpoints all resolve their snapshots through the `RolloutStreamNames` constants in `Data/Contracts/RolloutContracts.cs` (the frozen contract layer). The Self tab adds the 28th `/api/*` endpoint:
+The Timeline / Lag / Insights endpoints all resolve their snapshots through the `RolloutStreamNames` constants in `Data/Contracts/RolloutContracts.cs` (the frozen contract layer). The Self and Memory tabs each add their own `/api/*` endpoint, polled on their own 5 s cadence rather than per-tab:
 
 | Group | Endpoint | `Build*` | Snapshot read |
 |---|---|---|---|
 | Self | `/api/self` | `BuildSelf` | `SelfHealth` (`SelfHealthStat`) |
+| Memory | `/api/memory` | `BuildMemory` (`DashboardRouter.Memory.cs`) | `HookCpu` + `Allocation` + `SelfHealth`, joined with `ModRamReader` (tML's own per-mod estimate, guarded reflection) and `HookInterceptor.MeasuredHookCounts` |
 
-`/api/self` is polled on its own 5 s cadence (`pollSelf`) rather than per-tab.
+`/api/self` is polled on its own 5 s cadence (`pollSelf`); `/api/memory` shares that 5 s cadence on its own loop (`pollMemory`). The two are the only endpoints not driven by the core poll loops or a tab-gated interval.
+
+`BuildMemory` joins **two honest RAM bases** per mod (`DashboardRouter.Memory.cs:13-30`): the profiler's measured *install-delta* scaffolding (`SelfHealth.InstallDeltaBytes`, distributed across mods by each mod's share of installed hooks so the slices sum exactly to the Self tab's number) and tModLoader's *own* per-mod footprint (code / textures / sounds / managed, read via guarded reflection through `ModRamReader`). Per the honesty contract (Invariant 3) the scaffolding column is badged an estimate; uniform bytes/hook is a documented first-order distribution assumption. RAM is reshaped, never invented. This is the one router arm that joins a non-`DataRegistry` source (`ModRamReader`); when reflection fails it degrades to `tmlAvailable: false` and the strip falls back to the overhead basis.
 
 The lone shared helper, `TopContributors`, lives in `DashboardRouter.cs` and sorts a spike window's per-mod ms for the spike contributor list. It is a wire-shape formatter (sort + take-N + name deref), not a derivation.
 
@@ -126,15 +129,46 @@ The lone shared helper, `TopContributors`, lives in `DashboardRouter.cs` and sor
 
 `DashboardAssets` is a partial static class. The HTML, CSS, and JS each live as `private const string` raw verbatim strings split across many partial-class fragment files for editability:
 
-- **CSS** — 17 fragments under `Web/Assets/Css/` (`Css.Palette.cs`, `Css.Shell.cs`, `Css.Panels.cs`, then per-component: `Summary`, `Mods`, `Timeline`, `Lag`, `Insights`, `Self`, `ModCard`, `Tooltip`, `Footer`, `Kpis`, `Heatmap`, `NowPlaying`, `ChartToggle`, `Scrollbar`). `Css.Palette.cs` defines the `:root` design tokens (colour palette, `--perf-0..4` gradient, `--mono` / `--ui` font stacks). `DashboardAssets.Css` concatenates them in a deliberate order: palette first (defines vars), shell next (layout primitives), components, scrollbar last (so the webkit override wins). No `@import`; the Inter / JetBrains Mono fonts are loaded by `<link>` in the HTML preamble.
-- **JS** — 16 fragments under `Web/Assets/Js/`. `DashboardAssets.Js` concatenates them in execution order: `Config` (state + `POLL_*` constants) → `Tabs` (routing) → `Polling` (core loops) → `Helpers` → `Tooltips` → `Topbar` → `Render` → per-tab renderers (`Kpis`, `Summary`, `Mods`, `ModCard`, `Timeline`, `Lag`, `Insights`, `Self`). Order matters: later fragments reference earlier-declared globals (`lastNow`, `activeTab`) and helpers.
-- **HTML** — `IndexHtml.cs` concatenates `Preamble`, `Summary`, `Timeline`, `Lag`, `Insights`, `Self`, `Closing` into one SPA shell with a top bar, a five-button tab strip, two state overlays (disconnected / no-world), and one `tab-pane` per tab.
+- **CSS** — 21 fragments under `Web/Assets/Css/`. `DashboardAssets.Css` concatenates them in a deliberate order (`DashboardAssets.cs:46-67`): `Palette` first (defines vars), `Shell` next (layout primitives), then the shared layers `Components` and `Charts` (the component / chart vocabulary), then `Panels`, then per-tab CSS (`Summary`, `Mods`, `Timeline`, `Lag`, `Insights`, `Self`, `Memory`), then per-feature (`ModCard`, `Tooltip`, `Footer`, `Kpis`, `Heatmap`, `NowPlaying`, `ChartToggle`), then `Coherence` (canonical empty/selection layer), and `Scrollbar` last (so the webkit override wins). `Css.Palette.cs` defines the `:root` design tokens in **OKLCH** (see the monochrome-token system below). No `@import`; the Inter / JetBrains Mono fonts are loaded by `<link>` in the HTML preamble.
+- **JS** — 18 fragments under `Web/Assets/Js/`. `DashboardAssets.Js` concatenates them in execution order (`DashboardAssets.cs:77-95`): `Config` (state + `POLL_*` constants) → `Tabs` (routing) → `Polling` (core loops) → `Helpers` → `Components` (the shared render-helper vocabulary) → `Charts` (the shared chart module) → `Tooltips` → `Topbar` → `Render` → per-tab renderers (`Kpis`, `Summary`, `Mods`, `ModCard`, `Timeline`, `Lag`, `Insights`, `Self`, `Memory`). Order matters: later fragments reference earlier-declared globals (`lastNow`, `activeTab`), the component helpers, and the chart functions.
+- **HTML** — `IndexHtml.cs` concatenates `Preamble`, `Summary`, `Timeline`, `Lag`, `Insights`, `Self`, `Memory`, `Closing` into one SPA shell with a top bar, a **six-button tab strip**, two state overlays (disconnected / no-world), and one `tab-pane` per tab.
+
+### Component library (shadcn-neutral, OKLCH, monochrome chrome)
+
+The dashboard was rebuilt (v0.17) off per-pane bespoke CSS/JS onto a **shared component vocabulary over an OKLCH token system**. Two cross-cutting layers carry it:
+
+- **`Js.Components.cs`** — the structural render helpers every surface composes from instead of hand-rolling markup: `panel`, `scrollRegion`, `sectionHeader` / `sectionBlock`, `row` / `rowList`, `statTile` / `statGrid`, `statLine`, `splitBar` / `splitLegend`, `cellBar`, `legend`, `segmented`, `callout`, `twirl`, plus the scroll-preserving `setHTML` and the `renderIfChanged` signature gate. A "component" here is one CSS class block + one render fn returning an HTML string + an opts contract; no framework, data is the only variable (`Js.Components.cs:138-140`).
+- **`Css.Palette.cs`** — the `:root` token system. The chrome is **monochrome: the entire UI surface is pure neutral grey (zero chroma) and the one signature accent (`--accent` / `--primary`) is near-white, so the only colour on screen is data** (`Css.Palette.cs:17-40`). Tokens are defined in OKLCH (perceptually uniform) on two layers that can never drift: a shadcn semantic layer (`--background` / `--card` / `--primary` / `--muted-foreground` / `--border` / `--ring` / `--radius`) the component library reads, and the legacy vars (`--bg-deep` / `--panel` / `--text` / `--accent`) every not-yet-migrated surface still reads, aliased onto the same ramp. The **data-viz layer is deliberately kept colourful** — `--perf-0..4` (a sequential green→red ramp with chroma rising toward the alarm end) and the categorical per-mod palette (`MOD_COLORS` in `Js.Helpers.cs:64-68`: 12 hues locked at L=0.72 / C=0.11, stepped evenly, hashed `id*7+3` so neighbouring mods get non-adjacent hues). The rule is one-line: **greying the chrome never greys the data**.
+
+The Memory tab is the clearest proof of the migration: its HTML is panel chrome only, and every visual inside (summary `statGrid`, hero `splitBar` + `legend`, basis `segmented`, per-mod `.dtable`, breakdown `sectionBlock`s) comes from the shared library, with the old bespoke `.mem-*` classes retired onto components (`IndexHtml.Memory.cs:7-14`, `Js.Memory.cs:5-13`).
+
+### Chart module (`Web/Assets/Js/Js.Charts.cs`)
+
+A single shared chart module holds one implementation per chart shape, built on the `niceScale` / `seriesPaths` scale core (in `Js.Components.cs`) and the `_polar` / `_ring` / `_arcStroke` / `_catmullSegs` geometry helpers; every pane composes these instead of hand-rolling SVG (`Js.Charts.cs:5-9`). Each chart takes an `o`-options object and returns an SVG/HTML string. The full set:
+
+| Chart | `opts` contract | Used by |
+|---|---|---|
+| `sparkline(values, o)` | `{ w, h, color, strokeW, markers:[idx], markColor }` | Kpis, Mods, Summary trend rows |
+| `lineChart(o)` | `{ series:[{values, color, area?}], rules:[{value,color,label}], markers, axis, fmt }` | Summary frame chart, Lag GC line |
+| `barChart(o)` | vertical `{ bars:[{value,color,marks,tip}], colWidth, scrollx }` or horizontal `{ horizontal:true, bars:[{value,label,valueLabel}] }` | Lag, Timeline heat strip |
+| `donut(o)` | `{ data:[{value,label,color,id?}], inner, rings:[…] (nested/stacked pie), center:{top,mid,bot} }` — a datum with an `id` becomes a `data-mod` click target | Summary impact donut |
+| `gauge(o)` | `{ ratio | value+max, bands:[{to,color}], sweep:180\|270, ref, centerValue, centerSub }` | Self overhead gauge |
+| `heatmapMatrix(o)` | `{ rows, cols, cellAt:(r,c)=>{value,tip}, max, fmt }` — `.rheat` grid | Lag cause×context |
+
+The **four new encodings** added with the v0.20+ chart-vocabulary pass:
+
+| Chart | What it encodes | `opts` contract | Wired into |
+|---|---|---|---|
+| `streamArea(o)` | A streamgraph: every series a smooth (Catmull-Rom) filled band, **stacked** over a rolling x window, so the total height is the combined magnitude and each band is one series' contribution. x normalises to fill the width at any sample count; y auto-scales to the tallest stacked total. `{ series:[{label,values,color}], w, h, line?, markers?, maxY? }` (first series = bottom) | **Summary** per-mod cost-stream (`Js.Summary.cs:379`) — `streamRamp` colours bands by impact rank on a **monochrome luminance ramp** (`oklch(0.80 - 0.34t  0 0)`, brightest = heaviest), with **top-N (3/5/10) + window (10/25/50) controls** (`buildStreamControls`); a sample lands every ~5 s into `modStreamHistory` (cap 50) |
+| `sankey(o)` | Two-layer cost flow: left nodes → right nodes, ribbon width = flow value. `{ left:[{label,value,color?}], right:[{label,value,color?}], links:[{l,r,value}], w, h, fmt }` | **Summary** cost-flow (`Js.Summary.cs:287`) — subsystem **category → mod**; left (category) nodes are greyed, right (mod) nodes carry `modColor`, "grey subsystem flows into coloured mod" |
+| `waffle(o)` | Part-to-whole as a grid of unit squares (one cell per unit), so composition reads as countable area. `{ cells:[{count,color,label}], cols?, total? }` (returns the cell grid; caller renders the key via `legend()`) | **Insights** modlist-composition waffle (`Js.Insights.cs:168`) |
+| `scatter(o)` | x-vs-y relationship with optional bubble radius (third dimension) and an optional y=x reference. `{ points:[{x,y,r?,color?,label?,id?}], xMax, yMax, rMax, xLabel, yLabel, fmt, diag? }` — a point `id` becomes a `data-mod` click target (matches `donut`) | **Insights** engagement-vs-cost bubble plot (`Js.Insights.cs:589`) |
 
 **Invariant-2 alignment in the asset path:** the CSS and JS bundles are immutable for the mod's lifetime, so `DashboardRouter` encodes each to UTF-8 bytes **once** at type-init (`CachedCssBytes` / `CachedJsBytes`). No per-request re-encoding; cold-tab refreshes previously paid tens of KB of allocator pressure per hit. The SPA HTML is also assembled once into the static `IndexHtml` string.
 
 ### The SPA: tabs and polling
 
-The shipped SPA has **five tabs**: **Summary, Timeline, Lag, Insights, Self** (tab strip in `IndexHtml.Preamble.cs`, keyboard `1`-`5` in `Js.Tabs.cs`). Note the gap from the README's narrative six (Now, Mods, Timeline, Spikes, Insights, Self): the SPA merges *Now* + *Mods* into the single **Summary** tab, and renames/expands *Spikes* into **Lag**. The README describes the conceptual model; the SPA tab layout above is the code reality.
+The shipped SPA has **six tabs**: **Summary, Timeline, Lag, Insights, Self, Memory** (tab strip in `IndexHtml.Preamble.cs:43-50`, keyboard `1`-`6` in `Js.Tabs.cs:30-33`, dispatched by `renderAll`'s `switch (activeTab)` in `Js.Topbar.cs:47-55`). The README narrates the same six in the same order (`SUMMARY Timeline Lag Insights Self Memory`), so the README's tab section and the shipped layout are now **aligned** — the earlier "SPA merges Now+Mods, ships five" gap is closed: Now+Mods were long folded into **Summary**, Spikes became **Lag**, and the v0.17+ **Memory** tab is the sixth.
 
 Polling cadences (`POLL_*` in `Js.Config.cs`; loops in `Js.Polling.cs` and per-tab files):
 
@@ -144,6 +178,7 @@ Polling cadences (`POLL_*` in `Js.Config.cs`; loops in `Js.Polling.cs` and per-t
 | `pollDetail` | 1500 ms | `/api/mods`, `/api/spikes`, `/api/stalls`, `/api/insights`, `/api/events` | always |
 | `pollHooks` | 2500 ms | `/api/hooks` | only when Summary active **and** ≥1 mod row expanded |
 | `pollSelf` | 5000 ms | `/api/self` | always |
+| `pollMemory` | 5000 ms | `/api/memory` | always (renders only when Memory active) |
 | `pollHeatmap` | 3000 ms | `/api/heatmap` | always |
 | `updateConnection` | 1000 ms | (none — DOM state) | always |
 | `pollTimelineData` | 2500 ms | the 7 Timeline endpoints | only when `activeTab === 'timeline'` |
@@ -162,9 +197,10 @@ The README's "updates 2-4 times a second" describes the core `pollNow` (500 ms =
 | Timeline | `renderTimeline` (`Js.Timeline.cs`) | the 7 Timeline `lastXxx` caches | heatstrip seismograph, transition track, segment swimlanes (Gantt), segment detail + mod-attribution waterfall, attendance treemap, death strips, chronicle film-strip |
 | Lag | `renderLag` (`Js.Lag.cs`) | the 5 Lag caches + `lastSpikes` / `lastStalls` | lag KPI strip, cause×context hex heatmap, fingerprint galaxy scatter, per-segment density, GC pressure, allocation→GC causality, rhythm histogram |
 | Insights | `renderInsights` (`Js.Insights.cs`) | the 5 Insights caches | observatory KPI rings, dormant "dust shelf", observatory card list + detail, cross-cutting constellation, engagement-vs-cost scatter, mod-interaction matrix |
-| Self | `renderSelf` (`Js.Self.cs`) | `lastSelf`, `lastHooks` | self-health gauge (vs ~36 KB/hook baseline), footprint stats, hook distribution table |
+| Self | `renderSelf` (`Js.Self.cs`) | `lastSelf`, `lastHooks` | self-health `gauge` (vs ~36 KB/hook baseline), footprint stats, hook distribution table — composed entirely from the component library, no bespoke markup |
+| Memory | `renderMemory` (`Js.Memory.cs`) | `lastMemory` | basis `segmented` (modlist RAM / profiler overhead), summary `statGrid`, hero `splitBar` + `legend` (click-to-select, per-mod `modColor`), sortable + searchable per-mod `.dtable` (`cellBar` magnitude + a thin monochrome `MEM_FP_CATS` footprint `splitBar`), per-mod breakdown drawer (`sectionBlock` of footprint split + instrumentation `statGrid`) |
 
-Shared helpers in `Js.Helpers.cs`: `fmtMs`, `fmtInt`, `fmtBytes`, `fmtDuration`, `fmtAgo`, `truncate`, `escapeHtml`, `modColor` (deterministic per-mod colour). `Js.Topbar.cs` renders the persistent tick/frame/avg/gc/backend bar and footer plus the `renderAll` active-tab dispatcher. `Js.Tooltips.cs` drives the `data-explain` tooltip system seen in the HTML. `Js.ModCard.cs` owns the slide-in per-mod detail card (`openModCard` / `closeModCard`, Esc-dismissed).
+Shared helpers in `Js.Helpers.cs`: `fmtMs`, `fmtInt`, `fmtBytes`, `fmtDuration`, `fmtAgo`, `truncate`, `escapeHtml`, `modColor` (deterministic per-mod OKLCH colour), `humanizeLabel`. `Js.Topbar.cs` renders the persistent tick/frame/avg/gc/backend bar and footer plus the `renderAll` active-tab dispatcher. `Js.Tooltips.cs` drives the `data-explain` tooltip system seen in the HTML. `Js.ModCard.cs` owns the slide-in per-mod detail card (`openModCard` / `closeModCard`, Esc-dismissed). The shared structural and chart vocabularies live one layer up in `Js.Components.cs` and `Js.Charts.cs` (see the component-library and chart-module sections above).
 
 ## Key Interfaces / Data Flow
 
@@ -218,7 +254,7 @@ Lifecycle plug-in:
 | SPA HTML at `/` | `DashboardAssets.IndexHtml` |
 | Stylesheet at `/dashboard.css` | `CachedCssBytes` from `DashboardAssets.Css` |
 | Script bundle at `/dashboard.js` | `CachedJsBytes` from `DashboardAssets.Js` |
-| 28 `/api/*` JSON state endpoints | the `Build*` methods across the `DashboardRouter.*` partials |
+| 29 `/api/*` JSON state endpoints | the `Build*` methods across the `DashboardRouter.*` partials |
 | One-line chat discovery hint | `ProfilerPlayer.OnEnterWorld` (player surface) |
 | Server lifecycle / bind-port / launch logs in `client.log` | `Mod.Logger` calls in `Load` / `Unload` / `OpenDashboardInBrowser` (agent surface) |
 
@@ -234,12 +270,11 @@ This satisfies dual-surface observability: the browser is the player surface; `c
 
 ## Partial / In Progress
 
-- **README vs SPA tab naming.** The README narrates six tabs (Now, Mods, Timeline, Spikes, Insights, Self); the SPA ships five (Summary merging Now+Mods, Timeline, Lag, Insights, Self). The endpoints for all six conceptual areas exist and are wired; only the tab grouping differs. Reconciling the README's tab section to the shipped five-tab layout is an outstanding doc-sync item.
 - **`/api/insights` (legacy) alongside the five Insights endpoints.** `BuildInsights` (the original `InsightsStat` feed) is still routed and still polled by `pollDetail`, kept for back-compat while the v0.12 Insights tab reads the five `mod-observatory` / `dormant` / `cross-cutting` / `engagement-cost` / `mod-interaction` endpoints. Two insight surfaces coexist.
+- **Legacy-var migration is partway.** `Css.Palette.cs` carries both the shadcn semantic tokens (the component library reads these) and the aliased legacy vars (`--bg-deep` / `--panel` / `--text` / `--accent`) that not-yet-migrated surfaces still read. Both alias the same OKLCH ramp so they cannot drift, but the per-tab CSS has not all been moved onto the semantic tokens; the aliases stay until it is.
 
 ## Planned / Missing / Likely Changes
 
-- **Dashboard genericisation (shadcn-style component library).** A fleshed-out build brief to rebuild the per-pane bespoke CSS/JS into a small set of reusable components (`Panel`, `ScrollRegion`, `SectionHeader`, `DataTable`, `SplitBar`, `RowList`, `Drawer`, `KpiTile`, plus a chart layer: `Sparkline`, `LineChart`, `BarChart`, `Donut`/`Pie`/stacked-pie, `Gauge`, `Heatmap`) over a shadcn-rooted OKLCH token system, so spacing / scroll / selection / hover / charting live in one place per primitive instead of drifting per pane (the recurring source of leak / scroll / centring bugs). Grounded in a line-by-line read of every `Web/Assets` file (a duplication census: ~12 scroll-region reinventions, 5 sparkline impls, 3 KPI strips, etc.) and names latent collisions to fix (`.split-bar` redefined by `Css.Self`, `.panel-wide` defined twice, `.empty` colliding with `.hm-cell.empty`). `Css.Coherence.cs` (canonical empty-state + selection accent) is the embryo. See `context/plans/ui-component-library.md`. Build not started.
 - **Heatmap spans only the in-memory window.** `BuildHeatmap` buckets from the same ~30 s `FrameTime.History` the chart reads, so the session heatmap only covers the rolling window. The method comment flags pulling from `tickAggregatesWarm` in LiteDB to cover the whole session (a persistence-backed read; see `systems/persistence.md`).
 - **Post-session HTML report.** README roadmap (v1.1+): a single self-contained shareable file. Would reuse the asset-bundling pattern and the snapshot reads, written to disk rather than served live.
 - **Binary asset serving.** `HttpResponse`'s raw-bytes constructor is kept public for future PNG / WOFF assets the dashboard might serve from disk; nothing uses it yet (fonts come from Google Fonts over the network, not the mod).
@@ -252,6 +287,8 @@ This satisfies dual-surface observability: the browser is the player surface; `c
 - **The in-game overlay was the player surface through v0.8, then archived.** Five overlay iterations all hit Terraria's sprite-font/UI limits for charts and dense tables. v0.9.0 sent the data to a browser instead and archived the overlay code under `UI/` for reference (it is no longer in the player path; the chat hint replaced the F9 overlay toggle). See `systems/overlay.md` for the archived sibling's full design. The dashboard supersedes it.
 - **`TinyHttpServer` → `DashboardHttpServer` rename (2026-05-21).** The "tiny" name implied a throwaway test artifact; it is the only server the mod ships. Name now reflects role, not LOC.
 - **Inline math in routers was systematically killed.** `BuildHeatmap` once did the minute-bucketing + boss-overlay join inline; extracted to `HeatmapAggregator` as the canonical "kill the inline math" step. `BuildNow` once read collector internals directly; migrated to snapshots in v0.10. The standing rule (from `systems/data-pipeline.md`): routers format, `Data/` computes.
+- **The shadcn-style component library was built (v0.17), not planned.** The per-pane bespoke CSS/JS was rebuilt onto the shared `Js.Components.cs` vocabulary (`panel` / `scrollRegion` / `sectionHeader` / `statTile` / `splitBar` / `legend` / `segmented` / `cellBar` / `row` / `rowList`) over a shadcn-neutral OKLCH token system in `Css.Palette.cs`. The motivating problem was duplication-driven drift (the recurring leak / scroll / centring bugs, ~12 scroll-region reinventions, 5 sparkline impls, latent class collisions like `.split-bar` / `.panel-wide`). The migration is functionally done — the Self and Memory tabs are "no bespoke markup" by their own headers — though the legacy-var aliasing in `Css.Palette.cs` is the still-live bridge for surfaces not yet moved onto the semantic tokens (see Partial / In Progress). `Css.Coherence.cs` (canonical empty/selection) was the embryo; the canonical `.empty` is now emitted everywhere via `emptyState()`.
+- **The chart vocabulary lives in one shared module.** `Js.Charts.cs` holds every chart shape (`sparkline` / `lineChart` / `barChart` / `donut` / `gauge` / `heatmapMatrix`, plus the v0.20+ `streamArea` / `sankey` / `waffle` / `scatter`) so no pane hand-rolls SVG again; every tab draws by composing these. The monochrome-chrome / colourful-data split is the governing rule (`Css.Palette.cs:17-40`, `Js.Helpers.cs:64-68`): chrome is zero-chroma neutral grey, data carries the only colour. The cost-stream's `streamRamp` is the on-brand exception — it colours its bands by a monochrome luminance ramp because the four footprint roles and the rank ordering are role/ordinal axes, not categorical-mod hues, so a luminance encoding stays orthogonal to `modColor`'s chromatic wheel (`Js.Memory.cs:30-44`, `Js.Summary.cs:324-331`).
 
 ## Obsolete / No Longer Relevant
 

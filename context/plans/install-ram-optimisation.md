@@ -5,10 +5,13 @@
 > instrumentation**. Same coverage, same per-mod/per-category/per-hook data,
 > same emitted IL — just stop holding dead memory.
 >
-> Status: **safe tier EXECUTED** (2026-06-22 autonomous run). Harness restored,
-> measurement made honest, hygiene fixes landed, all committed in logical groups.
-> The structural RAM cut (Step 2/3) is deliberately deferred, see the execution
-> log at the foot of this file.
+> Status: **safe tier + Step 2 EXECUTED** (2026-06-22 autonomous run, Step 2
+> validated in-game shortly after). Harness restored, measurement made honest,
+> hygiene fixes landed, and the structural RAM cut (Step 2 — trim retained
+> `LastContext`) is live and verified: profiler RAM 3.7 → 1.0 GB (tML
+> attribution), 58 → 30 KB/hook, coverage intact (62,203 detours, 62,203 contexts
+> disposed). Only Step 3 (own the emission) remains open as the Step-2 fallback.
+> See the execution log at the foot of this file.
 >
 > Date opened: 2026-06-22. Mod version at baseline: `0.12`.
 
@@ -199,12 +202,12 @@ rooted state, not collectable.
 
 | # | Lever | Status | Coverage | Risk | Payoff |
 |---|---|---|---|---|---|
-| P0 | **Fix the test harness (F4)** — 11/25 Compile paths stale after the v0.11 move | prerequisite | none | none | unblocks dev loop + equivalence checks |
-| 1 | **Force Gen2 in `MarkInstallEnd` (F2)** | free, do now | none | ~none | honest, repeatable measurement (NOT a footprint cut) |
-| 2 | **Trim retained `LastContext` post-install** via guarded reflection | not free, decision | none | med (needs Invariant-4 guard) | ~half the retained Cecil graph (GB-scale) |
-| 3 | **Own the emission** (our DMD → `Dispose()` → plain Detour) | not free, larger | none if verified | higher (coexistence) | full retention control, in-repo |
+| P0 | **Fix the test harness (F4)** — 11/25 Compile paths stale after the v0.11 move | **done** | none | none | unblocks dev loop + equivalence checks |
+| 1 | **Force Gen2 in `MarkInstallEnd` (F2)** | **done** | none | ~none | honest, repeatable measurement (NOT a footprint cut) |
+| 2 | **Trim retained `LastContext` post-install** via guarded reflection | **done (validated in-game)** | none | med (needs Invariant-4 guard) | ~half the retained Cecil graph (GB-scale) |
+| 3 | **Own the emission** (our DMD → `Dispose()` → plain Detour) | not started | none if verified | higher (coexistence) | full retention control, in-repo |
 | 4 | Upstream a `TrimRetainedIL()` to MonoMod | out-of-repo | none | low | clean, but not ours to ship, slow |
-| 5 | Cost-model doc fix (F3) + duplicate-`using` cleanup (F6/F7/F8) | free cleanup | none | none | honesty + tidy |
+| 5 | Cost-model doc fix (F3) + duplicate-`using` cleanup (F6/F7/F8) | **done** | none | none | honesty + tidy |
 
 ### P0 — fix the test harness first (blocking)
 

@@ -20,13 +20,19 @@
 > reference frame, never absolute") is the spine, and the five insight families
 > are the taxonomy the module is built to express.
 >
-> Status: **PROPOSED — not started.** Directional, kept current as waves land.
-> This is consolidate-and-generalise, not greenfield: the engine core already
-> exists and is sound; the work is pulling the scattered interpretation in,
-> generalising the substrate, and lighting up the detectors that were designed
-> but starved.
+> Status: **EXECUTED (2026-06-24, v0.18.1 → v0.19.0)** — the eight-wave
+> consolidation landed. Interpretation now lives in a top-level `Insights/` module
+> (ReferenceFrames / Drivers / Detectors-by-family / Shared / Publish); five of six
+> gated detectors un-gated; cross-session baselines persist fingerprint-keyed. The
+> commit-by-commit receipt and the honest "what remains" (HookFrequencyTail,
+> LoadoutCombinationCost, cross-mod event chains — each blocked on a named
+> prerequisite) live in `notes/insights-rework-status.md`. Canonical implementation
+> reality is `systems/insights-engine.md`. This plan is kept as the directional
+> design record that the rework executed against; it is RUNTIME-UNVERIFIED in-game
+> pending a Build + Reload (the `.tmod` lock; see the status note's verification
+> boundary).
 >
-> Date opened: 2026-06-24. Mod version at open: `0.18.1`.
+> Date opened: 2026-06-24. Executed: 2026-06-24. Mod version at open: `0.18.1`.
 
 ---
 

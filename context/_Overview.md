@@ -15,7 +15,8 @@ This is **not** a milestone log, not a changelog, and not a research archive. Ea
 ```
 context/
 ├── _Overview.md             ← you are here: entry point + folder map
-├── architecture.md          Top-down structural map of the mod
+├── architecture.html        Interactive architecture explorer (open in a browser)
+├── arch/                     Editable arch source: data.js (window.ARCH) + vendored shells
 ├── notes.md                 Index of notes/
 ├── _staleness-report.md     Per-file verdicts from the last upkeep run
 ├── .context-lint.json       Project-local lint aliases (see note below)
@@ -24,7 +25,7 @@ context/
 │   data-pipeline, hook-instrumentation, metric-collection,
 │   spike-detection, allocation-tracking, events-and-context,
 │   insights-engine, persistence, web-dashboard, overlay (archived),
-│   test-harness, mod-lifecycle
+│   test-harness, dashboard-audit-harness, mod-lifecycle
 │
 ├── tmodloader/              Per-API reference: what tModLoader exposes
 │                            AND how each of our subsystems plugs in
@@ -51,7 +52,7 @@ context/
                              maintained by the tools/testing L8 audit harness
 ```
 
-`.context-lint.json` aliases `_Overview.md` into the `architecture.md` lint slot (it is the entry-point file alongside the structural map) and treats `tmodloader/` + `integration/` as reference-style content. The project uses the markdown `architecture.md` form, not the HTML arch pipeline.
+`.context-lint.json` aliases `_Overview.md` into the architecture lint slot (it is the entry-point file alongside the structural map) and treats `tmodloader/` + `integration/` as reference-style content. The project uses the bundled **`architecture.html`** arch pipeline (open it in a browser); `arch/data.js` (`window.ARCH`) is the editable source and the five sibling files under `arch/` are vendored shells, regenerated wholesale by the pipeline — do not hand-edit them. The legacy markdown `architecture.md` was retired into this explorer in the 2026-06-25 upkeep pass.
 
 **Why this shape.** The pre-implementation reconnaissance done in 2026-05-19 lived as a flat `tmodloader-*.md` set plus a single `integration-map.md`. After the 2026-05-20 implementation burst landed eleven distinct subsystems, that shape no longer scaled: there was no canonical home for "how does our insights engine actually work" and the per-API slices grew "how we plug in" sections piecemeal. The folder split separates three concerns:
 
@@ -64,7 +65,7 @@ When a new feature lands, the canonical home is the relevant `systems/*.md`. Whe
 ## Reading order for a new session
 
 1. **`README.md`** at the repo root — directional intent (the dashboard-first pivot, the six conceptual views, overhead budgets, roadmap).
-2. **`context/architecture.md`** — top-down structural map (the four production trees, the dependency direction, the data flow).
+2. **`context/architecture.html`** — the interactive architecture explorer (top-down map: the production trees, the dependency graph, the data-flow trace, the failure invariants). Editable source is `context/arch/data.js`.
 3. **`context/notes.md`** + **`context/notes/decisions.md`** + **`context/notes/philosophy.md`** — what was decided, why, and the posture behind it.
 4. **`context/systems/data-pipeline.md`** — the calculation locus everything else reads through, then the `systems/*.md` file matching the work area + the `tmodloader/*.md` slice it cites.
 5. **`context/plans/code-health-audit/index.md`** if the work touches anything in the audit's implementation receipt.
