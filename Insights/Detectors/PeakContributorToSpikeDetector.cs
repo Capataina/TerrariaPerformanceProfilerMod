@@ -105,10 +105,4 @@ public sealed class PeakContributorToSpikeDetector : IInsightDetector
             });
         }
     }
-
-    /// <summary>Resets the consumed-cursor; used by end-of-session pass to drain every spike.</summary>
-    public void Reset()
-    {
-        _lastConsumedSpikeStart = long.MinValue;
-    }
 }

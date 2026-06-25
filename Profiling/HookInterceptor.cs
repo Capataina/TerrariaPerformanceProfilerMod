@@ -255,30 +255,20 @@ public static class HookInterceptor
     /// </summary>
     public static IReadOnlyList<Mod> ProfiledMods { get; private set; } = Array.Empty<Mod>();
 
-    /// <summary>Overrides discovered but skipped because their signature is not timed yet.</summary>
-    public static int UnsupportedHookSignatures => _unsupportedHookSignatures;
-
-    /// <summary>
-    /// Overrides whose signature WAS in the supported set but where
-    /// <see cref="MonoModHooks.Add"/> itself threw during install. Counted
-    /// separately from unsupported signatures because the failure mode and the
-    /// remediation are different: an unsupported signature is coverage debt
-    /// (we add the delegate pair), an install failure is a tModLoader/MonoMod
-    /// runtime issue worth surfacing in client.log and the session JSON.
-    /// </summary>
-    public static int InstallFailures => _installFailures;
-
     /// <summary>Measured hook count by ModId.</summary>
     public static IReadOnlyList<int> MeasuredHookCounts => _measuredHookCounts;
 
     /// <summary>Total discovered hook-override count by ModId.</summary>
     public static IReadOnlyList<int> TotalHookCounts => _totalHookCounts;
 
-    /// <summary>Sample unsupported signatures by ModId, capped for report/UI readability.</summary>
-    public static IReadOnlyList<IReadOnlyList<string>> UnsupportedHookSamples => _unsupportedHookSamples;
-
-    /// <summary>Frequency of each unsupported canonical signature shape, sorted descending by count.</summary>
-    public static IReadOnlyDictionary<string, int> UnsupportedSignatureFrequency => _unsupportedSignatureFrequency;
+    // The delegate-path coverage-debt surface (unsupported-signature count,
+    // install-failure count, per-mod signature samples, and the signature-shape
+    // frequency histogram) is accumulated below as install-time bookkeeping but
+    // has no reader: the install-summary line in Install() logs the two scalars
+    // as locals, and the delegate backend is dormant by default. The public
+    // getters were removed as dead surface; the backing fields stay so the
+    // RecordUnsupported / InstallFailed bodies still type-check and the summary
+    // log keeps working if the delegate path is ever re-activated.
 
     /// <summary>True once the timing detours are installed.</summary>
     public static bool Installed { get; private set; }
@@ -301,6 +291,11 @@ public static class HookInterceptor
             _unsupportedHookSignatures = 0;
             _installFailures = 0;
             _unsupportedSignatureFrequency.Clear();
+            // Re-arm the log-once flag on every install so a reload's first
+            // sample-hook failure is logged, matching ILHookInterceptor.cs:166.
+            // Without this the process-static flag carries over from the prior
+            // load and silently suppresses the warning on the fallback path.
+            _sampleFailureLogged = false;
             List<Mod> profiled = new List<Mod>();
             foreach (Mod mod in ModLoader.Mods)
             {

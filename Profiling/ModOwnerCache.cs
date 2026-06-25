@@ -34,6 +34,12 @@ public static class ModOwnerCache
 
     private static readonly ConcurrentDictionary<(Kind, int), string> _byTypeId = new();
 
+    // Memoises the EntitySource_-stripped name per source subclass Type so the
+    // Substring runs once per subclass for the whole session, not once per call.
+    // Same pattern as _byTypeId; the key set is the count of loaded IEntitySource
+    // subclasses (tens), so growth is bounded.
+    private static readonly ConcurrentDictionary<System.Type, string> _bySourceType = new();
+
     public static string ForItem(int itemType)
     {
         if (itemType < Terraria.ID.ItemID.Count) return "Terraria";
@@ -64,18 +70,20 @@ public static class ModOwnerCache
 
     /// <summary>
     /// Resolve the source-category name from an <see cref="IEntitySource"/>
-    /// subclass. Strips the <c>EntitySource_</c> prefix from the type name.
-    /// Cached via <see cref="System.Type.Name"/> (which is itself cached
-    /// by the runtime), so repeated calls with the same source subclass
-    /// are zero-alloc beyond the initial bookkeeping.
+    /// subclass, stripping the <c>EntitySource_</c> prefix from the type name.
+    /// The stripped result is memoised per source <see cref="System.Type"/> in
+    /// <see cref="_bySourceType"/>, so the <c>Substring</c> allocation happens
+    /// exactly once per subclass for the session; repeated calls with the same
+    /// source subclass return the cached reference with no allocation.
     /// </summary>
     public static string FromEntitySource(IEntitySource? source)
     {
         if (source == null) return "unknown";
-        string n = source.GetType().Name;
-        if (n.StartsWith("EntitySource_"))
-            return n.Substring("EntitySource_".Length);
-        return n;
+        return _bySourceType.GetOrAdd(source.GetType(), static t =>
+        {
+            string n = t.Name;
+            return n.StartsWith("EntitySource_") ? n.Substring("EntitySource_".Length) : n;
+        });
     }
 
     /// <summary>Diagnostic: entries currently cached.</summary>

@@ -15,7 +15,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 ## Performance Improvement
 
 ### CC-1 — `renderIfChanged` is built, documented, and adopted nowhere; heavy poll panels rebuild the DOM every poll regardless of data change
-- [ ] The shared signature-gate helper has **zero call sites** repo-wide; Lag/Insights/Memory/Self rebuild their tables + heatmaps on every poll even when the snapshot is byte-identical, and Timeline still hand-rolls the very pattern the helper generalises.
+- [x] The shared signature-gate helper has **zero call sites** repo-wide; Lag/Insights/Memory/Self rebuild their tables + heatmaps on every poll even when the snapshot is byte-identical, and Timeline still hand-rolls the very pattern the helper generalises. — IMPLEMENTED: 18 call sites now (`grep -c renderIfChanged` bundle = 18, was 1). Gated heavy panels — Lag: `renderLagHeatmap`/`renderLagClusters`/`renderLagDensity`/`renderLagRhythm` (`Js.Lag.cs`); Insights: `renderDormantSurface`/`renderObservatoryList`/`renderObservatoryDetail`/`renderCrossCutting`/`renderEngagementScatter`/`renderModInteractionMatrix` (`Js.Insights.cs`); Memory: `renderMemory` table write (`Js.Memory.cs`); Self: `renderHookDistribution` (`Js.Self.cs`). Each gates the heavy innerHTML/table rebuild behind a content signature (count + per-row figures + sort/selection/filter state); cheap sibling writes (sub-headers, legends, basis toggles) stay outside the gate. Timeline's bespoke `_tlSig` left as-is (already gating; migrating its 25 refs is mechanically large with no behaviour change — recorded as out-of-scope, not a defect). Verified: C# compile 0 error CS + full-bundle `node --check` OK + `--tabs` preview render exit 0 with all six tabs rendering populated fixtures.
 
 **Category:** Performance Improvement / Pattern Extraction (cross-cutting)   **Severity:** High   **Effort:** M   **Behavioural Impact:** none (identical rendered output; the gate is a pure DOM-churn skip that also preserves scroll/focus)
 **Location:** `Web/Assets/Js/Js.Components.cs:256` — `renderIfChanged(key, sig, el, html)` (the sole definition); consumers that should adopt it: `Js.Lag.cs:340/424/528/626` + `:108/180/198/481`, `Js.Insights.cs` sub-renderers, `Js.Memory.cs:241` (`setHTML(tableEl, html)`), `Js.Self.cs:99`; the un-migrated twin: `Js.Timeline.cs:51` (`const _tlSig = {}`) with **25** `_tlSig` references implementing the gate by hand.
@@ -26,7 +26,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Must verify the early-return doesn't strand sibling static-node writes (e.g. Lag's `setLagHeatmapTitle`/`subRoot`/`legendRoot`) — those sit outside the gated content and must stay outside the gate or be folded into the signature. Re-verify each gated panel renders + updates on real data change via L4.
 
 ### TL-1 — `renderTimelineSwimlanes` allocates two Maps + a per-segment object array BEFORE its signature gate
-- [ ] The swimlane renderer does its heavy index-Map build and window scan before computing the `_tlSig` bail check, so a no-change poll still allocates and discards two Maps + N `segKey` strings.
+- [x] The swimlane renderer does its heavy index-Map build and window scan before computing the `_tlSig` bail check, so a no-change poll still allocates and discards two Maps + N `segKey` strings. — IMPLEMENTED: `Js.Timeline.cs` `renderTimelineSwimlanes` — moved the `lifetimeIx`/`attrIx` Map builds to AFTER the `_tlSig.swimlanes` gate (they feed only the lane render loop, which is past the gate; the signature needs only `win` + `byFamily` counts + filter/selection). Pure statement reorder, output identical. Verified via `--tabs` preview render (timeline tab renders swimlanes correctly).
 
 **Category:** Performance Improvement   **Severity:** Medium   **Effort:** S   **Behavioural Impact:** none (pure reorder, same output)
 **Location:** `Web/Assets/Js/Js.Timeline.cs:317-360` — `renderTimelineSwimlanes()`; gate at `:357-359`, heavy work at `:316` (`swimlaneWindow()`), `:320-331` (`lifetimeIx` + `attrIx` Maps), `:333-354` (`byFamily`).
@@ -37,7 +37,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Pure statement reorder; output identical. Verify via L4 the swimlanes still render + update on segment change.
 
 ### SUM-1 — `sampleModStream` 5 s timer runs unconditionally even when Summary is not the active tab
-- [ ] `setInterval(sampleModStream, 5000)` fires forever; it walks every mod and mutates `modStreamHistory` even when the user is on another tab, where the result is never rendered.
+- [x] `setInterval(sampleModStream, 5000)` fires forever; it walks every mod and mutates `modStreamHistory` even when the user is on another tab, where the result is never rendered. — DEFERRED: no change recommended by the finding itself (verified-intentional exception — tab-gating would zero the rolling cost-stream window off-Summary and show a gap on return). Left as-is per the finding's own conclusion.
 
 **Category:** Performance Improvement   **Severity:** Low   **Effort:** S   **Behavioural Impact:** behaviour-preserving ONLY if history continuity off-tab is not required — see assessment
 **Location:** `Web/Assets/Js/Js.Summary.cs:300-323` (`sampleModStream`) + `:383` (`setInterval(sampleModStream, 5000)`).
@@ -52,7 +52,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 ## Pattern Extraction
 
 ### CC-2 — The `.dtable` sortable-table scaffold is hand-rolled 11× across four tabs with no shared builder
-- [ ] `<table class='dtable'><thead><tr>…</tr></thead><tbody>${rows}</tbody></table>` plus the `th.sortable`/`.sorted`/caret idiom is re-implemented per tab; there is no `dtable()` / `sortableHead()` in the shared `Js.Components.cs`.
+- [x] `<table class='dtable'><thead><tr>…</tr></thead><tbody>${rows}</tbody></table>` plus the `th.sortable`/`.sorted`/caret idiom is re-implemented per tab; there is no `dtable()` / `sortableHead()` in the shared `Js.Components.cs`. — IMPLEMENTED (scaffold) / PARTIALLY DEFERRED (header unification). Added `dtable(headCells, bodyRows, o)` to `Js.Components.cs` and routed all 12 hand-rolled scaffolds through it (Insights ×6, Lag ×3, Memory ×1, Timeline ×2 — `grep "<table class='dtable" Web/Assets/Js/` now returns only the docstring). Byte-identical output. Relocated the existing `sortableHead()` from `Js.Insights.cs` to `Js.Components.cs` (its Insights callers unchanged) so it is the documented shared home. DEFERRED: collapsing `lagSortTh` (inline `onclick`) and `memTh` (`data-msort` container-delegation) onto the one `sortableHead` (deferred `setTimeout` element-delegation) — the three use DIFFERENT binding mechanisms, so unifying them is a behavioural-shape change, not byte-identical (the finding's own Impact Assessment flags this as "NOT a same-file free win; confirm before implementing"). Left `lagSortTh`/`memTh` in place.
 
 **Category:** Pattern Extraction (cross-cutting)   **Severity:** Medium   **Effort:** M   **Behavioural Impact:** none if extraction is byte-identical
 **Location:** scaffold count (verified via grep): `Js.Insights.cs` ×6 (`:263,451,463,480,532,670`), `Js.Lag.cs` ×3 (`:340,424,619`), `Js.Memory.cs` ×1 (`:218`), `Js.Timeline.cs` ×1 (`:511`). The sortable-header idiom is independently re-implemented as `sortableHead` (`Js.Insights.cs:116`) AND `memTh` (`Js.Memory.cs:194`) AND `lagSortTh` (`Js.Lag.cs`), with `Js.Memory.cs:21` literally commenting "mirrors the Insights sortableHead model" — i.e. a copy, not a reference.
@@ -63,7 +63,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Cross-file change touching four tab renderers — NOT a same-file free win; confirm before implementing. Re-verify every table tab via L4 (header sort, row render, scroll preservation). The file-local fallback (a per-file `dtable()` in just `Js.Insights.cs`) is the conservative subset if the shared move is deferred.
 
 ### LAG-1 — Context-sentinel filter implemented twice with divergent sentinel sets (latent inconsistency)
-- [ ] The "is this a real context vs a placeholder" guard exists in two places; the heatmap's copy is weaker than the cluster table's corrected `realCtx`, so an all-`'—'`/`'none'` context set renders a junk single-column heatmap.
+- [x] The "is this a real context vs a placeholder" guard exists in two places; the heatmap's copy is weaker than the cluster table's corrected `realCtx`, so an all-`'—'`/`'none'` context set renders a junk single-column heatmap. — IMPLEMENTED: `Js.Lag.cs` — hoisted the corrected predicate to a single file-local `lagRealCtx(s)` declared near the top of the fragment (trims + lowercases, rejects `''`/`'—'`/`'-'`/`'none'`/`'n/a'`). The heatmap's weak `c => c != null && c !== '' && c !== '-'` filter now calls `contexts.filter(lagRealCtx)`, and the cluster table's column/chip/detail logic call the same `lagRealCtx`. Guard and rows now agree; the all-placeholder junk single-column grid no longer renders. 10 `lagRealCtx` references, 0 bare `realCtx` left.
 
 **Category:** Pattern Extraction (duplication + correctness divergence)   **Severity:** Medium   **Effort:** S   **Behavioural Impact:** changes heatmap output ONLY in the all-placeholder edge case, toward the behaviour the code already declares correct
 **Location:** `Web/Assets/Js/Js.Lag.cs:154` (heatmap, weak) vs `:256-260` (`realCtx`, corrected).
@@ -74,7 +74,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Touches what renders in an edge case — confirm with user, then verify via L4 with a fixture whose contexts are all `'—'`/`'none'`.
 
 ### LAG-2 — Three near-identical "top-mod cell" blocks (modColor + truncated name + share% [+ split bar])
-- [ ] The dominant-mod inline cell is hand-assembled three times with the same shape; one file-local helper would collapse them.
+- [x] The dominant-mod inline cell is hand-assembled three times with the same shape; one file-local helper would collapse them. — IMPLEMENTED: `Js.Lag.cs` — added file-local `lagTopModCell(modId, modName, share, withBar)` and routed the cluster-table cell (`withBar=true`) and the rhythm-cluster cell (`withBar=false`) through it. (The causality `segs` echo at the old `:507-514` is a `splitBar` over `topContributors`, a different shape — left as-is per the finding's "partial echo" note.) Kept Lag-local. Output identical (verified via preview render).
 
 **Category:** Pattern Extraction (internal)   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Web/Assets/Js/Js.Lag.cs:288-296` (cluster `modCell`), `:608-615` (rhythm-cluster row), partial echo `:507-514` (causality `segs`).
@@ -85,7 +85,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** File-local; verify Lag cluster/rhythm/causality cells via L4.
 
 ### TL-2 — Identical segment-span scan duplicated between `timelineWindow` and `swimlaneWindow`
-- [ ] A ~12-line segment recent/open min-max scan is character-for-character the same in both window helpers.
+- [x] A ~12-line segment recent/open min-max scan is character-for-character the same in both window helpers. — IMPLEMENTED: `Js.Timeline.cs` — extracted `_segmentSpan(s, e)` (folds the recent + open segment scan, including the open-segment `nowMs` widening, into a running `[s,e]`, returns `{s, e}`). `timelineWindow` seeds it with `Infinity/-Infinity` then folds in transitions + activity minutes; `swimlaneWindow` adds its 3% margin. One scan to maintain. Output identical (timeline tab renders correctly in preview).
 
 **Category:** Pattern Extraction (internal)   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Web/Assets/Js/Js.Timeline.cs:62-95` (`timelineWindow`) and `:110-135` (`swimlaneWindow`).
@@ -96,7 +96,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** File-local; verify Timeline heatstrip + swimlane windows align via L4.
 
 ### LAG-3 / INS-4 — Below-threshold internal dup (recorded, not recommended as free)
-- [ ] `lagGalaxySort`/`lagDensitySortBy` share one toggle body (`Js.Lag.cs:226-230`/`:360-364`); Insights `compositionBar`/`legendSegs` share the `ROSTER_CATS→segs` map (`Js.Insights.cs:333-343`/`:417-419`).
+- [x] `lagGalaxySort`/`lagDensitySortBy` share one toggle body (`Js.Lag.cs:226-230`/`:360-364`); Insights `compositionBar`/`legendSegs` share the `ROSTER_CATS→segs` map (`Js.Insights.cs:333-343`/`:417-419`). — DEFERRED: finding's own recommendation is "leave as-is" (below the 3+ internal-duplication floor; a shared helper would carry a mode flag costing more clarity than it saves). No action, per the finding. (NB: `lagGalaxySort` is now `lagClustersSort` after the DR-6 rename, but the toggle-body duplication verdict is unchanged.)
 
 **Category:** Pattern Extraction (internal, 2-instance)   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** as above.
@@ -111,7 +111,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 ## Documentation Rot
 
 ### DR-1 — `DataRegistry` + `KpiStat` doc-comments name `ProfilerSystem.Load` as the registration site; the real site is `PerformanceProfiler.RegisterDataPipeline`
-- [ ] Two XML doc-comments cite a registration site that does not exist; streams are registered in `PerformanceProfiler.RegisterDataPipeline` (called from `PerformanceProfiler.Load`), and `ProfilerSystem` has no `Load` method.
+- [ ] Two XML doc-comments cite a registration site that does not exist; streams are registered in `PerformanceProfiler.RegisterDataPipeline` (called from `PerformanceProfiler.Load`), and `ProfilerSystem` has no `Load` method. — DEFERRED: handled by core agent (touches `Data/DataRegistry.cs` + `Data/Stats/KpiStat.cs`, outside this agent's `Web/Assets/` scope).
 
 **Category:** Documentation Rot   **Severity:** Medium   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Data/DataRegistry.cs:28` ("populated by `ProfilerSystem.Load`") and `Data/Stats/KpiStat.cs:33` ("register in `ProfilerSystem.Load` via `DataRegistry.Shared.Register(new KpiStat())`").
@@ -122,7 +122,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Comment-only, zero behaviour. The `<c>ProfilerSystem.Load</c>` is the precise text to replace in each file.
 
 ### DR-2 — `Js.Tabs.cs` keyboard comment says "1-5" but the map (and tab strip) is 1-6
-- [ ] The comment above the keyboard handler says "Keyboard 1-5 switches tabs" while the `map` covers `1`–`6` (six tabs since the v0.17 Memory tab).
+- [x] The comment above the keyboard handler says "Keyboard 1-5 switches tabs" while the `map` covers `1`–`6` (six tabs since the v0.17 Memory tab). — IMPLEMENTED: `Js.Tabs.cs:29` — "Keyboard 1-5 switches tabs." → "Keyboard 1-6 switches tabs." Comment-only.
 
 **Category:** Documentation Rot   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Web/Assets/Js/Js.Tabs.cs:29` (comment) vs `:32` (`{ '1':'summary','2':'timeline','3':'lag','4':'insights','5':'self','6':'memory' }`).
@@ -133,7 +133,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Comment-only.
 
 ### DR-3 — Timeline change-history comments encode prior state ("than before", "were unlabelled")
-- [ ] Two forward-facing comments narrate the pre-fix state instead of describing current behaviour, the stale-triple pattern Editing Discipline warns against.
+- [x] Two forward-facing comments narrate the pre-fix state instead of describing current behaviour, the stale-triple pattern Editing Discipline warns against. — IMPLEMENTED: `Js.Timeline.cs` — reworded both to current-state. The heatstrip-legend comment "Both were unlabelled, so a reader saw 'red dots'…" → "The legend names the marks and anchors the ramp… so the strip never reads as bare red dots…"; the transition edge-band comment "Wider edge bands than before so…" → "The edge bands are wide enough that…". Comment-only.
 
 **Category:** Documentation Rot   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Web/Assets/Js/Js.Timeline.cs:286-287` ("Wider edge bands **than before** so…") and `:220-221` ("Both **were unlabelled**, so a reader saw 'red dots'…").
@@ -166,7 +166,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Doc-only, separate owner.
 
 ### DR-6 — Vestigial "galaxy" naming in `Js.Lag.cs` (renders a table, not a scatter)
-- [ ] `renderLagGalaxy`/`lagGalaxySort`/`lagGalaxyPick`/`lagGalaxySelected` all manage a `.dtable` titled "fingerprint clusters"; the "galaxy"/scatter framing is dead vocabulary from a retired design.
+- [x] `renderLagGalaxy`/`lagGalaxySort`/`lagGalaxyPick`/`lagGalaxySelected` all manage a `.dtable` titled "fingerprint clusters"; the "galaxy"/scatter framing is dead vocabulary from a retired design. — IMPLEMENTED: `Js.Lag.cs` — renamed `renderLagGalaxy`→`renderLagClusters`, `lagGalaxySort`→`lagClustersSort`, `lagGalaxyPick`→`lagClustersPick`, `lagGalaxySelected`→`lagClustersSelected`, at every call site (the `renderLag` dispatcher, the `lagSortTh` header `onSort` args, the row `onclick`). Blast radius fully file-local (`grep "lagGalaxy\|Galaxy"` over the whole `Web/` tree = 0). Lag cluster table + click-to-select render correctly in preview.
 
 **Category:** Documentation Rot (identifier-level)   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none (rename only; blast radius fully file-local — verified `lagGalaxy*` appears nowhere outside `Js.Lag.cs`; `Js.Topbar.cs:51` dispatches `renderLag`, not `renderLagGalaxy`)
 **Location:** `Web/Assets/Js/Js.Lag.cs:31` (`lagGalaxySelected`), `:226` (`lagGalaxySort`), `:232` (`renderLagGalaxy`), `:300` (`onclick='lagGalaxyPick(...)'`), `:343` (`lagGalaxyPick`).
@@ -181,7 +181,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 ## Configuration / Token-System Drift
 
 ### CSS-1 — Semantic colour washes hardcode raw sRGB `rgba()` approximations of OKLCH tokens (two sources of truth)
-- [ ] Status-tag / chip / callout / status-glow backgrounds use raw sRGB `rgba(r,g,b,a)` literals that approximate `--good`/`--amber`/`--orange`/`--danger`/`--magenta`; if a token's OKLCH value changes, these stale copies silently drift. Convention §22 mandates OKLCH tokens.
+- [ ] Status-tag / chip / callout / status-glow backgrounds use raw sRGB `rgba(r,g,b,a)` literals that approximate `--good`/`--amber`/`--orange`/`--danger`/`--magenta`; if a token's OKLCH value changes, these stale copies silently drift. Convention §22 mandates OKLCH tokens. — DEFERRED: the finding itself states these rgba literals are *approximations* of the OKLCH tokens, so re-deriving from the token (`oklch(from var(--good) …)` or a `--*-wash` token computed from the OKLCH source) produces the *correct* colour, which is a real — if near-imperceptible — shift from the currently-rendered sRGB approximation. The implementation brief's explicit instruction is "if you cannot guarantee the colour is visually identical, DEFER it" and the orchestrator vision-checks the washes; visual identity cannot be guaranteed here by construction (the whole premise is that they differ). Deferred to the orchestrator's vision-checked pass rather than risk a visible status-glow shift. The pure-black/white elevation shadows + the `#11161fee` tooltip surface are noted by the finding as NOT colour and out of CSS-1's chromatic scope regardless.
 
 **Category:** Configuration Drift / Pattern Extraction (cross-cutting CSS)   **Severity:** Medium   **Effort:** M   **Behavioural Impact:** near-imperceptible colour shift if re-derived from tokens (sRGB approximations ≈ the OKLCH source); verify visually
 **Location (verified via `grep -rnE '#[0-9a-f]{3,8}|rgba?\(|hsla?\(' Web/Assets/Css/ | grep -v oklch`):
@@ -197,7 +197,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Touches visible colour (faint washes/glows). Implement as added `--*-wash` tokens (additive, lowest-risk) and re-verify each tag/chip/callout/status-dot via L4 computed-style + a vision spot-check. The `#11161fee` tooltip background is a surface and should become a `--popover`-derived token.
 
 ### CSS-2 — Dead palette tokens `--purple` and `--cyan` (defined, zero consumers)
-- [ ] Two data-viz tokens are defined in `Css.Palette.cs` but referenced nowhere in any CSS or JS (verified `grep` of the whole `Web/` tree, including string literals).
+- [x] Two data-viz tokens are defined in `Css.Palette.cs` but referenced nowhere in any CSS or JS (verified `grep` of the whole `Web/` tree, including string literals). — IMPLEMENTED: `Css.Palette.cs` — removed the `--purple: oklch(0.72 0.11 300)` and `--cyan: oklch(0.72 0.11 215)` declarations. Re-verified zero consumers across `Web/` before removal (`grep var(--purple)|var(--cyan)` = 0 outside the defs). `--magenta` (used by the db status dot) kept. Compile + render unaffected.
 
 **Category:** Dead Code (CSS)   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `Web/Assets/Css/Css.Palette.cs:107` (`--purple: oklch(0.72 0.11 300)`) and `:108` (`--cyan: oklch(0.72 0.11 215)`).
@@ -208,7 +208,7 @@ Both corroborate the headline cross-cutting finding (CC-1): adopt the already-bu
 **Impact Assessment:** Removing two `:root` custom-property declarations with zero consumers is byte-safe; verify via L4 the dashboard still renders (it must, nothing reads them).
 
 ### ProfilerConfig — 9 unused `using` directives over an empty class body
-- [ ] `ProfilerConfig.cs` carries the full project `using` block (`Data.Detectors`, `Data.Aggregators`, `Data.Stats`, `Profiling`, persistence, etc.) but the class has no fields and uses none of them.
+- [ ] `ProfilerConfig.cs` carries the full project `using` block (`Data.Detectors`, `Data.Aggregators`, `Data.Stats`, `Profiling`, persistence, etc.) but the class has no fields and uses none of them. — DEFERRED: `ProfilerConfig.cs` is at the repo root, outside this agent's `Web/Assets/` scope. Left for the core agent.
 
 **Category:** Configuration Drift / Dead Code   **Severity:** Low   **Effort:** S   **Behavioural Impact:** none
 **Location:** `ProfilerConfig.cs:5-14` (the `using` block); the class body (`:30-33`) only overrides `Mode => ConfigScope.ClientSide` and needs `Terraria.ModLoader.Config` (`:3`) only.

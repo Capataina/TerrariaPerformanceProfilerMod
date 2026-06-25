@@ -56,6 +56,11 @@ public static class PerModAttribution
         "Systems", "Players", "NPCs", "Projectiles", "Items", "World", "Buffs",
     };
 
+    // Stopwatch-ticks → milliseconds. Stopwatch.Frequency is fixed at process
+    // boot, so caching the reciprocal turns the per-harvest division (run 2-4×
+    // per tick) into a multiply, matching the Time.cs:46 convention.
+    private static readonly double TicksToMs = 1000d / Stopwatch.Frequency;
+
     /// <summary>Number of hook categories.</summary>
     public static int CategoryCount => CategoryNames.Length;
 
@@ -315,11 +320,10 @@ public static class PerModAttribution
         }
 
         long[] ticks = _ticksByBackend[backendId];
-        double ticksToMs = 1000d / Stopwatch.Frequency;
         int n = ticks.Length < destination.Length ? ticks.Length : destination.Length;
         for (int i = 0; i < n; i++)
         {
-            destination[i] = ticks[i] * ticksToMs;
+            destination[i] = ticks[i] * TicksToMs;
         }
     }
 
@@ -345,11 +349,10 @@ public static class PerModAttribution
         }
 
         long[] hookTicks = _hookTicksByBackend[backendId];
-        double ticksToMs = 1000d / Stopwatch.Frequency;
         int n = hookTicks.Length < destination.Length ? hookTicks.Length : destination.Length;
         for (int i = 0; i < n; i++)
         {
-            destination[i] = hookTicks[i] * ticksToMs;
+            destination[i] = hookTicks[i] * TicksToMs;
         }
     }
 

@@ -100,6 +100,11 @@ public sealed class ContextConditionalCostDetector : IInsightDetector
 
         if (_candidates.Count == 0) return;
 
+        // Bonferroni denominator. The tests are NOT independent — every bucket's
+        // out-of-context complement is derived from the same global per-mod series —
+        // so the effective number of independent tests is below testsRun and this
+        // correction is conservative (it can suppress real signals, never manufacture
+        // them). A dependence-aware step (Holm/BH) would recover that power.
         int adjust = testsRun < 1 ? 1 : testsRun;
         _candidates.Sort((a, b) => b.Effect.CompareTo(a.Effect));
 

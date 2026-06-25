@@ -103,6 +103,9 @@ internal sealed class EventAggregator
     public bool HasContext => _hasContext;
 
     /// <summary>
+    /// PER-TICK HOT PATH (Invariant 2) — no allocation, no interface dispatch
+    /// in steady state. Driven directly each tick rather than through the
+    /// registry's Cadence-gated loop, so this banner is the contract.
     /// Accumulates one tick's frame time into every dimension's active
     /// buckets. Allocation only fires the first time a new bucket appears
     /// (dictionary growth + one <see cref="BucketStats"/>); steady state is

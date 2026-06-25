@@ -58,6 +58,7 @@ public sealed class PerTickAttributionRing
     private readonly float[]? _perModCatBytes;    // null when allocation tracking is off
 
     private readonly int _modCount;
+    private readonly int _catCount;
     private readonly int _historyTicks;
     private readonly int _categorySnapshotTicks;
 
@@ -102,7 +103,11 @@ public sealed class PerTickAttributionRing
         _categorySnapshotTicksMask = _categorySnapshotTicks - 1;
 
         _perModMs = new float[modCount * _historyTicks];
+        // CategoryCount is frozen after PerModAttribution.Configure, which runs
+        // before this ring is built, so cache it as a field (peer of _modCount)
+        // rather than re-reading the static .Length property on every Push.
         int catCount = PerModAttribution.CategoryCount;
+        _catCount = catCount;
         _perModCatMs = new float[modCount * catCount * _categorySnapshotTicks];
 
         if (trackAllocations)
@@ -138,7 +143,7 @@ public sealed class PerTickAttributionRing
     /// <param name="perModCatBytes">Parallel byte values; pass null if allocation tracking is off.</param>
     public void Push(long gameTick, double[] perModCatMs, double[]? perModCatBytes)
     {
-        int catCount = PerModAttribution.CategoryCount;
+        int catCount = _catCount;
         // Slot from the ring's own monotonic counter so wrap-around behaves
         // regardless of how the game's tick counter is sourced. The game tick
         // is stored alongside for lookup validation, not used for slot math.
@@ -222,7 +227,7 @@ public sealed class PerTickAttributionRing
     public void CopyLatestCategorySnapshot(Span<float> destinationMs, Span<float> destinationBytes)
     {
         if (_writeCount == 0) return;
-        int catCount = PerModAttribution.CategoryCount;
+        int catCount = _catCount;
         int latestSlot = (int)((_writeCount - 1) & _categorySnapshotTicksMask);
         int baseIdx = latestSlot * _modCount * catCount;
         int n = _modCount * catCount;
@@ -262,7 +267,7 @@ public sealed class PerTickAttributionRing
         long ago = _lastGameTick - gameTick;
         if (_lastGameTick < 0 || ago < 0 || ago >= _categorySnapshotTicks) return false;
 
-        int catCount = PerModAttribution.CategoryCount;
+        int catCount = _catCount;
         long latestSlot = (_writeCount - 1) & _categorySnapshotTicksMask;
         long slot = (latestSlot - ago + _categorySnapshotTicks) & _categorySnapshotTicksMask;
         int baseIdx = (int)slot * _modCount * catCount;

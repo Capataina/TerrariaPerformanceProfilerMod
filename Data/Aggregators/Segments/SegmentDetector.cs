@@ -115,11 +115,13 @@ internal sealed class SegmentDetector
     /// <param name="ctx">Captured EventContext for this tick.</param>
     /// <param name="frameMs">Frame time this tick, in ms.</param>
     /// <param name="perModCategoryRawMs">
-    /// Per-mod / per-category raw ms for this tick.
-    /// Layout: <c>[modId * CategoryCount + categoryId]</c>; <see cref="MetricCollector.PerModCategoryRawMs"/>.
+    /// Per-mod / per-category raw ms for this tick. The concrete
+    /// <c>double[]</c> (via <see cref="MetricCollector.PerModCategoryRawMsArray"/>)
+    /// so the per-segment fold below indexes without interface dispatch.
+    /// Layout: <c>[modId * CategoryCount + categoryId]</c>.
     /// </param>
     public void OnTick(long tickIndex, long unixMs, in EventContext ctx, double frameMs,
-        IReadOnlyList<double> perModCategoryRawMs)
+        double[] perModCategoryRawMs)
     {
         int modCount = PerModAttribution.ModCount;
         int categoryCount = PerModAttribution.CategoryCount;
@@ -525,13 +527,16 @@ internal sealed class SegmentDetector
 
         // Composite changed — rebuild the display name into the reusable
         // scratch buffer. One allocation here per *change*, not per tick.
+        // Index the concrete list (not the IReadOnlyList view) so each lookup
+        // is devirtualised, matching the per-tick folds.
+        List<BiomeDescriptor> biomes = BiomeRegistry.BiomesList;
         _compositeScratch.Clear();
         bool first = true;
         for (int i = 0; i < count; i++)
         {
             if (!bitset.IsSet(i)) continue;
             if (!first) _compositeScratch.Append(' ');
-            _compositeScratch.Append(BiomeRegistry.Biomes[i].DisplayName);
+            _compositeScratch.Append(biomes[i].DisplayName);
             first = false;
         }
         compositeName = !any ? string.Empty : _compositeScratch.ToString();

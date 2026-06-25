@@ -74,6 +74,10 @@ public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
         }
         if (_cand.Count == 0) return;
 
+        // Bonferroni denominator. The per-context tests all lean on the same total
+        // spike/dwell counts, so they are not independent; the effective test count is
+        // below tests and the correction is conservative (suppresses real correlations,
+        // never manufactures them). A Holm/BH step would recover the lost power.
         int adjust = tests < 1 ? 1 : tests;
         _cand.Sort((a, b) => b.lift.CompareTo(a.lift));
         int take = Math.Min(_cand.Count, MaxEmitPerPass);
@@ -87,7 +91,11 @@ public sealed class ContextCorrelatedSpikeDetector : IInsightDetector
                 Magnitude = new Magnitude
                 {
                     Shape = MagnitudeShape.Deviation,
-                    RatioOrDelta = c.lift, // spike share / dwell share
+                    // spike share / dwell share — an over-representation LIFT ratio (can be >> 1),
+                    // NOT a [0,1] share. Correctly excluded from RankingScorer.IsSharePattern so it
+                    // ranks via RatioCurve; do not move it into the share set, which would clamp a
+                    // legitimate 3× lift and lose the very over-representation this pattern measures.
+                    RatioOrDelta = c.lift,
                     Count = (int)Math.Min(int.MaxValue, c.spikes),
                 },
                 Evidence = new Evidence

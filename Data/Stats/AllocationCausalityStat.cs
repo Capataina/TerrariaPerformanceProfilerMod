@@ -114,7 +114,12 @@ public sealed class AllocationCausalityStat : IDataStat<AllocCausalitySnapshot>
                 perModBytes[bestIdx] = 0; // remove from further consideration
             }
 
-            long freedBytes = s.HeapSizeBeforeBytes - s.HeapSizeAfterBytes;
+            // Guard the subtraction the way the sibling GcPressureStat does
+            // (GcPressureStat.cs:88-90): a GC where the heap is larger after
+            // than before (allocation inside the collection window, or a
+            // sampling race) would otherwise ship a negative byte count to the
+            // L6 panel. Same abs handling, so the two stats agree.
+            long freedBytes = Math.Abs(s.HeapSizeBeforeBytes - s.HeapSizeAfterBytes);
             chains.Add(new AllocCausalityChain(
                 GcStallUnixMs: s.StartTimestampUnixMs,
                 GcStallTickIndex: s.StartTickIndex,

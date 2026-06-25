@@ -59,8 +59,11 @@ function segKey(family, key, startTick) {
   return (family || '') + '|' + (key != null ? key : '') + '|' + (startTick != null ? startTick : '');
 }
 
-function timelineWindow() {
-  let s = Infinity, e = -Infinity;
+// Fold the recent + open segment span into the running [s, e] min-max. An open
+// segment legitimately runs to now, so its end widens to max(elapsed-end, now).
+// Shared by timelineWindow + swimlaneWindow, which then widen/margin the result
+// differently — one scan to maintain instead of two copies that could drift.
+function _segmentSpan(s, e) {
   if (lastSegments) {
     for (const sg of (lastSegments.recent || [])) {
       if (sg.startUnixMs < s) s = sg.startUnixMs;
@@ -74,6 +77,11 @@ function timelineWindow() {
       if (nowMs > e) e = nowMs;
     }
   }
+  return { s, e };
+}
+
+function timelineWindow() {
+  let { s, e } = _segmentSpan(Infinity, -Infinity);
   if (lastTransitions) {
     for (const t of (lastTransitions.transitions || [])) {
       if (t.unixMs < s) s = t.unixMs;
@@ -108,20 +116,7 @@ function pctOf(ms, win) {
 // first/last blocks off the very edges. Every lane is laid against this one
 // window, so the family lanes stay axis-aligned with each other.
 function swimlaneWindow() {
-  let s = Infinity, e = -Infinity;
-  if (lastSegments) {
-    for (const sg of (lastSegments.recent || [])) {
-      if (sg.startUnixMs < s) s = sg.startUnixMs;
-      if (sg.endUnixMs   > e) e = sg.endUnixMs;
-    }
-    for (const sg of (lastSegments.open || [])) {
-      if (sg.startUnixMs < s) s = sg.startUnixMs;
-      const nowMs = lastNow ? lastNow.unixMs : Date.now();
-      const endMs = sg.startUnixMs + (sg.elapsedMs || 0);
-      if (endMs > e) e = endMs;
-      if (nowMs > e) e = nowMs;   // an open segment legitimately runs to now
-    }
-  }
+  let { s, e } = _segmentSpan(Infinity, -Infinity);
   if (!isFinite(s) || !isFinite(e) || e <= s) {
     // No segments yet — fall back to the broad window so the lanes still scale
     // to something sane rather than collapsing to a degenerate span.
@@ -214,9 +209,9 @@ function renderTimelineHeatstrip() {
   const strip = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
 
   // Legend: the bar fill is the perf ramp (healthy -> busy) keyed to the busiest
-  // minute, and the marker dots flag spike/stall minutes. Both were unlabelled,
-  // so a reader saw 'red dots' with no key and a colour ramp with no reference.
-  // The legend names the marks and anchors the ramp to its min..max ms/t.
+  // minute, and the marker dots flag spike/stall minutes. The legend names the
+  // marks and anchors the ramp to its min..max ms/t, so the strip never reads as
+  // bare red dots with no key or a colour ramp with no reference.
   const minFrame = buckets.reduce((m, b) => Math.min(m, b.avgFrameMs || 0), maxFrame);
   const legend =
     `<div class='hs-legend'>` +
@@ -282,7 +277,7 @@ function renderTimelineTransitions() {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
     // Edge-anchor: chips near the left/right edge anchor to that edge so the
     // (clipped + inset) track never cuts the label; the rest centre on their
-    // tick. Wider edge bands than before so a chip whose tick sits at the very
+    // tick. The edge bands are wide enough that a chip whose tick sits at the very
     // right anchors inward rather than overhanging the clip boundary.
     const tx = leftPct < 18 ? '0' : leftPct > 82 ? '-100%' : '-50%';
     // Vertical stagger: alternate chips onto two stacked bands so two closely-
@@ -317,19 +312,6 @@ function renderTimelineSwimlanes() {
   const byFamily = {};
   for (const f of TL_FAMILIES) byFamily[f] = [];
 
-  const lifetimeIx = new Map();
-  if (lastSegmentLifetime && lastSegmentLifetime.entries) {
-    for (const e of lastSegmentLifetime.entries) {
-      lifetimeIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
-    }
-  }
-  const attrIx = new Map();
-  if (lastSegmentModAttr && lastSegmentModAttr.entries) {
-    for (const e of lastSegmentModAttr.entries) {
-      attrIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
-    }
-  }
-
   const segs = (lastSegments && lastSegments.recent) || [];
   for (const s of segs) {
     if (!byFamily[s.family]) continue;
@@ -358,6 +340,22 @@ function renderTimelineSwimlanes() {
   for (const f of TL_FAMILIES) sig += ':' + f + '=' + byFamily[f].length + ',' + (byFamily[f].length ? byFamily[f][byFamily[f].length-1].startTick : '');
   if (sig === _tlSig.swimlanes) return;
   _tlSig.swimlanes = sig;
+
+  // The two per-segment index Maps are built only past the signature gate, so a
+  // no-change poll allocates neither (they feed the lane render loop below). The
+  // signature above needs only byFamily counts + the window, not these indices.
+  const lifetimeIx = new Map();
+  if (lastSegmentLifetime && lastSegmentLifetime.entries) {
+    for (const e of lastSegmentLifetime.entries) {
+      lifetimeIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
+    }
+  }
+  const attrIx = new Map();
+  if (lastSegmentModAttr && lastSegmentModAttr.entries) {
+    for (const e of lastSegmentModAttr.entries) {
+      attrIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
+    }
+  }
 
   for (const f of TL_FAMILIES) {
     const laneRow = document.getElementById('tl-laneRow-' + f.toLowerCase());
@@ -508,10 +506,7 @@ function renderTimelineDetail() {
         <td>${fmtMs(m.ms)} ms</td>
       </tr>`;
     }).join('');
-    modsHtml = `<table class='dtable' style='margin-top:0.5rem'>
-      <thead><tr><th class='l'>mod</th><th></th><th>ms</th></tr></thead>
-      <tbody>${modRows}</tbody>
-    </table>`;
+    modsHtml = dtable(`<tr><th class='l'>mod</th><th></th><th>ms</th></tr>`, modRows, { style: 'margin-top:0.5rem' });
   }
 
   const body = rows.map(r => statLine(r[0], String(r[1]))).join('') + modsHtml;
@@ -597,12 +592,9 @@ function renderTimelineAttendance() {
   // row over an empty body reads as a broken table, so replace it with a muted
   // idle line in the vanilla-only case.
   const tableHtml = sorted.length > 0
-    ? `<table class='dtable tm-table'>
-    <thead><tr>
+    ? dtable(`<tr>
       <th class='l'>mod</th><th>biome ticks</th><th>share</th><th>invasions</th><th>boss segs</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`
+    </tr>`, rows, { cls: 'tm-table' })
     : `<div class='tm-idle'>no per-mod biome attribution this session</div>`;
 
   setHTML(root, totalsBand + barHtml + tableHtml);

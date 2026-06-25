@@ -26,11 +26,12 @@ namespace PerformanceProfiler.Data.Aggregators;
 /// <para>
 /// <b>Hot-path discipline (Invariant 2).</b> <see cref="OnTick"/> runs
 /// every tick at 60 Hz. The per-tick working buffer is allocated once at
-/// <see cref="Initialise"/>; per-tick work is one indexed walk across
-/// <see cref="MetricCollector.PerModCategoryRawMs"/> with no LINQ, no
-/// foreach over interfaces, no allocations. A bucket roll-over allocates
-/// exactly one <c>double[ModCount]</c> per closed bucket — that is one
-/// allocation per second, not per tick.
+/// <see cref="Initialise"/>; per-tick work is one indexed walk across the
+/// concrete <see cref="MetricCollector.PerModCategoryRawMsArray"/> with no
+/// LINQ, no interface indexing (the <c>double[]</c> is indexed directly so
+/// the JIT devirtualises and elides bounds checks), no allocations. A bucket
+/// roll-over allocates exactly one <c>double[ModCount]</c> per closed bucket
+/// — that is one allocation per second, not per tick.
 /// </para>
 ///
 /// <para>
@@ -148,7 +149,7 @@ public sealed class PerModCostTimeSeriesAggregator
         MetricCollector? c = _collector;
         if (c == null) return;
 
-        IReadOnlyList<double> perCat = c.PerModCategoryRawMs;
+        double[] perCat = c.PerModCategoryRawMsArray;
         int catCount = PerModAttribution.CategoryCount;
         int modCount = _modCount;
         double[] bucket = _currentBucket;
@@ -165,7 +166,7 @@ public sealed class PerModCostTimeSeriesAggregator
 
         // Sum across categories per mod and add into the bucket.
         // Guarded against shape drift (perCat shorter than expected) without throwing.
-        int perCatLen = perCat.Count;
+        int perCatLen = perCat.Length;
         for (int modId = 0; modId < modCount; modId++)
         {
             int baseIdx = modId * catCount;

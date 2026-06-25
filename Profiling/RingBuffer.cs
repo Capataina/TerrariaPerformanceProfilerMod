@@ -60,9 +60,6 @@ public sealed class RingBuffer<T> where T : struct
     /// <summary>The number of live records, between 0 and <see cref="Capacity"/>.</summary>
     public int Count => _count;
 
-    /// <summary>True once the buffer has filled and every <see cref="Push"/> overwrites the oldest record.</summary>
-    public bool IsFull => _count == _items.Length;
-
     /// <summary>
     /// Appends a record, overwriting the oldest one if the buffer is full. Zero
     /// allocation: one array store and a little index arithmetic. The record is
@@ -111,11 +108,6 @@ public sealed class RingBuffer<T> where T : struct
     /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
     public T Newest =>
         _count > 0 ? this[_count - 1] : throw new InvalidOperationException("Ring buffer is empty.");
-
-    /// <summary>The oldest live record.</summary>
-    /// <exception cref="InvalidOperationException">The buffer is empty.</exception>
-    public T Oldest =>
-        _count > 0 ? this[0] : throw new InvalidOperationException("Ring buffer is empty.");
 
     /// <summary>
     /// Drops every record without releasing the backing store, so the same

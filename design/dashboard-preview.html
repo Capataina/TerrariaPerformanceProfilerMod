@@ -101,8 +101,6 @@
   --orange:       var(--perf-3);
   --danger:       var(--destructive);
   --magenta:      oklch(0.72 0.11 350);
-  --purple:       oklch(0.72 0.11 300);
-  --cyan:         oklch(0.72 0.11 215);
 
   /* Series colours — a value with a single semantic axis (same family) */
   --cpu:          var(--perf-0);
@@ -2265,7 +2263,7 @@ function switchTab(name) {
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
-// Keyboard 1-5 switches tabs.
+// Keyboard 1-6 switches tabs.
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   const map = { '1': 'summary', '2': 'timeline', '3': 'lag', '4': 'insights', '5': 'self', '6': 'memory' };
@@ -2720,6 +2718,53 @@ function renderIfChanged(key, sig, el, html) {
   if (typeof el === 'function') { el(); return true; }
   if (el) setHTML(el, html);
   return true;
+}
+
+// ====== Table chrome =================================================
+// One source of truth for the .dtable scaffold every sortable/static table
+// shares (header sort, row render, scroll preservation fixes all land here once
+// instead of per call site). headCells is the full <thead> inner row(s) markup
+// (a <tr>… or the sortableHead() return); bodyRows is the joined <tbody> rows.
+// opts: { cls? extra table classes, style? inline style }. The output is the
+// same `<table class='dtable'>…` markup the surfaces hand-rolled, so it is
+// byte-identical to the prior per-site scaffolds.
+function dtable(headCells, bodyRows, o) {
+  o = o || {};
+  const cls = 'dtable' + (o.cls ? ' ' + o.cls : '');
+  const st = o.style ? ` style='${o.style}'` : '';
+  return `<table class='${cls}'${st}><thead>${headCells}</thead><tbody>${bodyRows || ''}</tbody></table>`;
+}
+
+// Shared sortable-header builder for the .dtable surfaces. cols: [{key, label,
+// l (left-align bool), title}]. Clicking a header sorts by that key (toggling
+// direction); the active column shows the direction arrow. onSort() is invoked
+// after the state is updated. rootId scopes the click binding to one table.
+// Relocated here from Js.Insights so every tab reads the one definition; the
+// Insights surfaces remain its callers, and the binding contract is unchanged.
+function sortableHead(cols, state, onSort, rootId) {
+  const ths = cols.map(c => {
+    const sorted = c.key === state.key;
+    const cls = (c.l ? 'l ' : '') + 'sortable' + (sorted ? ' sorted' : '');
+    const arrow = sorted ? (state.dir === 1 ? ' ▲' : ' ▼') : '';
+    const t = c.title ? ` title='${escapeHtml(c.title)}'` : '';
+    return `<th class='${cls}' data-key='${c.key}'${t}>${escapeHtml(c.label)}${arrow}</th>`;
+  }).join('');
+  // Defer binding until the table is in the DOM (caller sets innerHTML next).
+  setTimeout(() => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('th.sortable').forEach(th => {
+      if (th.dataset.bound) return;
+      th.dataset.bound = '1';
+      th.addEventListener('click', () => {
+        const k = th.dataset.key;
+        if (state.key === k) state.dir = -state.dir;
+        else { state.key = k; state.dir = -1; }
+        onSort();
+      });
+    });
+  }, 0);
+  return `<tr>${ths}</tr>`;
 }
 
 // ---- shared geometry --------------------------------------------------
@@ -4335,8 +4380,11 @@ function segKey(family, key, startTick) {
   return (family || '') + '|' + (key != null ? key : '') + '|' + (startTick != null ? startTick : '');
 }
 
-function timelineWindow() {
-  let s = Infinity, e = -Infinity;
+// Fold the recent + open segment span into the running [s, e] min-max. An open
+// segment legitimately runs to now, so its end widens to max(elapsed-end, now).
+// Shared by timelineWindow + swimlaneWindow, which then widen/margin the result
+// differently — one scan to maintain instead of two copies that could drift.
+function _segmentSpan(s, e) {
   if (lastSegments) {
     for (const sg of (lastSegments.recent || [])) {
       if (sg.startUnixMs < s) s = sg.startUnixMs;
@@ -4350,6 +4398,11 @@ function timelineWindow() {
       if (nowMs > e) e = nowMs;
     }
   }
+  return { s, e };
+}
+
+function timelineWindow() {
+  let { s, e } = _segmentSpan(Infinity, -Infinity);
   if (lastTransitions) {
     for (const t of (lastTransitions.transitions || [])) {
       if (t.unixMs < s) s = t.unixMs;
@@ -4384,20 +4437,7 @@ function pctOf(ms, win) {
 // first/last blocks off the very edges. Every lane is laid against this one
 // window, so the family lanes stay axis-aligned with each other.
 function swimlaneWindow() {
-  let s = Infinity, e = -Infinity;
-  if (lastSegments) {
-    for (const sg of (lastSegments.recent || [])) {
-      if (sg.startUnixMs < s) s = sg.startUnixMs;
-      if (sg.endUnixMs   > e) e = sg.endUnixMs;
-    }
-    for (const sg of (lastSegments.open || [])) {
-      if (sg.startUnixMs < s) s = sg.startUnixMs;
-      const nowMs = lastNow ? lastNow.unixMs : Date.now();
-      const endMs = sg.startUnixMs + (sg.elapsedMs || 0);
-      if (endMs > e) e = endMs;
-      if (nowMs > e) e = nowMs;   // an open segment legitimately runs to now
-    }
-  }
+  let { s, e } = _segmentSpan(Infinity, -Infinity);
   if (!isFinite(s) || !isFinite(e) || e <= s) {
     // No segments yet — fall back to the broad window so the lanes still scale
     // to something sane rather than collapsing to a degenerate span.
@@ -4490,9 +4530,9 @@ function renderTimelineHeatstrip() {
   const strip = barChart({ bars, max: maxFrame, colWidth: 6, scrollx: true });
 
   // Legend: the bar fill is the perf ramp (healthy -> busy) keyed to the busiest
-  // minute, and the marker dots flag spike/stall minutes. Both were unlabelled,
-  // so a reader saw 'red dots' with no key and a colour ramp with no reference.
-  // The legend names the marks and anchors the ramp to its min..max ms/t.
+  // minute, and the marker dots flag spike/stall minutes. The legend names the
+  // marks and anchors the ramp to its min..max ms/t, so the strip never reads as
+  // bare red dots with no key or a colour ramp with no reference.
   const minFrame = buckets.reduce((m, b) => Math.min(m, b.avgFrameMs || 0), maxFrame);
   const legend =
     `<div class='hs-legend'>` +
@@ -4558,7 +4598,7 @@ function renderTimelineTransitions() {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
     // Edge-anchor: chips near the left/right edge anchor to that edge so the
     // (clipped + inset) track never cuts the label; the rest centre on their
-    // tick. Wider edge bands than before so a chip whose tick sits at the very
+    // tick. The edge bands are wide enough that a chip whose tick sits at the very
     // right anchors inward rather than overhanging the clip boundary.
     const tx = leftPct < 18 ? '0' : leftPct > 82 ? '-100%' : '-50%';
     // Vertical stagger: alternate chips onto two stacked bands so two closely-
@@ -4593,19 +4633,6 @@ function renderTimelineSwimlanes() {
   const byFamily = {};
   for (const f of TL_FAMILIES) byFamily[f] = [];
 
-  const lifetimeIx = new Map();
-  if (lastSegmentLifetime && lastSegmentLifetime.entries) {
-    for (const e of lastSegmentLifetime.entries) {
-      lifetimeIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
-    }
-  }
-  const attrIx = new Map();
-  if (lastSegmentModAttr && lastSegmentModAttr.entries) {
-    for (const e of lastSegmentModAttr.entries) {
-      attrIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
-    }
-  }
-
   const segs = (lastSegments && lastSegments.recent) || [];
   for (const s of segs) {
     if (!byFamily[s.family]) continue;
@@ -4634,6 +4661,22 @@ function renderTimelineSwimlanes() {
   for (const f of TL_FAMILIES) sig += ':' + f + '=' + byFamily[f].length + ',' + (byFamily[f].length ? byFamily[f][byFamily[f].length-1].startTick : '');
   if (sig === _tlSig.swimlanes) return;
   _tlSig.swimlanes = sig;
+
+  // The two per-segment index Maps are built only past the signature gate, so a
+  // no-change poll allocates neither (they feed the lane render loop below). The
+  // signature above needs only byFamily counts + the window, not these indices.
+  const lifetimeIx = new Map();
+  if (lastSegmentLifetime && lastSegmentLifetime.entries) {
+    for (const e of lastSegmentLifetime.entries) {
+      lifetimeIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
+    }
+  }
+  const attrIx = new Map();
+  if (lastSegmentModAttr && lastSegmentModAttr.entries) {
+    for (const e of lastSegmentModAttr.entries) {
+      attrIx.set(segKey(e.family, e.key, e.segmentStartTick), e);
+    }
+  }
 
   for (const f of TL_FAMILIES) {
     const laneRow = document.getElementById('tl-laneRow-' + f.toLowerCase());
@@ -4784,10 +4827,7 @@ function renderTimelineDetail() {
         <td>${fmtMs(m.ms)} ms</td>
       </tr>`;
     }).join('');
-    modsHtml = `<table class='dtable' style='margin-top:0.5rem'>
-      <thead><tr><th class='l'>mod</th><th></th><th>ms</th></tr></thead>
-      <tbody>${modRows}</tbody>
-    </table>`;
+    modsHtml = dtable(`<tr><th class='l'>mod</th><th></th><th>ms</th></tr>`, modRows, { style: 'margin-top:0.5rem' });
   }
 
   const body = rows.map(r => statLine(r[0], String(r[1]))).join('') + modsHtml;
@@ -4873,12 +4913,9 @@ function renderTimelineAttendance() {
   // row over an empty body reads as a broken table, so replace it with a muted
   // idle line in the vanilla-only case.
   const tableHtml = sorted.length > 0
-    ? `<table class='dtable tm-table'>
-    <thead><tr>
+    ? dtable(`<tr>
       <th class='l'>mod</th><th>biome ticks</th><th>share</th><th>invasions</th><th>boss segs</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-  </table>`
+    </tr>`, rows, { cls: 'tm-table' })
     : `<div class='tm-idle'>no per-mod biome attribution this session</div>`;
 
   setHTML(root, totalsBand + barHtml + tableHtml);
@@ -5086,9 +5123,20 @@ let lastLagClusters = null, lastGcPressure = null, lastSegmentLagDensity = null,
     lastAllocCausality = null, lastLagRhythm = null;
 
 // Selection + sort state for the reshaped surfaces.
-let lagGalaxySelected = null;          // selected fingerprintId in the cluster table
+let lagClustersSelected = null;        // selected fingerprintId in the cluster table
 let lagClusterSort = { key: 'eventCount', dir: -1 };
 let lagDensitySort = { key: 'vsBaseline', dir: -1 };
+
+// A field counts as real context only if it is a non-empty string that is NOT a
+// placeholder sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no
+// context'. Declared once here so the heatmap degeneration guard and the cluster
+// table's chip/column logic agree on what counts as context (a weaker case-
+// sensitive copy in the heatmap previously let an all-'—' column survive).
+function lagRealCtx(s) {
+  if (typeof s !== 'string') return false;
+  const t = s.trim().toLowerCase();
+  return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
+}
 
 async function pollLagData() {
   if (activeTab !== 'lag') return;
@@ -5110,7 +5158,7 @@ setInterval(pollLagData, 3000);
 function renderLag() {
   renderLagKpiStrip();
   renderLagHeatmap();
-  renderLagGalaxy();
+  renderLagClusters();
   renderLagDensity();
   renderLagGcPressure();
   renderLagCausality();
@@ -5136,6 +5184,25 @@ function lagApplySort(rows, state) {
     }
     return dir * (((va || 0)) - ((vb || 0)));
   });
+}
+
+// Dominant-mod inline cell shared by the cluster + rhythm-cluster tables: a
+// modColor-tinted truncated name + a muted share%, optionally trailed by a thin
+// split bar of share-vs-rest. Collapses the three hand-rolled copies of this
+// idiom onto one site (kept Lag-local — these are its only consumers).
+function lagTopModCell(modId, modName, share, withBar) {
+  const colour = modColor(modId || 0);
+  const s = Math.max(0, Math.min(1, share || 0));
+  const sharePct = (s * 100).toFixed(0) + '%';
+  const name = modName || '—';
+  let cell = `<span class='nm' style='color:${colour}'>${escapeHtml(truncate(name, 16))}</span> <span class='muted'>${sharePct}</span>`;
+  if (withBar) {
+    cell += splitBar([
+      { frac: s, color: colour, label: name, value: sharePct },
+      { frac: 1 - s, color: 'var(--surface-2)' },
+    ], { thin: true });
+  }
+  return cell;
 }
 
 // ---------------------------------------------------------------- KPI strip
@@ -5193,6 +5260,15 @@ function renderLagHeatmap() {
   if (!root) return;
   const cells = (lastLagClusters && lastLagClusters.causeContext) || [];
 
+  // Signature gate: the title + body are fully derived from `cells`, so an
+  // unchanged cell set re-derives nothing and rebuilds neither (heatmapMatrix /
+  // barChart re-parse the whole SVG/bar subtree otherwise). Keyed on cell count
+  // + each (cause, context, eventCount) so any real change still rebuilds.
+  const sig = cells.length + '|' +
+    cells.map(c => (c.causeClass || '') + ':' + (c.context || '') + ':' + (c.eventCount || 0)).join(',');
+  if (_renderSig['lagHeatmap'] === sig) return;
+  _renderSig['lagHeatmap'] = sig;
+
   if (cells.length === 0) {
     setLagHeatmapTitle('lag events by cause', 'ranked by event count');
     root.innerHTML = emptyState('no events observed');
@@ -5207,9 +5283,12 @@ function renderLagHeatmap() {
     if (!ctxSet.has(c.context))      { ctxSet.add(c.context);      contexts.push(c.context); }
   }
 
-  // Distinct meaningful contexts: drop empty / '-' placeholders. If 0 or 1
-  // remain the grid degenerates to one column, so render a ranked bar list.
-  const realContexts = contexts.filter(c => c != null && c !== '' && c !== '-');
+  // Distinct meaningful contexts: drop empty / placeholder sentinels via the
+  // shared lagRealCtx() guard. If 0 or 1 remain the grid degenerates to one
+  // column, so render a ranked bar list. (lagRealCtx trims + lowercases and
+  // rejects '—'/'none'/'n/a' too, so an all-placeholder set no longer survives
+  // here as a junk single-column grid — the cluster table already used it.)
+  const realContexts = contexts.filter(lagRealCtx);
   if (realContexts.length <= 1) {
     const agg = new Map();
     for (const c of cells) {
@@ -5279,25 +5358,36 @@ function renderLagHeatmap() {
 // with a cause .chip + statLines). Selection keyed on fingerprintId.
 //
 // Scroll-stability: the table is written into the STABLE scroll container
-// #lag-clusters-body via setHTML(), preserving scrollTop across the 3s poll.
-// The detail strip is a separate static node replaced outside that container.
-function lagGalaxySort(key) {
+// #lag-clusters-body via setHTML(), preserving scrollTop across the 3s poll. A
+// renderIfChanged() signature gate keyed on the cluster set + sort + selection
+// skips the table rebuild on a no-change poll. The detail strip is a separate
+// static node replaced outside that container.
+function lagClustersSort(key) {
   if (lagClusterSort.key === key) lagClusterSort.dir *= -1;
   else lagClusterSort = { key, dir: -1 };
-  renderLagGalaxy();
+  renderLagClusters();
 }
 
-function renderLagGalaxy() {
+function renderLagClusters() {
   const root = document.getElementById('lag-clusters-body');
   const detailRoot = document.getElementById('lag-clusters-detail');
   if (!root) return;
   const clusters = (lastLagClusters && lastLagClusters.clusters) || [];
 
   if (clusters.length === 0) {
-    setHTML(root, emptyState('no clusters yet'));
-    if (detailRoot) detailRoot.innerHTML = '';
+    renderIfChanged('lagClusters', 'empty', () => {
+      setHTML(root, emptyState('no clusters yet'));
+      if (detailRoot) detailRoot.innerHTML = '';
+    });
     return;
   }
+
+  // Signature gate: cluster count + each row's (cause, events, p95) + sort +
+  // selection. A no-change poll re-derives nothing and rebuilds no DOM.
+  const sig = clusters.length + '|' + lagClusterSort.key + lagClusterSort.dir + '|' + (lagClustersSelected || '') +
+    '|' + clusters.map(c => (c.fingerprintId || '') + ':' + (c.eventCount || 0) + ':' + (c.p95Ms || 0)).join(',');
+  if (_renderSig['lagClusters'] === sig) return;
+  _renderSig['lagClusters'] = sig;
 
   const sorted = lagApplySort(clusters, lagClusterSort);
   // perf tint for p95 is a ratio against the median p95 across clusters (1 =
@@ -5306,56 +5396,42 @@ function renderLagGalaxy() {
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
   // The context column is dead width when no cluster carries a real context, so
-  // it is dropped from both the header and the rows in that case. A field counts
-  // as real context only if it is a non-empty string that is NOT a placeholder
-  // sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no context',
-  // and the prior guard let them through, so an all-'—' column survived. The
-  // same realCtx() decides whether a chip is drawn below, so guard and rows agree.
-  const realCtx = s => {
-    if (typeof s !== 'string') return false;
-    const t = s.trim().toLowerCase();
-    return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
-  };
-  const hasCtx = c => realCtx(c.primaryBiome) || realCtx(c.weatherFlags) || c.hardmode === true;
+  // it is dropped from both the header and the rows in that case. The shared
+  // lagRealCtx() (declared at the top of the fragment) decides both what counts
+  // as a column and whether a chip is drawn below, so the heatmap guard, this
+  // column, and the chips all agree on what context is.
+  const hasCtx = c => lagRealCtx(c.primaryBiome) || lagRealCtx(c.weatherFlags) || c.hardmode === true;
   const anyContext = clusters.filter(hasCtx).length >= 1;
   const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
 
-  const head = `<thead><tr>
-    ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagGalaxySort')}
+  const head = `<tr>
+    ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagClustersSort')}
     ${ctxTh}
-    ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'topModShare', 'top mod', true, 'lagGalaxySort')}
-  </tr></thead>`;
+    ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'topModShare', 'top mod', true, 'lagClustersSort')}
+  </tr>`;
 
   const body = sorted.map(c => {
-    const sel = c.fingerprintId === lagGalaxySelected ? ' sel' : '';
+    const sel = c.fingerprintId === lagClustersSelected ? ' sel' : '';
     let ctxCell = '';
     if (anyContext) {
       let ctxChips = '';
-      if (realCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-      if (realCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (lagRealCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (lagRealCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
       if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
       if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
       ctxCell = `<td class='l'>${ctxChips}</td>`;
     }
 
     const tint = tintClass(medianP95 > 0 ? (c.p95Ms || 0) / medianP95 : 0);
-    const colour = modColor(c.topModId || 0);
-    const share = Math.max(0, Math.min(1, c.topModShare || 0));
-    const sharePct = (share * 100).toFixed(0) + '%';
-    const topModName = c.topModName || '—';
     // Inline split bar: top mod's share vs the rest, coloured by modColor.
-    const modBar = splitBar([
-      { frac: share, color: colour, label: topModName, value: sharePct },
-      { frac: 1 - share, color: 'var(--surface-2)' },
-    ], { thin: true });
-    const modCell = `<span class='nm' style='color:${colour}'>${escapeHtml(truncate(topModName, 16))}</span> <span class='muted'>${sharePct}</span>${modBar}`;
+    const modCell = lagTopModCell(c.topModId, c.topModName, c.topModShare, true);
 
     const fpId = c.fingerprintId || '';
     const causeTip = fpId ? (c.causeClass || '—') + ' · id ' + fpId : (c.causeClass || '—');
-    return `<tr class='clickable${sel}' onclick='lagGalaxyPick("${escapeHtml(fpId)}")'>
+    return `<tr class='clickable${sel}' onclick='lagClustersPick("${escapeHtml(fpId)}")'>
       <td class='l' title='${escapeHtml(causeTip)}'>${escapeHtml(c.causeClass || '—')}</td>
       ${ctxCell}
       <td>${fmtInt(c.eventCount)}</td>
@@ -5367,11 +5443,11 @@ function renderLagGalaxy() {
 
   // Detail strip for the selected fingerprint — same per-fingerprint fields.
   let details;
-  const pick = clusters.find(c => c.fingerprintId === lagGalaxySelected);
+  const pick = clusters.find(c => c.fingerprintId === lagClustersSelected);
   if (pick) {
     const subBits = [];
-    if (realCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
-    if (realCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
+    if (lagRealCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
+    if (lagRealCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
     const ctxText = subBits.join(' · ') || 'no context';
     // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
@@ -5395,13 +5471,13 @@ function renderLagGalaxy() {
     details = emptyState('click a row to inspect a fingerprint cluster');
   }
 
-  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
+  setHTML(root, dtable(head, body));
   if (detailRoot) detailRoot.innerHTML = details;
 }
-function lagGalaxyPick(fp) {
+function lagClustersPick(fp) {
   if (!fp) return;
-  lagGalaxySelected = (lagGalaxySelected === fp) ? null : fp;
-  renderLagGalaxy();
+  lagClustersSelected = (lagClustersSelected === fp) ? null : fp;
+  renderLagClusters();
 }
 
 // ---------------------------------------------------------------- Density table
@@ -5433,22 +5509,39 @@ function renderLagDensity() {
     setHTML(root, emptyState('no segments closed yet'));
     if (subRoot) subRoot.textContent = '—';
     if (legendRoot) legendRoot.innerHTML = '';
+    _renderSig['lagDensity'] = 'empty';   // so a later identical non-empty set still rebuilds
     return;
   }
 
   const baseline = (snap && snap.sessionBaselinePerMin) || 0;
+  // The sub-header + legend are cheap static siblings of the gated table, so they
+  // stay outside the signature gate (the legend content is constant; the sub is a
+  // single textContent write). Only the table body — the heavy rebuild — is gated.
+  if (subRoot) subRoot.textContent = 'session baseline · ' + baseline.toFixed(2) + ' events/min';
+  if (legendRoot) legendRoot.innerHTML = splitLegend([
+    { color: 'var(--spike)', label: 'spike' },
+    { color: 'var(--stall)', label: 'stall' },
+  ]);
+
+  // Signature gate: entry count + each row's (name, events, eventsPerMin) + sort.
+  // A no-change poll skips the sort, the body map, and the table rebuild.
+  const sig = entries.length + '|' + lagDensitySort.key + lagDensitySort.dir + '|' +
+    entries.map(e => (e.name || '') + ':' + (e.eventCount || 0) + ':' + (e.eventsPerMin || 0)).join(',');
+  if (_renderSig['lagDensity'] === sig) return;
+  _renderSig['lagDensity'] = sig;
+
   const sorted = lagApplySort(entries, lagDensitySort);
   // Busiest segment sets the bar's full extent so the lengths read comparably.
   let maxPerMin = 0;
   for (const e of entries) { if ((e.eventsPerMin || 0) > maxPerMin) maxPerMin = e.eventsPerMin; }
   if (maxPerMin <= 0) maxPerMin = 1;
 
-  const head = `<thead><tr>
+  const head = `<tr>
     ${lagSortTh(lagDensitySort, 'name', 'segment', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'eventCount', 'events', false, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'eventsPerMin', 'density', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'vsBaseline', 'vs base', false, 'lagDensitySortBy')}
-  </tr></thead>`;
+  </tr>`;
 
   const body = sorted.map(e => {
     const spikes = e.spikeCount || 0;
@@ -5478,12 +5571,7 @@ function renderLagDensity() {
     </tr>`;
   }).join('');
 
-  if (subRoot) subRoot.textContent = 'session baseline · ' + baseline.toFixed(2) + ' events/min';
-  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
-  if (legendRoot) legendRoot.innerHTML = splitLegend([
-    { color: 'var(--spike)', label: 'spike' },
-    { color: 'var(--stall)', label: 'stall' },
-  ]);
+  setHTML(root, dtable(head, body));
 }
 
 // ---------------------------------------------------------------- GC pressure
@@ -5627,10 +5715,22 @@ function renderLagRhythm() {
   const clusters = (snap && snap.clusters) || [];
 
   if (hist.length === 0 && clusters.length === 0) {
-    histRoot.innerHTML = emptyState('not enough events for periodicity');
-    setHTML(clusterRoot, '');
+    renderIfChanged('lagRhythm', 'empty', () => {
+      histRoot.innerHTML = emptyState('not enough events for periodicity');
+      setHTML(clusterRoot, '');
+    });
     return;
   }
+
+  // Signature gate: both sub-panels are derived from hist + clusters, so an
+  // unchanged snapshot rebuilds neither (the re-bin + barChart + cluster table
+  // are the heavy work). Keyed on hist length + total count and the per-cluster
+  // (centre, events) so any real change still rebuilds.
+  const histCount = hist.reduce((s, b) => s + ((b && b.count) || 0), 0);
+  const sig = hist.length + ':' + histCount + '|' +
+    clusters.map(c => c.centreSeconds + ':' + (c.eventCount || 0) + ':' + (c.topModId || 0)).join(',');
+  if (_renderSig['lagRhythm'] === sig) return;
+  _renderSig['lagRhythm'] = sig;
 
   // Coarse, legible histogram: re-bin to ~12 buckets, highlight the modal one.
   const bins = lagRebinHist(hist, 12);
@@ -5663,20 +5763,15 @@ function renderLagRhythm() {
     clusterInner = emptyState('no rhythm clusters detected');
   } else {
     const rows = clusters.map(c => {
-      const colour = modColor(c.topModId || 0);
       const share = Math.max(0, Math.min(1, c.shareOfSession || 0));
-      const topModName = c.topModName || '—';
-      const topShare = ((c.topModShare || 0) * 100).toFixed(0) + '%';
       return `<tr>
         <td class='l'>${c.centreSeconds.toFixed(2)}s ± ${c.widthSeconds.toFixed(2)}s</td>
         <td>${fmtInt(c.eventCount)}</td>
-        <td class='l'><span class='nm' style='color:${colour}'>${escapeHtml(truncate(topModName, 16))}</span> <span class='muted'>${topShare}</span></td>
+        <td class='l'>${lagTopModCell(c.topModId, c.topModName, c.topModShare, false)}</td>
         <td>${(share * 100).toFixed(1)}%</td>
       </tr>`;
     }).join('');
-    clusterInner = `<table class='dtable'>
-      <thead><tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+    clusterInner = dtable(`<tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr>`, rows);
   }
   const clusterHtml = sectionHeader('rhythm clusters', 'periodic signatures') + clusterInner;
 
@@ -5778,35 +5873,8 @@ function renderInsights() {
   renderModInteractionMatrix();
 }
 
-// Shared sortable-header builder for the .dtable surfaces. cols: [{key, label,
-// l (left-align bool), title}]. Clicking a header sorts by that key (toggling
-// direction); the active column shows the direction arrow. onSort() is invoked
-// after the state is updated. rootId scopes the click binding to one table.
-function sortableHead(cols, state, onSort, rootId) {
-  const ths = cols.map(c => {
-    const sorted = c.key === state.key;
-    const cls = (c.l ? 'l ' : '') + 'sortable' + (sorted ? ' sorted' : '');
-    const arrow = sorted ? (state.dir === 1 ? ' ▲' : ' ▼') : '';
-    const t = c.title ? ` title='${escapeHtml(c.title)}'` : '';
-    return `<th class='${cls}' data-key='${c.key}'${t}>${escapeHtml(c.label)}${arrow}</th>`;
-  }).join('');
-  // Defer binding until the table is in the DOM (caller sets innerHTML next).
-  setTimeout(() => {
-    const root = document.getElementById(rootId);
-    if (!root) return;
-    root.querySelectorAll('th.sortable').forEach(th => {
-      if (th.dataset.bound) return;
-      th.dataset.bound = '1';
-      th.addEventListener('click', () => {
-        const k = th.dataset.key;
-        if (state.key === k) state.dir = -state.dir;
-        else { state.key = k; state.dir = -1; }
-        onSort();
-      });
-    });
-  }, 0);
-  return `<tr>${ths}</tr>`;
-}
+// sortableHead() — the shared sortable-header builder — lives in Js.Components
+// (loaded before this fragment); the dormant + observatory surfaces call it.
 
 // ----- Modlist composition (waffle) ----------------------------------
 // The loaded modlist as a unit grid: one cell per mod, coloured by engagement
@@ -5873,16 +5941,24 @@ function renderDormantSurface() {
 
   if (!dor || !dor.worldLoaded) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, '');
+    renderIfChanged('insDormant', 'unloaded', () => setHTML(scroll, ''));
     return;
   }
   if (subEl) subEl.textContent = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
 
   const entries = (dor.entries || []).slice();
   if (entries.length === 0) {
-    setHTML(scroll, emptyState('no dormant entries recorded this session'));
+    renderIfChanged('insDormant', 'empty', () => setHTML(scroll, emptyState('no dormant entries recorded this session')));
     return;
   }
+
+  // Signature gate: entry set (mod + the three sortable figures) + sort state.
+  // A no-change poll skips the sort, the sortableHead() rebind side effect, and
+  // the table reparse. The sub-header above is a cheap sibling, left ungated.
+  const insDormantSig = dormantSort.key + dormantSort.dir + '|' +
+    entries.map(e => (e.modName || '') + ':' + (e.usageRatio || 0) + ':' + (e.usedCount || 0) + ':' + (e.rosterSize || 0)).join(',');
+  if (_renderSig['insDormant'] === insDormantSig) return;
+  _renderSig['insDormant'] = insDormantSig;
 
   const getters = {
     modName:    e => (e.modName || '').toLowerCase(),
@@ -5929,11 +6005,7 @@ function renderDormantSurface() {
     </tr>`;
   }).join('');
 
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead>${headRow}</thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  setHTML(scroll, dtable(headRow, rows));
 }
 
 // ----- I1 observatory list -------------------------------------------
@@ -5972,7 +6044,7 @@ function renderObservatoryList() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, emptyState('no per-mod observatory data yet'));
+    renderIfChanged('insObsList', 'empty', () => setHTML(scroll, emptyState('no per-mod observatory data yet')));
     return;
   }
   // Cost bars stay comparable against the whole roster (max cpu across all cards,
@@ -5987,7 +6059,7 @@ function renderObservatoryList() {
     obsSort === 'usage' ? (b.usageSharePct - a.usageSharePct) || a.modName.localeCompare(b.modName) :
     (b.cpuSharePct - a.cpuSharePct) || a.modName.localeCompare(b.modName));
   if (cards.length === 0) {
-    setHTML(scroll, emptyState('no mods match the search'));
+    renderIfChanged('insObsList', 'nomatch:' + obsFilter, () => setHTML(scroll, emptyState('no mods match the search')));
     return;
   }
 
@@ -6010,6 +6082,15 @@ function renderObservatoryList() {
     }));
     return splitBar(segs, { thin: true });
   }
+
+  // Signature gate: filter / sort / selection + each card's displayed figures.
+  // Under live load the cost figures move every poll so this rebuilds (correct);
+  // on idle / paused / db-mode polls every card reads 0 and the rebuild + rebind
+  // is skipped. The search box lives in the static header, so focus is unaffected.
+  const obsSig = obsFilter + '|' + obsSort + '|' + selectedObservatoryModId + '|' + maxCpu.toFixed(4) + '|' +
+    cards.map(c => c.modId + ':' + (c.cpuSharePct || 0).toFixed(4) + ':' + (c.usageSharePct || 0).toFixed(4) + ':' + (c.smoothedMsThisTick || 0).toFixed(3)).join(',');
+  if (_renderSig['insObsList'] === obsSig) return;
+  _renderSig['insObsList'] = obsSig;
 
   const cols = '2.2em minmax(0,1fr) 5em';
   setHTML(scroll, rowList(cards.map((c, i) => {
@@ -6069,14 +6150,23 @@ function renderObservatoryDetail() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, emptyState('select a mod from the list to see its observatory detail'));
+    renderIfChanged('insDetail', 'empty', () => setHTML(scroll, emptyState('select a mod from the list to see its observatory detail')));
     return;
   }
   const card = obs.cards.find(c => c.modId === selectedObservatoryModId) || obs.cards[0];
   if (!card) {
-    setHTML(scroll, emptyState('no card selected'));
+    renderIfChanged('insDetail', 'nocard', () => setHTML(scroll, emptyState('no card selected')));
     return;
   }
+
+  // Signature gate: the selected card's id + its live figures + the table sizes.
+  // A no-change poll (idle / unchanged selection) skips the detail rebuild; a
+  // selection change or a moving cost figure rebuilds it.
+  const detSig = card.modId + '|' + (card.cpuSharePct || 0).toFixed(4) + ':' + (card.usageSharePct || 0).toFixed(4) +
+    ':' + (card.smoothedMsThisTick || 0).toFixed(3) + ':' + (card.averageMs || 0).toFixed(3) +
+    '|' + (card.biomeAttendance ? card.biomeAttendance.length : 0) + ':' + (card.topLoadoutItems ? card.topLoadoutItems.length : 0);
+  if (_renderSig['insDetail'] === detSig) return;
+  _renderSig['insDetail'] = detSig;
 
   const r = card.roster, u = card.usage;
   const totalRoster = ROSTER_CATS.reduce((sum, [f]) => sum + (r[f] || 0), 0);
@@ -6117,25 +6207,23 @@ function renderObservatoryDetail() {
   const biome = (card.biomeAttendance || []).slice(0, 12);
   const biomeHtml = biome.length === 0
     ? emptyState('no biome attendance recorded')
-    : `<table class='dtable'>
-        <thead><tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr></thead>
-        <tbody>${biome.map(b => `<tr>
+    : dtable(`<tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr>`,
+        biome.map(b => `<tr>
           <td class='l'>${escapeHtml(b.biomeName)}</td>
           <td>${dash(b.ticks, fmtInt)}</td>
           <td>${dash(b.sharePct, v => v.toFixed(1) + '%')}</td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`).join(''));
 
   // I4 loadout influence.
   const li = (card.topLoadoutItems || []).slice(0, 10);
   const liHtml = li.length === 0
     ? emptyState('no loadout influence recorded')
-    : `<table class='dtable'>
-        <thead><tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr></thead>
-        <tbody>${li.map(it => `<tr>
+    : dtable(`<tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr>`,
+        li.map(it => `<tr>
           <td class='l'>${escapeHtml(it.itemName)}</td>
           <td class='l muted'>${escapeHtml(it.slotKind || '')}</td>
           <td>${dash(it.equippedTicks, fmtInt)}</td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`).join(''));
 
   setHTML(scroll, `
     <div class='det-pad'>
@@ -6145,11 +6233,8 @@ function renderObservatoryDetail() {
       </div>
       ${sectionBlock('roster composition', legendHtml)}
       ${sectionBlock('headline cost & engagement', statsHtml)}
-      ${sectionBlock('roster vs usage', `
-        <table class='dtable'>
-          <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
-          <tbody>${rosterRows}</tbody>
-        </table>`)}
+      ${sectionBlock('roster vs usage',
+        dtable(`<tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr>`, rosterRows))}
       ${sectionBlock('biome attendance', biomeHtml)}
       ${sectionBlock('top loadout influence', liHtml)}
     </div>
@@ -6170,18 +6255,26 @@ function renderCrossCutting() {
   }
 
   if (!cc || !cc.worldLoaded || !cc.groups || cc.groups.length === 0) {
-    shell(emptyState('no cross-cutting signals recorded yet'), '—');
+    renderIfChanged('insCross', 'none', () => shell(emptyState('no cross-cutting signals recorded yet'), '—'));
     return;
   }
   const groups = cc.groups.filter(g => g.leaders && g.leaders.length > 0);
   if (groups.length === 0) {
-    shell(emptyState('signals recorded but no leaders yet'), '—');
+    renderIfChanged('insCross', 'noleaders', () => shell(emptyState('signals recorded but no leaders yet'), '—'));
     return;
   }
 
   // Count distinct mods across all classes for the header summary.
   const distinct = new Set();
   groups.forEach(g => (g.leaders || []).forEach(l => distinct.add(l.modId)));
+
+  // Signature gate: each class + its leaders (modId + appearances). A no-change
+  // poll skips rebuilding the whole panel (chrome + every class table). The full
+  // panel is rebuilt here (not a stable scroll container), so the gate covers it.
+  const insCcSig = groups.map(g => g.signalClass + '[' +
+    (g.leaders || []).map(l => l.modId + ':' + (l.appearances || 0)).join(',') + ']').join('|');
+  if (_renderSig['insCross'] === insCcSig) return;
+  _renderSig['insCross'] = insCcSig;
 
   const sections = groups.map(g => {
     const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
@@ -6198,10 +6291,7 @@ function renderCrossCutting() {
     </tr>`).join('');
     return sectionBlock(
       humanizeLabel(g.signalClass),
-      `<table class='dtable'>
-        <thead><tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`,
+      dtable(`<tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr>`, rows),
       fmtInt(leaders.length) + ' mods');
   }).join('');
 
@@ -6233,10 +6323,17 @@ function renderEngagementScatter() {
 
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(body, emptyState('no engagement vs cost data yet'));
+    renderIfChanged('insScatter', 'empty', () => setHTML(body, emptyState('no engagement vs cost data yet')));
     return;
   }
   if (subEl) subEl.textContent = `${ec.dots.length} mods · bubble = roster size`;
+
+  // Signature gate: each dot's id + its plotted figures. A no-change poll skips
+  // the SVG rebuild + dot-click rebind (the existing dots keep their handlers).
+  // The sub-header above is a cheap sibling, left ungated.
+  const scatSig = ec.dots.map(d => d.modId + ':' + (d.usageShare || 0).toFixed(4) + ':' + (d.cpuShare || 0).toFixed(4) + ':' + (d.rosterSize || 0)).join(',');
+  if (_renderSig['insScatter'] === scatSig) return;
+  _renderSig['insScatter'] = scatSig;
 
   // Tilt from the usage-vs-cost share ratio (−1 pure usage .. +1 pure cost).
   const COST = 'var(--spike)', USE = 'var(--good-bar)', BAL = 'var(--muted)';
@@ -6299,18 +6396,23 @@ function renderModInteractionMatrix() {
 
   if (!mi || !mi.worldLoaded || !mi.modIds || mi.modIds.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)'));
+    renderIfChanged('insMatrix', 'none', () => setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)')));
     return;
   }
   const N = mi.modIds.length;
   if (N < 2 || !mi.topCoupled || mi.topCoupled.length === 0) {
     if (subEl) subEl.textContent = `${N} mods`;
-    setHTML(scroll, emptyState('no coupled pairs ranked yet'));
+    renderIfChanged('insMatrix', 'nopairs:' + N, () => setHTML(scroll, emptyState('no coupled pairs ranked yet')));
     return;
   }
   if (subEl) subEl.textContent = `${N} mods (Pearson r)`;
 
   const pairs = mi.topCoupled.slice(0, 12);
+  // Signature gate: the ranked pair list (names + r + samples). A no-change poll
+  // skips the bar scaling + table reparse. The sub-header above is left ungated.
+  const insMatrixSig = pairs.map(p => p.modNameA + '×' + p.modNameB + ':' + (p.pearson || 0).toFixed(4) + ':' + (p.samplesUsed || 0)).join(',');
+  if (_renderSig['insMatrix'] === insMatrixSig) return;
+  _renderSig['insMatrix'] = insMatrixSig;
   // Strong-correlation clusters (e.g. every |r| in 0.99..1.0) make a 0..max bar
   // read as uniformly full, so it adds nothing over the r column. Scale the bar to
   // the VISIBLE range instead: baseline at the lowest |r| shown, full at the
@@ -6335,11 +6437,7 @@ function renderModInteractionMatrix() {
     </tr>`;
   }).join('');
 
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  setHTML(scroll, dtable(`<tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr>`, rows));
 }
 
 // ====== SELF TAB ======================================================
@@ -6430,8 +6528,8 @@ function renderHookDistribution() {
   // hook-level detail belongs; this panel only needs the top mods by count.
   const mods = lastMemory && lastMemory.mods;
   if (!mods || mods.length === 0) {
-    root.innerHTML = emptyState('loading hook distribution…');
     sub.textContent = 'loading';
+    renderIfChanged('selfHookDist', 'loading', () => { root.innerHTML = emptyState('loading hook distribution…'); });
     return;
   }
   // Join per-mod cost (ms) from /api/mods when present, so the secondary bar shows
@@ -6446,14 +6544,20 @@ function renderHookDistribution() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 12);
   if (entries.length === 0) {
-    root.innerHTML = emptyState('no installed hooks recorded yet');
     sub.textContent = '0 mods';
+    renderIfChanged('selfHookDist', 'empty', () => { root.innerHTML = emptyState('no installed hooks recorded yet'); });
     return;
   }
   const max = entries[0].count || 1;
   const maxMs = entries.reduce((m, e) => Math.max(m, e.ms), 0);
   const hasMs = maxMs > 0;
   sub.textContent = mods.length + ' mods · top ' + entries.length + ' by hook count';
+  // Signature gate: the top-12 entries (id + hook count + cost ms). A no-change
+  // poll skips the rowlist rebuild; the sub-header above is a cheap sibling left
+  // ungated. The cost ms moves under load (rebuilds); idle polls are skipped.
+  const hdSig = entries.map(m => m.id + ':' + m.count + ':' + (m.ms || 0).toFixed(3)).join(',');
+  if (_renderSig['selfHookDist'] === hdSig) return;
+  _renderSig['selfHookDist'] = hdSig;
   // The count bar is sorted-by (the primary metric); ms gets its own faint
   // secondary cellBar on an independent scale so where cost and hook count
   // diverge is visible instead of two bare number columns parsed by eye.
@@ -6678,21 +6782,23 @@ function renderMemory() {
     html += emptyState('no mods match “' + memFilter + '”');
     setHTML(tableEl, html);
     memRestoreSearchFocus();
+    _renderSig['memTable'] = 'empty:' + memFilter;   // so a later identical view rebuilds
     renderMemoryDrawer();
     return;
   }
-  html += `<table class='dtable'><thead><tr>`
+  const headRow = `<tr>`
     + memTh('name', 'mod', true)
     + memTh('val', valHead, false, 'mem-col-val')
     + `<th class='l mem-col-fp'>footprint</th>`
     + memTh('hooks', 'hooks', false)
     + memTh('alloc', 'alloc/s', false)
-    + `</tr></thead><tbody>`;
+    + `</tr>`;
+  let bodyRows = '';
   for (const r of view) {
     const m = r.m;
     const sel = memSelected === m.id ? ' sel' : '';
     const segs = memFootprintSegs(m);
-    html += `<tr class='clickable${sel}' data-mod='${m.id}'>`
+    bodyRows += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
       + `<td class='mem-col-val'><span class='mem-val-cell'>`
         + cellBar(r.v / total, modColor(m.id))
@@ -6703,9 +6809,14 @@ function renderMemory() {
       + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
       + `</tr>`;
   }
-  html += `</tbody></table>`;
-  setHTML(tableEl, html);   // preserve scroll on poll-driven re-render
-  memRestoreSearchFocus();
+  html += dtable(headRow, bodyRows);
+  // Gate the table rebuild behind a signature so an unchanged poll skips the
+  // innerHTML reparse (and so leaves the live search box untouched — focus is
+  // only restored when the table is actually rebuilt). Keyed on the control
+  // state (basis / sort / filter / selection) + each visible row's value figures.
+  const memSig = memBasis + '|' + memSort.key + memSort.dir + '|' + memFilter + '|' + (memSelected == null ? '' : memSelected)
+    + '|' + view.map(r => r.m.id + ':' + r.v + ':' + (r.m.hookCount || 0) + ':' + (mem.tracksAllocations ? (r.m.allocBytes || 0) : 0)).join(',');
+  renderIfChanged('memTable', memSig, () => { setHTML(tableEl, html); memRestoreSearchFocus(); });
 
   renderMemoryDrawer();
 }

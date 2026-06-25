@@ -25,9 +25,9 @@ namespace PerformanceProfiler.Data;
 ///
 /// <para>
 /// <see cref="Shared"/> is the process-wide instance. The registry is
-/// populated by <c>ProfilerSystem.Load</c> (mod-load time, before any
-/// world exists) and re-Initialised at every world-load via
-/// <see cref="InitialiseAll"/>.
+/// populated by <c>PerformanceProfiler.RegisterDataPipeline</c> (mod-load
+/// time, before any world exists) and re-Initialised at every world-load
+/// via <see cref="InitialiseAll"/>.
 /// </para>
 ///
 /// <para>

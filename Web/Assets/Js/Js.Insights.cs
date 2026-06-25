@@ -109,35 +109,8 @@ function renderInsights() {
   renderModInteractionMatrix();
 }
 
-// Shared sortable-header builder for the .dtable surfaces. cols: [{key, label,
-// l (left-align bool), title}]. Clicking a header sorts by that key (toggling
-// direction); the active column shows the direction arrow. onSort() is invoked
-// after the state is updated. rootId scopes the click binding to one table.
-function sortableHead(cols, state, onSort, rootId) {
-  const ths = cols.map(c => {
-    const sorted = c.key === state.key;
-    const cls = (c.l ? 'l ' : '') + 'sortable' + (sorted ? ' sorted' : '');
-    const arrow = sorted ? (state.dir === 1 ? ' ▲' : ' ▼') : '';
-    const t = c.title ? ` title='${escapeHtml(c.title)}'` : '';
-    return `<th class='${cls}' data-key='${c.key}'${t}>${escapeHtml(c.label)}${arrow}</th>`;
-  }).join('');
-  // Defer binding until the table is in the DOM (caller sets innerHTML next).
-  setTimeout(() => {
-    const root = document.getElementById(rootId);
-    if (!root) return;
-    root.querySelectorAll('th.sortable').forEach(th => {
-      if (th.dataset.bound) return;
-      th.dataset.bound = '1';
-      th.addEventListener('click', () => {
-        const k = th.dataset.key;
-        if (state.key === k) state.dir = -state.dir;
-        else { state.key = k; state.dir = -1; }
-        onSort();
-      });
-    });
-  }, 0);
-  return `<tr>${ths}</tr>`;
-}
+// sortableHead() — the shared sortable-header builder — lives in Js.Components
+// (loaded before this fragment); the dormant + observatory surfaces call it.
 
 // ----- Modlist composition (waffle) ----------------------------------
 // The loaded modlist as a unit grid: one cell per mod, coloured by engagement
@@ -204,16 +177,24 @@ function renderDormantSurface() {
 
   if (!dor || !dor.worldLoaded) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, '');
+    renderIfChanged('insDormant', 'unloaded', () => setHTML(scroll, ''));
     return;
   }
   if (subEl) subEl.textContent = `${fmtInt(dor.modsWithZeroUsage)} mods at zero usage · ${fmtInt(dor.modsBelowFivePercentUsage)} under 5%`;
 
   const entries = (dor.entries || []).slice();
   if (entries.length === 0) {
-    setHTML(scroll, emptyState('no dormant entries recorded this session'));
+    renderIfChanged('insDormant', 'empty', () => setHTML(scroll, emptyState('no dormant entries recorded this session')));
     return;
   }
+
+  // Signature gate: entry set (mod + the three sortable figures) + sort state.
+  // A no-change poll skips the sort, the sortableHead() rebind side effect, and
+  // the table reparse. The sub-header above is a cheap sibling, left ungated.
+  const insDormantSig = dormantSort.key + dormantSort.dir + '|' +
+    entries.map(e => (e.modName || '') + ':' + (e.usageRatio || 0) + ':' + (e.usedCount || 0) + ':' + (e.rosterSize || 0)).join(',');
+  if (_renderSig['insDormant'] === insDormantSig) return;
+  _renderSig['insDormant'] = insDormantSig;
 
   const getters = {
     modName:    e => (e.modName || '').toLowerCase(),
@@ -260,11 +241,7 @@ function renderDormantSurface() {
     </tr>`;
   }).join('');
 
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead>${headRow}</thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  setHTML(scroll, dtable(headRow, rows));
 }
 
 // ----- I1 observatory list -------------------------------------------
@@ -303,7 +280,7 @@ function renderObservatoryList() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.worldLoaded || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, emptyState('no per-mod observatory data yet'));
+    renderIfChanged('insObsList', 'empty', () => setHTML(scroll, emptyState('no per-mod observatory data yet')));
     return;
   }
   // Cost bars stay comparable against the whole roster (max cpu across all cards,
@@ -318,7 +295,7 @@ function renderObservatoryList() {
     obsSort === 'usage' ? (b.usageSharePct - a.usageSharePct) || a.modName.localeCompare(b.modName) :
     (b.cpuSharePct - a.cpuSharePct) || a.modName.localeCompare(b.modName));
   if (cards.length === 0) {
-    setHTML(scroll, emptyState('no mods match the search'));
+    renderIfChanged('insObsList', 'nomatch:' + obsFilter, () => setHTML(scroll, emptyState('no mods match the search')));
     return;
   }
 
@@ -341,6 +318,15 @@ function renderObservatoryList() {
     }));
     return splitBar(segs, { thin: true });
   }
+
+  // Signature gate: filter / sort / selection + each card's displayed figures.
+  // Under live load the cost figures move every poll so this rebuilds (correct);
+  // on idle / paused / db-mode polls every card reads 0 and the rebuild + rebind
+  // is skipped. The search box lives in the static header, so focus is unaffected.
+  const obsSig = obsFilter + '|' + obsSort + '|' + selectedObservatoryModId + '|' + maxCpu.toFixed(4) + '|' +
+    cards.map(c => c.modId + ':' + (c.cpuSharePct || 0).toFixed(4) + ':' + (c.usageSharePct || 0).toFixed(4) + ':' + (c.smoothedMsThisTick || 0).toFixed(3)).join(',');
+  if (_renderSig['insObsList'] === obsSig) return;
+  _renderSig['insObsList'] = obsSig;
 
   const cols = '2.2em minmax(0,1fr) 5em';
   setHTML(scroll, rowList(cards.map((c, i) => {
@@ -400,14 +386,23 @@ function renderObservatoryDetail() {
   }
   const obs = lastModObservatory;
   if (!obs || !obs.cards || obs.cards.length === 0) {
-    setHTML(scroll, emptyState('select a mod from the list to see its observatory detail'));
+    renderIfChanged('insDetail', 'empty', () => setHTML(scroll, emptyState('select a mod from the list to see its observatory detail')));
     return;
   }
   const card = obs.cards.find(c => c.modId === selectedObservatoryModId) || obs.cards[0];
   if (!card) {
-    setHTML(scroll, emptyState('no card selected'));
+    renderIfChanged('insDetail', 'nocard', () => setHTML(scroll, emptyState('no card selected')));
     return;
   }
+
+  // Signature gate: the selected card's id + its live figures + the table sizes.
+  // A no-change poll (idle / unchanged selection) skips the detail rebuild; a
+  // selection change or a moving cost figure rebuilds it.
+  const detSig = card.modId + '|' + (card.cpuSharePct || 0).toFixed(4) + ':' + (card.usageSharePct || 0).toFixed(4) +
+    ':' + (card.smoothedMsThisTick || 0).toFixed(3) + ':' + (card.averageMs || 0).toFixed(3) +
+    '|' + (card.biomeAttendance ? card.biomeAttendance.length : 0) + ':' + (card.topLoadoutItems ? card.topLoadoutItems.length : 0);
+  if (_renderSig['insDetail'] === detSig) return;
+  _renderSig['insDetail'] = detSig;
 
   const r = card.roster, u = card.usage;
   const totalRoster = ROSTER_CATS.reduce((sum, [f]) => sum + (r[f] || 0), 0);
@@ -448,25 +443,23 @@ function renderObservatoryDetail() {
   const biome = (card.biomeAttendance || []).slice(0, 12);
   const biomeHtml = biome.length === 0
     ? emptyState('no biome attendance recorded')
-    : `<table class='dtable'>
-        <thead><tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr></thead>
-        <tbody>${biome.map(b => `<tr>
+    : dtable(`<tr><th class='l'>biome</th><th>ticks</th><th>share</th></tr>`,
+        biome.map(b => `<tr>
           <td class='l'>${escapeHtml(b.biomeName)}</td>
           <td>${dash(b.ticks, fmtInt)}</td>
           <td>${dash(b.sharePct, v => v.toFixed(1) + '%')}</td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`).join(''));
 
   // I4 loadout influence.
   const li = (card.topLoadoutItems || []).slice(0, 10);
   const liHtml = li.length === 0
     ? emptyState('no loadout influence recorded')
-    : `<table class='dtable'>
-        <thead><tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr></thead>
-        <tbody>${li.map(it => `<tr>
+    : dtable(`<tr><th class='l'>item</th><th class='l'>slot</th><th>ticks equipped</th></tr>`,
+        li.map(it => `<tr>
           <td class='l'>${escapeHtml(it.itemName)}</td>
           <td class='l muted'>${escapeHtml(it.slotKind || '')}</td>
           <td>${dash(it.equippedTicks, fmtInt)}</td>
-        </tr>`).join('')}</tbody></table>`;
+        </tr>`).join(''));
 
   setHTML(scroll, `
     <div class='det-pad'>
@@ -476,11 +469,8 @@ function renderObservatoryDetail() {
       </div>
       ${sectionBlock('roster composition', legendHtml)}
       ${sectionBlock('headline cost & engagement', statsHtml)}
-      ${sectionBlock('roster vs usage', `
-        <table class='dtable'>
-          <thead><tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr></thead>
-          <tbody>${rosterRows}</tbody>
-        </table>`)}
+      ${sectionBlock('roster vs usage',
+        dtable(`<tr><th class='l'>category</th><th>roster</th><th>used / counted</th></tr>`, rosterRows))}
       ${sectionBlock('biome attendance', biomeHtml)}
       ${sectionBlock('top loadout influence', liHtml)}
     </div>
@@ -501,18 +491,26 @@ function renderCrossCutting() {
   }
 
   if (!cc || !cc.worldLoaded || !cc.groups || cc.groups.length === 0) {
-    shell(emptyState('no cross-cutting signals recorded yet'), '—');
+    renderIfChanged('insCross', 'none', () => shell(emptyState('no cross-cutting signals recorded yet'), '—'));
     return;
   }
   const groups = cc.groups.filter(g => g.leaders && g.leaders.length > 0);
   if (groups.length === 0) {
-    shell(emptyState('signals recorded but no leaders yet'), '—');
+    renderIfChanged('insCross', 'noleaders', () => shell(emptyState('signals recorded but no leaders yet'), '—'));
     return;
   }
 
   // Count distinct mods across all classes for the header summary.
   const distinct = new Set();
   groups.forEach(g => (g.leaders || []).forEach(l => distinct.add(l.modId)));
+
+  // Signature gate: each class + its leaders (modId + appearances). A no-change
+  // poll skips rebuilding the whole panel (chrome + every class table). The full
+  // panel is rebuilt here (not a stable scroll container), so the gate covers it.
+  const insCcSig = groups.map(g => g.signalClass + '[' +
+    (g.leaders || []).map(l => l.modId + ':' + (l.appearances || 0)).join(',') + ']').join('|');
+  if (_renderSig['insCross'] === insCcSig) return;
+  _renderSig['insCross'] = insCcSig;
 
   const sections = groups.map(g => {
     const leaders = (g.leaders || []).slice().sort((a, b) => b.appearances - a.appearances);
@@ -529,10 +527,7 @@ function renderCrossCutting() {
     </tr>`).join('');
     return sectionBlock(
       humanizeLabel(g.signalClass),
-      `<table class='dtable'>
-        <thead><tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`,
+      dtable(`<tr><th class='dim'>#</th><th class='l'>mod</th><th>appearances</th><th class='l'>share of class</th></tr>`, rows),
       fmtInt(leaders.length) + ' mods');
   }).join('');
 
@@ -564,10 +559,17 @@ function renderEngagementScatter() {
 
   if (!ec || !ec.worldLoaded || !ec.dots || ec.dots.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(body, emptyState('no engagement vs cost data yet'));
+    renderIfChanged('insScatter', 'empty', () => setHTML(body, emptyState('no engagement vs cost data yet')));
     return;
   }
   if (subEl) subEl.textContent = `${ec.dots.length} mods · bubble = roster size`;
+
+  // Signature gate: each dot's id + its plotted figures. A no-change poll skips
+  // the SVG rebuild + dot-click rebind (the existing dots keep their handlers).
+  // The sub-header above is a cheap sibling, left ungated.
+  const scatSig = ec.dots.map(d => d.modId + ':' + (d.usageShare || 0).toFixed(4) + ':' + (d.cpuShare || 0).toFixed(4) + ':' + (d.rosterSize || 0)).join(',');
+  if (_renderSig['insScatter'] === scatSig) return;
+  _renderSig['insScatter'] = scatSig;
 
   // Tilt from the usage-vs-cost share ratio (−1 pure usage .. +1 pure cost).
   const COST = 'var(--spike)', USE = 'var(--good-bar)', BAL = 'var(--muted)';
@@ -630,18 +632,23 @@ function renderModInteractionMatrix() {
 
   if (!mi || !mi.worldLoaded || !mi.modIds || mi.modIds.length === 0) {
     if (subEl) subEl.textContent = '—';
-    setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)'));
+    renderIfChanged('insMatrix', 'none', () => setHTML(scroll, emptyState('no mod interaction data yet (needs ≥2 active mods over time)')));
     return;
   }
   const N = mi.modIds.length;
   if (N < 2 || !mi.topCoupled || mi.topCoupled.length === 0) {
     if (subEl) subEl.textContent = `${N} mods`;
-    setHTML(scroll, emptyState('no coupled pairs ranked yet'));
+    renderIfChanged('insMatrix', 'nopairs:' + N, () => setHTML(scroll, emptyState('no coupled pairs ranked yet')));
     return;
   }
   if (subEl) subEl.textContent = `${N} mods (Pearson r)`;
 
   const pairs = mi.topCoupled.slice(0, 12);
+  // Signature gate: the ranked pair list (names + r + samples). A no-change poll
+  // skips the bar scaling + table reparse. The sub-header above is left ungated.
+  const insMatrixSig = pairs.map(p => p.modNameA + '×' + p.modNameB + ':' + (p.pearson || 0).toFixed(4) + ':' + (p.samplesUsed || 0)).join(',');
+  if (_renderSig['insMatrix'] === insMatrixSig) return;
+  _renderSig['insMatrix'] = insMatrixSig;
   // Strong-correlation clusters (e.g. every |r| in 0.99..1.0) make a 0..max bar
   // read as uniformly full, so it adds nothing over the r column. Scale the bar to
   // the VISIBLE range instead: baseline at the lowest |r| shown, full at the
@@ -666,11 +673,7 @@ function renderModInteractionMatrix() {
     </tr>`;
   }).join('');
 
-  setHTML(scroll, `
-    <table class='dtable'>
-      <thead><tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`);
+  setHTML(scroll, dtable(`<tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th><th class='l'>magnitude</th><th>samples</th></tr>`, rows));
 }
 ";
 }

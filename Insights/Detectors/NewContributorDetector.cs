@@ -56,6 +56,10 @@ public sealed class NewContributorDetector : IInsightDetector
         }
         if (_cand.Count == 0) return;
 
+        // Bonferroni denominator. The per-mod idle→active tests share the same temporal
+        // baseline, so they are not independent; the effective test count is below tests
+        // and the correction is conservative (suppresses real transitions, never
+        // manufactures them). A Holm/BH step would recover the lost power.
         int adjust = tests < 1 ? 1 : tests;
         _cand.Sort((a, b) => b.late.CompareTo(a.late)); // surface the biggest new costs first
         int take = Math.Min(_cand.Count, MaxEmitPerPass);
@@ -71,7 +75,13 @@ public sealed class NewContributorDetector : IInsightDetector
                     Shape = MagnitudeShape.Deviation,
                     BaselineMs = c.early,
                     ObservedMs = c.late,
-                    RatioOrDelta = c.early > 1e-9 ? c.late / c.early : 99d, // ~from-zero
+                    // ~from-zero sentinel. NewContributor is a ratio pattern, so RankingScorer.RatioCurve
+                    // saturates 99 to magnitude 1.0 — every from-zero record pins maximum magnitude
+                    // regardless of how small the late cost actually is (the player copy renders `late` ms,
+                    // not this ratio, so the surface stays honest; the distortion is ranking-order only).
+                    // Ranking it on the late level (a MagnitudeShape.Rate) would be more honest but is a
+                    // behaviour-changing follow-on, out of audit scope.
+                    RatioOrDelta = c.early > 1e-9 ? c.late / c.early : 99d,
                 },
                 Evidence = new Evidence
                 {

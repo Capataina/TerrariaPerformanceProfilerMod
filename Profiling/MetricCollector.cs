@@ -38,6 +38,12 @@ public sealed class MetricCollector
     // jitter without feeling laggy.
     private const double PerModSmoothing = 0.06d;
 
+    // Stopwatch-ticks → milliseconds. Stopwatch.Frequency is fixed at process
+    // boot on every platform tModLoader runs on, so this is a process-lifetime
+    // constant; caching the reciprocal trades a per-tick division for a multiply
+    // (the same lever Time.cs:46 already pulls).
+    private static readonly double TicksToMs = 1000d / Stopwatch.Frequency;
+
     private readonly RingBuffer<TickFrame> _history;
 
     // Per-mod, per-category CPU, [modId * CategoryCount + categoryId]. _raw is
@@ -220,6 +226,19 @@ public sealed class MetricCollector
     public IReadOnlyList<double> PerModCategoryRawMs => _perModRawMs;
 
     /// <summary>
+    /// Same buffer as <see cref="PerModCategoryRawMs"/> exposed as the concrete
+    /// <c>double[]</c> for the per-tick fold consumers (<c>SegmentDetector.OnTick</c>,
+    /// <c>PerModCostTimeSeriesAggregator.OnTick</c>). Indexing a <c>double[]</c>
+    /// is non-virtual and bounds-check-elidable in a counted loop, whereas the
+    /// <see cref="IReadOnlyList{T}"/> view forces interface dispatch on every
+    /// element — the cost the hottest folds in the pipeline pay otherwise.
+    /// Internal so the contract that "the buffer is overwritten each
+    /// <c>EndTick</c>" is enforced by the public read-only view; same-assembly
+    /// callers that take the array must not store the reference past the frame.
+    /// </summary>
+    internal double[] PerModCategoryRawMsArray => _perModRawMs;
+
+    /// <summary>
     /// Rolling 30-second per-mod/category average in milliseconds. This is the
     /// stable view for inspecting lag-spike contribution without row churn.
     /// </summary>
@@ -300,15 +319,6 @@ public sealed class MetricCollector
     /// scratch and never reaches the retained ring or the JSON.
     /// </summary>
     public void FlushSpikes() => _spikeDetector.Flush();
-
-    /// <summary>
-    /// Shared baseline (median frame time, median tick period, allocation
-    /// rate, calibration state) — kept here for the legacy
-    /// <see cref="Baseline"/> getter further down. Stall-period derivation
-    /// lives on the baseline; the property exists separately for clarity at
-    /// call sites that only want tick stats vs only want self-health.
-    /// </summary>
-    internal StallDetector StallDetectorRef => _stallDetector;
 
     /// <summary>True between a <see cref="BeginTick"/> and its matching <see cref="EndTick"/>.</summary>
     public bool TickOpen => _tickStartTimestamp >= 0L;
@@ -403,8 +413,14 @@ public sealed class MetricCollector
         // Then fold it into the smoothed view.
         PerModAttribution.HarvestInto(_perModRawMs, backendId: 0);
         UpdateRollingAverage(_perModRawMs, _perModHistoryMs, _perModRollingMs, _perModAverageMs, _sampleSlot);
+        // Backend-0 total folded into the smoothing pass: this loop already
+        // reads every _perModRawMs cell ascending, so accumulating the sum here
+        // is bit-identical to a separate SumAll pass (same addition order) and
+        // saves a second full sequential walk of the per-mod grid each tick.
+        double total0 = 0d;
         for (int i = 0; i < _perModSmoothedMs.Length; i++)
         {
+            total0 += _perModRawMs[i];
             _perModSmoothedMs[i] += PerModSmoothing * (_perModRawMs[i] - _perModSmoothedMs[i]);
         }
 
@@ -435,8 +451,8 @@ public sealed class MetricCollector
         }
 
         // Track per-backend totals so the UI can show a backend divergence badge
-        // and the log can periodically report the comparison.
-        double total0 = SumAll(_perModRawMs);
+        // and the log can periodically report the comparison. total0 was folded
+        // into the smoothing loop above (same ascending order as SumAll).
         _backendTotalSmoothedMs0 += PerModSmoothing * (total0 - _backendTotalSmoothedMs0);
 
         if (_perModRawMsBackend1 != null)
@@ -455,7 +471,11 @@ public sealed class MetricCollector
         {
             for (int i = 0; i < _perModRawBytes.Length; i++) allocBytesThisTick += _perModRawBytes[i];
         }
-        _baseline.Recompute(_history, _tracksAllocations, allocBytesThisTick);
+        // Pass the just-closed frame directly so the steady-state path skips
+        // re-fetching it through the history ring's indexer (bounds check +
+        // wrap arithmetic + full-struct copy). The overload falls back to the
+        // history-based rebuild whenever its incremental state has drifted.
+        _baseline.Recompute(_history, in frame, _tracksAllocations, allocBytesThisTick);
 
         // Push this tick's raw per-mod-per-category row into the history ring,
         // then run the spike detector. Order matters: the detector reads from
@@ -571,7 +591,7 @@ public sealed class MetricCollector
     /// <summary>Converts a delta of <see cref="Stopwatch"/> timestamps to milliseconds.</summary>
     private static double TimestampDeltaMs(long startTimestamp, long endTimestamp)
     {
-        return (endTimestamp - startTimestamp) * 1000d / Stopwatch.Frequency;
+        return (endTimestamp - startTimestamp) * TicksToMs;
     }
 
     /// <summary>

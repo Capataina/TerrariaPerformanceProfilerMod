@@ -67,13 +67,14 @@ public sealed class Baseline
     /// <summary>How often (in ticks) to recompute the MAD values. ~0.5 s at 60 Hz.</summary>
     private const int MadRecomputeInterval = 30;
 
-    // Persistent histograms maintained incrementally. Two histograms × two
-    // metrics (frame-time + tick-period) = four total. Allocation-free
-    // after construction; updates are single ++/-- operations.
+    // Persistent histograms maintained incrementally. Three live histograms:
+    // _frameHist (frame-time medians), _periodHist (tick-period medians), and
+    // _frameMadHist, the scratch buffer ComputeMadFromHistory reuses for both
+    // the frame and period MAD branches. Allocation-free after construction;
+    // updates are single ++/-- operations.
     private readonly int[] _frameHist = new int[HistogramBuckets];
     private readonly int[] _frameMadHist = new int[HistogramBuckets];
     private readonly int[] _periodHist = new int[HistogramBuckets];
-    private readonly int[] _periodMadHist = new int[HistogramBuckets];
 
     // Per-frame bucket shadow rings. Mirror the ring buffer of frames so
     // we know which bucket to decrement on eviction. Sized to match
@@ -111,7 +112,12 @@ public sealed class Baseline
     /// <summary>MAD of tick period (ms).</summary>
     public double TickPeriodMsMad { get; private set; }
 
-    /// <summary>Median per-tick allocation rate (bytes). Zero when allocation tracking is off.</summary>
+    /// <summary>
+    /// EMA-smoothed mean per-tick allocation rate (bytes), updated with
+    /// <c>AllocEmaAlpha = 0.05</c> — sensitive to recent spikes, not a robust
+    /// median despite the historical "Median" name. Zero when allocation
+    /// tracking is off.
+    /// </summary>
     public double AllocBytesPerTickMedian { get; private set; }
 
     /// <summary>True once we have at least <see cref="MinCalibrationTicks"/> samples in history.</summary>
@@ -130,6 +136,25 @@ public sealed class Baseline
     /// </para>
     /// </summary>
     public void Recompute(RingBuffer<TickFrame> history, bool tracksAllocations, double allocBytesThisTick)
+    {
+        RecomputeCore(history, hasNewest: false, default, tracksAllocations, allocBytesThisTick);
+    }
+
+    /// <summary>
+    /// Steady-state overload: <paramref name="newest"/> is the just-closed frame
+    /// the caller already holds (the one it pushed to <paramref name="history"/>
+    /// this tick). On the matched-state path this skips re-reading the newest
+    /// frame back through the ring indexer (bounds check + wrap arithmetic +
+    /// full <see cref="TickFrame"/> copy). The resync/rebuild branch ignores it
+    /// and reads <paramref name="history"/>, so the result is identical to the
+    /// history-only overload for every input.
+    /// </summary>
+    public void Recompute(RingBuffer<TickFrame> history, in TickFrame newest, bool tracksAllocations, double allocBytesThisTick)
+    {
+        RecomputeCore(history, hasNewest: true, in newest, tracksAllocations, allocBytesThisTick);
+    }
+
+    private void RecomputeCore(RingBuffer<TickFrame> history, bool hasNewest, in TickFrame newest, bool tracksAllocations, double allocBytesThisTick)
     {
         IsCalibrated = history.Count >= MinCalibrationTicks;
 
@@ -155,8 +180,17 @@ public sealed class Baseline
         }
         else if (history.Count > 0)
         {
-            TickFrame newest = history[history.Count - 1];
-            OnFramePushed(newest);
+            // Prefer the in-hand frame; fall back to the indexer only when the
+            // caller didn't supply one (the history-only overload).
+            if (hasNewest)
+            {
+                OnFramePushed(in newest);
+            }
+            else
+            {
+                TickFrame fromHistory = history[history.Count - 1];
+                OnFramePushed(in fromHistory);
+            }
         }
 
         // Median: cheap scan over 512 buckets, every tick.
@@ -253,7 +287,6 @@ public sealed class Baseline
         Array.Clear(_frameHist, 0, _frameHist.Length);
         Array.Clear(_frameMadHist, 0, _frameMadHist.Length);
         Array.Clear(_periodHist, 0, _periodHist.Length);
-        Array.Clear(_periodMadHist, 0, _periodMadHist.Length);
         if (_frameBuckets.Length > 0) Array.Clear(_frameBuckets, 0, _frameBuckets.Length);
         if (_periodBuckets.Length > 0) Array.Clear(_periodBuckets, 0, _periodBuckets.Length);
         _frameHead = _frameCount = _periodHead = _periodCount = 0;

@@ -30,7 +30,7 @@ namespace PerformanceProfiler.Data.Stats;
 /// <para>
 /// This file is the canonical template for new <c>Data/Stats/</c> entries:
 /// implement <see cref="IDataStat{TSnapshot}"/>, register in
-/// <c>ProfilerSystem.Load</c> via <c>DataRegistry.Shared.Register(new KpiStat())</c>,
+/// <c>PerformanceProfiler.RegisterDataPipeline</c> via <c>DataRegistry.Shared.Register(new KpiStat())</c>,
 /// done. Consumers go through <c>DataRegistry.Shared.Lookup&lt;KpiSnapshot&gt;("kpi")</c>.
 /// </para>
 /// </summary>

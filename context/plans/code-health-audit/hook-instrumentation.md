@@ -9,7 +9,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 ## Dead Code Removal
 
 ### Write-only delegate-path coverage surface (`InstallFailures`, `UnsupportedHookSignatures`, `UnsupportedSignatureFrequency`, `UnsupportedHookSamples`)
-- [ ] Mark the four write-only public read surfaces `[Obsolete]`-or-internal, or collapse them to the private backing fields, since nothing in the repo reads them.
+- [x] Mark the four write-only public read surfaces `[Obsolete]`-or-internal, or collapse them to the private backing fields, since nothing in the repo reads them. — IMPLEMENTED (option a): deleted the four public getters (`UnsupportedHookSignatures`, `InstallFailures`, `UnsupportedHookSamples`, `UnsupportedSignatureFrequency`) from `HookInterceptor.cs`; kept the private backing fields + their install-time writes (the `Install` summary log still reads the two scalars as locals); replaced with a block comment recording the archived-fallback rationale. Re-confirmed zero readers solution-wide.
 **Category:** API Surface Bloat
 **Severity:** high   **Effort:** small   **Behavioural Impact:** none
 **Location:** `Profiling/HookInterceptor.cs:259,269,278,281` — `UnsupportedHookSignatures`, `InstallFailures`, `UnsupportedHookSamples`, `UnsupportedSignatureFrequency`
@@ -20,7 +20,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 **Impact Assessment:** Zero behaviour change — these getters are never called, so removing them cannot alter any observable output. Flag: confirm against any out-of-repo consumer (mod-call API / reflection) before deletion; the codebase has no public mod-call surface today, so this is reasoned-safe but worth one grep against `Mod.Call`.
 
 ### `ProbeStack.CurrentDepth` has no callers
-- [ ] Remove `CurrentDepth` (and its "validation logging" docstring) or wire it to the leak-detection it claims to back.
+- [x] Remove `CurrentDepth` (and its "validation logging" docstring) or wire it to the leak-detection it claims to back. — IMPLEMENTED: deleted `ProbeStack.CurrentDepth` and its docstring (zero callers re-confirmed).
 **Category:** Dead Code Removal
 **Severity:** medium   **Effort:** trivial   **Behavioural Impact:** none
 **Location:** `Profiling/ProbeStack.cs:199-204` — `CurrentDepth`
@@ -31,7 +31,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 **Impact Assessment:** Zero behaviour change — `[ThreadStatic]` state read is side-effect-free and unobserved.
 
 ### `ProfilerSelfHealth.Reset()` is never called
-- [ ] Remove `Reset()` or document why it exists (the singleton is never reset in practice).
+- [x] Remove `Reset()` or document why it exists (the singleton is never reset in practice). — IMPLEMENTED: deleted `ProfilerSelfHealth.Reset()` (zero callers re-confirmed; the process-lifetime singleton never invokes it — a reload re-creates the ModSystem and gets a fresh instance).
 **Category:** Dead Code Removal
 **Severity:** medium   **Effort:** trivial   **Behavioural Impact:** none
 **Location:** `Profiling/ProfilerSelfHealth.cs:266-280` — `Reset()`
@@ -42,7 +42,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 **Impact Assessment:** Zero behaviour change — unreachable code.
 
 ### Delegate-path sample-failure flag is never re-armed (latent, but in dead default path)
-- [ ] Reset `HookInterceptor._sampleFailureLogged = false` at the top of `Install`, matching `ILHookInterceptor.Install` (`ILHookInterceptor.cs:166`).
+- [x] Reset `HookInterceptor._sampleFailureLogged = false` at the top of `Install`, matching `ILHookInterceptor.Install` (`ILHookInterceptor.cs:166`). — IMPLEMENTED: added `_sampleFailureLogged = false;` alongside the existing field resets at the top of `HookInterceptor.Install`'s try block, with a comment cross-referencing the IL path.
 **Category:** Inconsistent Patterns
 **Severity:** low   **Effort:** trivial   **Behavioural Impact:** none (in default ILHook mode); negligible (flagged) if delegate path is re-activated
 **Location:** `Profiling/HookInterceptor.cs:237,800-807` — `_sampleFailureLogged` / `LogSampleHookFailure`
@@ -94,7 +94,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 **Impact Assessment:** No behaviour change proposed (comment only).
 
 ### `ModOwnerCache.FromEntitySource` allocates a substring on every cache-miss path and is NOT memoised
-- [ ] Cache the `EntitySource_`-stripped name by source `Type` so the `Substring` runs once per source subclass, not once per call.
+- [x] Cache the `EntitySource_`-stripped name by source `Type` so the `Substring` runs once per source subclass, not once per call. — IMPLEMENTED: added `static readonly ConcurrentDictionary<Type, string> _bySourceType` to `ModOwnerCache`; `FromEntitySource` now `GetOrAdd`s with a `static` strip lambda (mirrors the `_byTypeId` pattern in the same file). Docstring corrected to state the memoisation it now actually does.
 **Category:** Algorithm Optimisation
 **Severity:** medium   **Effort:** small   **Behavioural Impact:** none
 **Location:** `Profiling/ModOwnerCache.cs:72-79` — `FromEntitySource`
@@ -109,7 +109,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 ## Documentation Rot
 
 ### `ProfilerSelfHealth.BaselineBytesPerHook` comment lists stale per-release baselines and pre-trim normal
-- [ ] Update the `v0.5 / v0.6.1 / v0.7.x` baseline table and the `36 KB` "measured normal" to reflect the post-`TrimRetainedScaffolding` reality (~30 KB/hook per `install-ram.md` execution log).
+- [x] Update the `v0.5 / v0.6.1 / v0.7.x` baseline table and the `36 KB` "measured normal" to reflect the post-`TrimRetainedScaffolding` reality (~30 KB/hook per `install-ram.md` execution log). — IMPLEMENTED (comment-only, free part): added the `v0.13 ~30 KB/hook (post-scaffolding-trim)` row to the release table and a NOTE recording that the constant is intentionally still pinned at 36 KB pending the retune sign-off. The constant change is the separate not-free finding below (DEFERRED).
 **Category:** Documentation Rot
 **Severity:** medium   **Effort:** trivial   **Behavioural Impact:** none
 **Location:** `Profiling/ProfilerSelfHealth.cs:85-95` — `BaselineBytesPerHook` block
@@ -120,7 +120,7 @@ Scope note on the default backend: `HookBackend.Mode` defaults to `ILHook` (`Hoo
 **Impact Assessment:** Comment-only update = zero behaviour change. The constant retune is split out as the next finding because it shifts a user-visible threshold.
 
 ### Constant retune: `BaselineBytesPerHook` 36 KB → ~30 KB (NOT free — flagged for decision)
-- [ ] Decide whether to re-pin the Severity baseline to the post-trim measured normal; this shifts the amber/red thresholds.
+- [ ] Decide whether to re-pin the Severity baseline to the post-trim measured normal; this shifts the amber/red thresholds. — DEFERRED: behaviour-affecting (moves the player- and agent-visible amber/red Severity bands), so out of the free-only scope. The free comment update above records the v0.13 measured number and flags the pending retune; the constant change itself awaits engineer sign-off.
 **Category:** Configuration Drift
 **Severity:** medium   **Effort:** trivial   **Behavioural Impact:** possible (requires decision)
 **Location:** `Profiling/ProfilerSelfHealth.cs:95` — `BaselineBytesPerHook`

@@ -53,8 +53,11 @@ internal sealed class ContextTagger
     }
 
     /// <summary>
+    /// PER-TICK HOT PATH (Invariant 2) — no allocation, no interface dispatch
+    /// in steady state. Driven directly each tick rather than through the
+    /// registry's Cadence-gated loop, so this banner is the contract.
     /// Updates the cached <see cref="EventContext"/> from <see cref="Main"/>
-    /// and <see cref="Main.LocalPlayer"/>. Allocation-free in steady state.
+    /// and <see cref="Main.LocalPlayer"/>.
     /// </summary>
     public void Snapshot(long tickIndex)
     {

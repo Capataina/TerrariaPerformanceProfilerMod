@@ -21,9 +21,9 @@ namespace PerformanceProfiler.Data.Stats;
 ///
 /// <para>
 /// The baseline is computed from session totals: <c>(spikes + stalls) /
-/// sessionMinutes</c>. When fewer than ~60 s of session have elapsed the
-/// baseline is clamped to the elapsed minutes so a young session doesn't
-/// produce divide-by-tiny-number ratios.
+/// sessionMinutes</c>. The elapsed-minutes denominator is clamped to a
+/// 1-second floor (<c>Math.Max(elapsedMinutes, 1d/60d)</c>) so a young
+/// session doesn't produce divide-by-tiny-number ratios.
 /// </para>
 /// </summary>
 public sealed class PerSegmentLagDensityStat : IDataStat<SegmentLagDensitySnapshot>

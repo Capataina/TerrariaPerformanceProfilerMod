@@ -13,7 +13,7 @@
 The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEverything` → the frozen `DataRegistry.PerTickCallbacks` for-loop (drives `PerModUsageAggregator.Capture` and `PerModCostTimeSeriesAggregator.Capture`) **and** the directly-driven `SegmentDetector.OnTick` (called at `ProfilerSystem.cs:623`) + `EventAggregator.Accumulate` + `ContextTagger.Snapshot`. Findings below are confirmed against the backing types, not inferred.
 
 ### Interface-indexer dispatch on the per-tick segment fold (`IReadOnlyList<double>`)
-- [ ] `SegmentDetector.OnTick` folds per-mod cost by indexing an `IReadOnlyList<double>` once per (mod × category × open-segment) every tick; the backing object is a plain `double[]` whose concrete type is hidden behind the interface, defeating devirtualisation and bounds-check elision.
+- [x] `SegmentDetector.OnTick` folds per-mod cost by indexing an `IReadOnlyList<double>` once per (mod × category × open-segment) every tick; the backing object is a plain `double[]` whose concrete type is hidden behind the interface, defeating devirtualisation and bounds-check elision. — IMPLEMENTED: added `internal double[] PerModCategoryRawMsArray => _perModRawMs;` to `MetricCollector`; `SegmentDetector.OnTick`'s parameter changed to `double[]`; `ProfilerSystem.cs:623` passes `collector.PerModCategoryRawMsArray`. (MetricCollector/SegmentDetector are tModLoader-linked → not pin-testable; equivalence is by-reasoning: same buffer, concrete-array indexing, identical values.)
 
 **Category:** Data Layout / Memory Access (per-tick virtual dispatch)   **Severity:** High   **Effort:** Medium   **Behavioural Impact:** None (identical numerics)
 **Location:** `Data/Aggregators/Segments/SegmentDetector.cs:255` — `OnTick()` inner fold; argument originates at `Profiling/ProfilerSystem.cs:623` (`collector.PerModCategoryRawMs`), typed `IReadOnlyList<double>` at `Profiling/MetricCollector.cs:220`.
@@ -24,7 +24,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Impact Assessment:** Blast radius crosses into `Profiling/` (the new accessor on `MetricCollector` + the `ProfilerSystem.cs:623` call site). The accessor is purely additive and `internal`. **FREE** in behaviour; flag the cross-file touch. Measure against the overhead budget before declaring done (Invariant 2 makes the measurement part of "done").
 
 ### Same interface-indexer pattern in `PerModCostTimeSeriesAggregator.OnTick`
-- [ ] The F3 per-tick cost-bucket fold reads `c.PerModCategoryRawMs` as `IReadOnlyList<double>` and indexes it per element, despite the class doc claiming "no foreach over interfaces" — the indexer is still interface dispatch.
+- [x] The F3 per-tick cost-bucket fold reads `c.PerModCategoryRawMs` as `IReadOnlyList<double>` and indexes it per element, despite the class doc claiming "no foreach over interfaces" — the indexer is still interface dispatch. — IMPLEMENTED: `PerModCostTimeSeriesAggregator.OnTick` now holds `double[] perCat = c.PerModCategoryRawMsArray` (reuses the accessor from the previous finding); `perCat.Count` → `perCat.Length`. Class doc corrected: "no interface indexing (the `double[]` is indexed directly so the JIT devirtualises and elides bounds checks)".
 
 **Category:** Data Layout / Memory Access (per-tick virtual dispatch)   **Severity:** High   **Effort:** Medium   **Behavioural Impact:** None
 **Location:** `Data/Aggregators/PerModCostTimeSeriesAggregator.cs:151,168,178` — `OnTick()`.
@@ -35,7 +35,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Impact Assessment:** Same accessor, same `Profiling/` blast radius. **FREE** in behaviour. Correct the doc-comment to say "no interface indexing" once fixed (it currently overstates the guarantee).
 
 ### Interface-indexer dispatch on the per-tick biome attendance fold (`IReadOnlyList<BiomeDescriptor>`)
-- [ ] `PerModUsageAggregator.CaptureInstance` indexes `BiomeRegistry.Biomes` (an `IReadOnlyList<BiomeDescriptor>` over a `List<BiomeDescriptor>`) once per registered modded biome, every tick.
+- [x] `PerModUsageAggregator.CaptureInstance` indexes `BiomeRegistry.Biomes` (an `IReadOnlyList<BiomeDescriptor>` over a `List<BiomeDescriptor>`) once per registered modded biome, every tick. — IMPLEMENTED: added `internal static List<BiomeDescriptor> BiomesList => _biomes;` to `BiomeRegistry`; `PerModUsageAggregator.CaptureInstance` now holds `List<BiomeDescriptor> biomes = BiomeRegistry.BiomesList`. Also fixed the lower-value rare-rebuild site `SegmentDetector.ComputeBiomeComposite` (holds `BiomesList` locally, indexes the concrete list) for consistency.
 
 **Category:** Data Layout / Memory Access (per-tick virtual dispatch)   **Severity:** Medium   **Effort:** Medium   **Behavioural Impact:** None
 **Location:** `Data/Aggregators/PerModUsageAggregator.cs:182,188` — `CaptureInstance()`; backing at `Profiling/Events/BiomeRegistry.cs:41,53` (`private static readonly List<BiomeDescriptor> _biomes; public static IReadOnlyList<BiomeDescriptor> Biomes => _biomes;`).
@@ -58,7 +58,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 ## Correctness
 
 ### `AllocationCausalityStat` ships a potentially-negative `FreedBytes`; its direct sibling already guards the identical subtraction
-- [ ] `freedBytes = HeapSizeBeforeBytes - HeapSizeAfterBytes` is emitted unguarded, so a GC where the heap is larger after than before (allocation during the collection window, or a sampling race) produces a negative `FreedBytes` on the UI. `GcPressureStat` computes the same subtraction and takes the absolute value.
+- [x] `freedBytes = HeapSizeBeforeBytes - HeapSizeAfterBytes` is emitted unguarded, so a GC where the heap is larger after than before (allocation during the collection window, or a sampling race) produces a negative `FreedBytes` on the UI. `GcPressureStat` computes the same subtraction and takes the absolute value. — IMPLEMENTED: `AllocationCausalityStat.cs:117` now `long freedBytes = Math.Abs(s.HeapSizeBeforeBytes - s.HeapSizeAfterBytes);` with a comment citing the `GcPressureStat.cs:88-90` sibling. (Implemented inline — the `StallMath` extraction was not done; that is a separate Pattern-Extraction finding left to its own pass.)
 
 **Category:** Active Risks (correctness)   **Severity:** Medium   **Effort:** Trivial   **Behavioural Impact:** Output changes only in the currently-wrong negative case (a negative byte count becomes its magnitude)
 **Location:** `Data/Stats/AllocationCausalityStat.cs:117` (`long freedBytes = s.HeapSizeBeforeBytes - s.HeapSizeAfterBytes;`) vs the guarded `Data/Stats/GcPressureStat.cs:88-90` (`long delta = …; if (delta < 0) delta = -delta; freedBytes += delta;`).
@@ -69,7 +69,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Impact Assessment:** Behaviour changes only where the current output is already wrong (negative). **FREE.**
 
 ### `DeathReplayStat.ResolvePrimaryBiome` always returns `string.Empty` with a dead `Main.LocalPlayer` read
-- [ ] Every path through `ResolvePrimaryBiome` returns `""`; the `Terraria.Main.LocalPlayer` read has no effect (result is only null-checked then discarded) and the surrounding try/catch guards nothing.
+- [x] Every path through `ResolvePrimaryBiome` returns `""`; the `Terraria.Main.LocalPlayer` read has no effect (result is only null-checked then discarded) and the surrounding try/catch guards nothing. — IMPLEMENTED: collapsed the body to `return string.Empty;` (removed the dead `Main.LocalPlayer` read + redundant try/catch); kept the method as the documented seam and folded the explanatory comment into the docstring. Output unchanged (`""` for every input).
 
 **Category:** Dead Code / Complexity Hotspots   **Severity:** Low   **Effort:** Trivial   **Behavioural Impact:** None (already constant `""`)
 **Location:** `Data/Stats/DeathReplayStat.cs:272-289`; caller at line 190 (`string primaryBiome = ResolvePrimaryBiome();`).
@@ -84,7 +84,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 ## Dead Code
 
 ### `Baseline._periodMadHist` is allocated and cleared but never sample-written or read
-- [ ] A 512-int (`HistogramBuckets`) histogram is allocated for the lifetime of the session and zeroed on `Reset`, but no code path ever fills or reads it — `ComputeMadFromHistory` reuses `_frameMadHist` for *both* the frame and period MAD branches.
+- [x] A 512-int (`HistogramBuckets`) histogram is allocated for the lifetime of the session and zeroed on `Reset`, but no code path ever fills or reads it — `ComputeMadFromHistory` reuses `_frameMadHist` for *both* the frame and period MAD branches. — IMPLEMENTED: deleted the `_periodMadHist` field (`Baseline.cs:76`) and its `Array.Clear` in `Reset`; rewrote the adjacent comment to describe three live histograms (`_frameHist`, `_periodHist`, the shared `_frameMadHist` scratch). Verified `ComputeMadFromHistory` uses `_frameMadHist` for both branches.
 
 **Category:** Dead Code   **Severity:** Low   **Effort:** Trivial   **Behavioural Impact:** None
 **Location:** `Data/Stats/Baseline.cs:76` (`private readonly int[] _periodMadHist = new int[HistogramBuckets];`), cleared at line 256; `_frameMadHist` is the one actually reused (lines 74, 325-326 `int[] hist = _frameMadHist;`).
@@ -165,7 +165,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 ## Numerical Stability
 
 ### Pearson `r` returned unclamped — float rounding can push it past ±1
-- [ ] The two-pass Pearson computes `cov` and the variances in separate loops; for near-perfectly-correlated series, float rounding can make `cov` marginally exceed `√(vi·vj)`, returning e.g. `1.0000000002`. Consumers assuming `r ∈ [-1,1]` (heatmap colour map, `Math.Acos`/`Math.Sqrt(1-r²)`) NaN or render out of range.
+- [ ] The two-pass Pearson computes `cov` and the variances in separate loops; for near-perfectly-correlated series, float rounding can make `cov` marginally exceed `√(vi·vj)`, returning e.g. `1.0000000002`. Consumers assuming `r ∈ [-1,1]` (heatmap colour map, `Math.Acos`/`Math.Sqrt(1-r²)`) NaN or render out of range. — DEFERRED: the fix (`Math.Clamp(cov / denom, -1d, 1d)` at `ModInteractionAggregator.cs:218`) is correct and free, but the file lives under `Insights/Publish/` which is explicitly OUT of this agent's edit scope (the brief restricts edits to `Profiling/` + `Data/` and says "do NOT touch `Insights/`"). The Insights cluster owns it. Scope boundary > convenience — left for that pass.
 
 **Category:** Active Risks (numerical)   **Severity:** Low   **Effort:** Trivial   **Behavioural Impact:** Output changes only in the currently-out-of-range float-escape case (clamps to the valid endpoint)
 **Location:** `Insights/Publish/ModInteractionAggregator.cs:218` (`return cov / denom;`), guarded against zero-variance at lines 207/217 but not against the ±1 envelope.
@@ -204,7 +204,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Justification:** The hardcoded-`true` sites have already proven `collector != null` via an early return; the computed sites reach their final constructor with a possibly-null collector. The inconsistency is *correct* — recorded so a future reader does not unify the computed ones into `true` and introduce a wrong value/null-deref. **No change.**
 
 ### `EventAggregator` and `ContextTagger` are per-tick but declare no `Cadence` contract
-- [ ] The two directly-driven per-tick classes (`EventAggregator.Accumulate`, `ContextTagger.Snapshot`) are plain `internal sealed class`es with no `IDataCollector`/`Cadence`; their hot-path nature lives only in XML comments, so the per-tick discipline rests on reviewer vigilance, not a declared contract.
+- [x] The two directly-driven per-tick classes (`EventAggregator.Accumulate`, `ContextTagger.Snapshot`) are plain `internal sealed class`es with no `IDataCollector`/`Cadence`; their hot-path nature lives only in XML comments, so the per-tick discipline rests on reviewer vigilance, not a declared contract. — IMPLEMENTED: added a "PER-TICK HOT PATH (Invariant 2) — no allocation, no interface dispatch" banner to the docstrings of both `EventAggregator.Accumulate` and `ContextTagger.Snapshot`, noting they are driven directly (not via the Cadence loop) so the banner is the contract.
 
 **Category:** Inconsistent Patterns   **Severity:** Low   **Effort:** Trivial   **Behavioural Impact:** None
 **Location:** `Data/Aggregators/EventAggregator.cs` (`Accumulate`, ~line 111), `Data/Collectors/ContextTagger.cs` (`Snapshot`, line 59).
@@ -217,7 +217,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 ## Documentation Rot (stale comments)
 
 ### `PerSegmentLagDensityStat` doc says "60 s clamp"; code clamps to a 1-second floor
-- [ ] The class doc-comment claims the baseline is "clamped to the elapsed minutes" when "fewer than ~60 s have elapsed", but the code is `Math.Max(elapsedMinutes, 1d/60d)` — a 1-second floor, not a 60-second clamp.
+- [x] The class doc-comment claims the baseline is "clamped to the elapsed minutes" when "fewer than ~60 s have elapsed", but the code is `Math.Max(elapsedMinutes, 1d/60d)` — a 1-second floor, not a 60-second clamp. — IMPLEMENTED: corrected `PerSegmentLagDensityStat`'s class doc to "the elapsed-minutes denominator is clamped to a 1-second floor (`Math.Max(elapsedMinutes, 1d/60d)`)".
 
 **Category:** Documentation Rot   **Severity:** Trivial   **Effort:** Trivial   **Behavioural Impact:** None
 **Location:** comment at `Data/Stats/PerSegmentLagDensityStat.cs:24-27` vs code at `:59`; identical `1d/60d` floor at `GcPressureStat.cs:94`.
@@ -225,7 +225,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Impact Assessment:** **FREE.**
 
 ### `SessionChronicleStat` doc says "four collections" then lists five
-- [ ] The class doc says it "Reads four DB collections" and then enumerates five (sessions, contextTransitions, segments, player deaths, spike windows).
+- [x] The class doc says it "Reads four DB collections" and then enumerates five (sessions, contextTransitions, segments, player deaths, spike windows). — IMPLEMENTED: `SessionChronicleStat` class doc "four" → "five".
 
 **Category:** Documentation Rot   **Severity:** Trivial   **Effort:** Trivial   **Behavioural Impact:** None
 **Location:** `Data/Stats/SessionChronicleStat.cs:21-22`.
@@ -233,7 +233,7 @@ The per-tick path in this cluster runs through `ProfilerSystem.PostUpdateEveryth
 **Impact Assessment:** **FREE.**
 
 ### `Baseline.AllocBytesPerTickMedian` is named/documented "Median" but computed as an EMA
-- [ ] The public property and its XML doc say "Median per-tick allocation rate", but it is updated as an exponential moving average (`AllocEmaAlpha = 0.05`), so it is sensitive to recent spikes rather than robust like a true median.
+- [x] The public property and its XML doc say "Median per-tick allocation rate", but it is updated as an exponential moving average (`AllocEmaAlpha = 0.05`), so it is sensitive to recent spikes rather than robust like a true median. — IMPLEMENTED (doc-only, free slice): corrected `Baseline.AllocBytesPerTickMedian`'s XML doc to "EMA-smoothed mean per-tick allocation rate (α=0.05) ... not a robust median despite the historical name". The property RENAME is the separate not-free part (public-surface blast radius) — left unrenamed.
 
 **Category:** Documentation Rot (misleading contract)   **Severity:** Low   **Effort:** Trivial (doc) / blast-radius (rename)   **Behavioural Impact:** None (doc fix)
 **Location:** `Data/Stats/Baseline.cs:114` (doc + property) updated as EMA at line 181; the class comment at lines 96-99 admits the EMA.

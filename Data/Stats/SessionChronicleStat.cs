@@ -17,7 +17,7 @@ namespace PerformanceProfiler.Data.Stats;
 /// Timeline T7 — single-sentence per-event chronicle of the live session.
 ///
 /// <para>
-/// Reads four DB collections (sessions, contextTransitions, segments, player
+/// Reads five DB collections (sessions, contextTransitions, segments, player
 /// deaths, spike windows) and projects each notable event into a
 /// <see cref="ChronicleLine"/> with one descriptive sentence.
 /// </para>

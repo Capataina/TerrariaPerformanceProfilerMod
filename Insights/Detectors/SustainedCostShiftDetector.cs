@@ -54,6 +54,10 @@ public sealed class SustainedCostShiftDetector : IInsightDetector
         }
         if (_cand.Count == 0) return;
 
+        // Bonferroni denominator. The per-mod early/late tests share the same temporal
+        // baseline, so they are not independent; the effective test count is below tests
+        // and the correction is conservative (suppresses real shifts, never manufactures
+        // them). A Holm/BH step would recover the lost power.
         int adjust = tests < 1 ? 1 : tests;
         _cand.Sort((a, b) => b.effect.CompareTo(a.effect));
         int take = Math.Min(_cand.Count, MaxEmitPerPass);

@@ -62,7 +62,9 @@ public static class RankingScorer
     /// according to its <see cref="PatternKey"/>. Two regimes coexist:
     /// <list type="bullet">
     ///   <item>Share patterns — <c>HotHookDominance</c>, <c>AllocationBurst</c>,
-    ///   <c>PeakContributorToSpike</c> — store a fraction in <c>[0,1]</c>
+    ///   <c>PeakContributorToSpike</c>, <c>GcPauseCulprit</c>, <c>CostConcentration</c>,
+    ///   <c>FrameHeadroom</c>, <c>FrameJitter</c> (the full set is the authority in
+    ///   <see cref="IsSharePattern"/>) — store a fraction in <c>[0,1]</c>
     ///   (e.g. "this hook is 42% of category cost"). They pass through unchanged.</item>
     ///   <item>Ratio patterns — everything else — store a multiple where
     ///   <c>1.0</c> means baseline. A soft knee at 10× saturates to 1.</item>

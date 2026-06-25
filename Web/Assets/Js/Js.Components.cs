@@ -260,5 +260,52 @@ function renderIfChanged(key, sig, el, html) {
   if (el) setHTML(el, html);
   return true;
 }
+
+// ====== Table chrome =================================================
+// One source of truth for the .dtable scaffold every sortable/static table
+// shares (header sort, row render, scroll preservation fixes all land here once
+// instead of per call site). headCells is the full <thead> inner row(s) markup
+// (a <tr>… or the sortableHead() return); bodyRows is the joined <tbody> rows.
+// opts: { cls? extra table classes, style? inline style }. The output is the
+// same `<table class='dtable'>…` markup the surfaces hand-rolled, so it is
+// byte-identical to the prior per-site scaffolds.
+function dtable(headCells, bodyRows, o) {
+  o = o || {};
+  const cls = 'dtable' + (o.cls ? ' ' + o.cls : '');
+  const st = o.style ? ` style='${o.style}'` : '';
+  return `<table class='${cls}'${st}><thead>${headCells}</thead><tbody>${bodyRows || ''}</tbody></table>`;
+}
+
+// Shared sortable-header builder for the .dtable surfaces. cols: [{key, label,
+// l (left-align bool), title}]. Clicking a header sorts by that key (toggling
+// direction); the active column shows the direction arrow. onSort() is invoked
+// after the state is updated. rootId scopes the click binding to one table.
+// Relocated here from Js.Insights so every tab reads the one definition; the
+// Insights surfaces remain its callers, and the binding contract is unchanged.
+function sortableHead(cols, state, onSort, rootId) {
+  const ths = cols.map(c => {
+    const sorted = c.key === state.key;
+    const cls = (c.l ? 'l ' : '') + 'sortable' + (sorted ? ' sorted' : '');
+    const arrow = sorted ? (state.dir === 1 ? ' ▲' : ' ▼') : '';
+    const t = c.title ? ` title='${escapeHtml(c.title)}'` : '';
+    return `<th class='${cls}' data-key='${c.key}'${t}>${escapeHtml(c.label)}${arrow}</th>`;
+  }).join('');
+  // Defer binding until the table is in the DOM (caller sets innerHTML next).
+  setTimeout(() => {
+    const root = document.getElementById(rootId);
+    if (!root) return;
+    root.querySelectorAll('th.sortable').forEach(th => {
+      if (th.dataset.bound) return;
+      th.dataset.bound = '1';
+      th.addEventListener('click', () => {
+        const k = th.dataset.key;
+        if (state.key === k) state.dir = -state.dir;
+        else { state.key = k; state.dir = -1; }
+        onSort();
+      });
+    });
+  }, 0);
+  return `<tr>${ths}</tr>`;
+}
 ";
 }

@@ -58,12 +58,30 @@ public struct RunningStat
         return new RunningStat { Count = n, Mean = mean, _m2 = m2 };
     }
 
+    /// <summary>Relative-cancellation threshold for <see cref="Without"/>: a recovered M2
+    /// below this fraction of the parent M2 is treated as unrecoverable noise (the reverse
+    /// Chan subtraction has lost its significant digits), not as a true near-zero variance.</summary>
+    private const double WithoutRelEps = 1e-9;
+
     /// <summary>
     /// Subtracts a sub-distribution from this one, yielding the complement
     /// (e.g. "out of context" = global − in-context). Returns a RunningStat with
     /// the remaining count, mean, and M2 recovered via the parallel-variance
     /// identity. Returns the zero stat if the subset is not strictly contained.
     /// </summary>
+    /// <remarks>
+    /// The reverse-Chan M2 recovery subtracts two nearly-equal large doubles when the
+    /// subset's spread is close to the parent's — exactly the no-signal case where a mod
+    /// costs the same in and out of a context. Catastrophic cancellation then drives the
+    /// recovered M2 negative or to a tiny residue of rounding noise. Flooring that to an
+    /// exact <c>0</c> would manufacture a degenerate zero-variance complement, which
+    /// <see cref="Stats.WelchTTestP"/> reads as "infinitely confident" — a spurious
+    /// significant p-value, an honesty-contract violation (Invariant 3). The guard below
+    /// detects the cancellation regime (recovered M2 negative, or below
+    /// <see cref="WithoutRelEps"/> of the parent M2) and falls back to the parent's
+    /// per-sample spread for the complement, the conservative honest estimate when the
+    /// exact recovery is numerically unrecoverable, rather than emitting a zero variance.
+    /// </remarks>
     public RunningStat Without(in RunningStat subset)
     {
         long n = Count - subset.Count;
@@ -73,7 +91,15 @@ public struct RunningStat
         //   M2_all = M2_a + M2_b + delta^2 * (n_a * n_b) / n_all
         double delta = subset.Mean - mean;
         double m2 = _m2 - subset._m2 - delta * delta * ((double)n * subset.Count) / Count;
-        if (m2 < 0d) m2 = 0d; // floating-point floor
+        if (m2 < WithoutRelEps * _m2)
+        {
+            // Cancellation regime: the subtraction lost its significant digits. Do not
+            // trust the residue as a near-zero variance. Estimate the complement's M2 from
+            // the parent's per-sample spread (population variance × n), so the complement
+            // keeps a defensible non-degenerate spread and the Welch test cannot read it
+            // as infinitely confident. Still floored at 0 for the pathological Count<=1 parent.
+            m2 = Count > 1 ? (_m2 / Count) * n : 0d;
+        }
         return new RunningStat { Count = n, Mean = mean, _m2 = m2 };
     }
 }
@@ -102,10 +128,13 @@ public static class Stats
 
     /// <summary>
     /// Two-sided p-value of Welch's t-test between two distributions (unequal
-    /// variances). Uses a normal approximation to the t-distribution, which is
-    /// accurate once both samples have a few dozen points — the regime the 1 Hz
-    /// reference frames operate in. Returns 1.0 (no evidence) when either sample is
-    /// too small or both variances are zero.
+    /// variances). Uses a normal (z) approximation to the t-distribution and omits
+    /// the Welch–Satterthwaite degrees-of-freedom correction; this is approximate
+    /// once both samples have a few dozen points — the regime the 1 Hz reference
+    /// frames operate in. On right-skewed low-mean cost with unequal n (the actual
+    /// shape of per-mod cost) the approximation can be slightly anti-conservative,
+    /// partially offset by the detectors' Bonferroni step. Returns 1.0 (no evidence)
+    /// when either sample is too small or both variances are zero.
     /// </summary>
     public static double WelchTTestP(in RunningStat a, in RunningStat b)
     {

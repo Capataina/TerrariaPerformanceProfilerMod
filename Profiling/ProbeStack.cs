@@ -195,11 +195,4 @@ public static class ProbeStack
                 f.HookId, elapsedTicks, elapsedBytes);
         }
     }
-
-    /// <summary>
-    /// Diagnostic only: current depth on the calling thread. Used by the
-    /// validation logging to surface "probe stack leaking" if Enter is called
-    /// without a matching Leave.
-    /// </summary>
-    public static int CurrentDepth => _depth;
 }

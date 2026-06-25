@@ -3,20 +3,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Terraria.ModLoader;
-using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Insights;
-using PerformanceProfiler.Data.Aggregators.Segments;
-using PerformanceProfiler.Data.Stats;
+using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Web.Server;
 
-using PerformanceProfiler.Data.Detectors;
-using PerformanceProfiler.Data.Aggregators;
-using PerformanceProfiler.Data.Streams;
-using PerformanceProfiler.Data.Collectors;
-using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
 namespace PerformanceProfiler.Web;
 
 /// <summary>

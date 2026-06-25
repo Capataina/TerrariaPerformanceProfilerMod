@@ -212,21 +212,23 @@ function renderMemory() {
     html += emptyState('no mods match “' + memFilter + '”');
     setHTML(tableEl, html);
     memRestoreSearchFocus();
+    _renderSig['memTable'] = 'empty:' + memFilter;   // so a later identical view rebuilds
     renderMemoryDrawer();
     return;
   }
-  html += `<table class='dtable'><thead><tr>`
+  const headRow = `<tr>`
     + memTh('name', 'mod', true)
     + memTh('val', valHead, false, 'mem-col-val')
     + `<th class='l mem-col-fp'>footprint</th>`
     + memTh('hooks', 'hooks', false)
     + memTh('alloc', 'alloc/s', false)
-    + `</tr></thead><tbody>`;
+    + `</tr>`;
+  let bodyRows = '';
   for (const r of view) {
     const m = r.m;
     const sel = memSelected === m.id ? ' sel' : '';
     const segs = memFootprintSegs(m);
-    html += `<tr class='clickable${sel}' data-mod='${m.id}'>`
+    bodyRows += `<tr class='clickable${sel}' data-mod='${m.id}'>`
       + `<td class='l'>${escapeHtml(truncate(m.name, 24))}</td>`
       + `<td class='mem-col-val'><span class='mem-val-cell'>`
         + cellBar(r.v / total, modColor(m.id))
@@ -237,9 +239,14 @@ function renderMemory() {
       + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
       + `</tr>`;
   }
-  html += `</tbody></table>`;
-  setHTML(tableEl, html);   // preserve scroll on poll-driven re-render
-  memRestoreSearchFocus();
+  html += dtable(headRow, bodyRows);
+  // Gate the table rebuild behind a signature so an unchanged poll skips the
+  // innerHTML reparse (and so leaves the live search box untouched — focus is
+  // only restored when the table is actually rebuilt). Keyed on the control
+  // state (basis / sort / filter / selection) + each visible row's value figures.
+  const memSig = memBasis + '|' + memSort.key + memSort.dir + '|' + memFilter + '|' + (memSelected == null ? '' : memSelected)
+    + '|' + view.map(r => r.m.id + ':' + r.v + ':' + (r.m.hookCount || 0) + ':' + (mem.tracksAllocations ? (r.m.allocBytes || 0) : 0)).join(',');
+  renderIfChanged('memTable', memSig, () => { setHTML(tableEl, html); memRestoreSearchFocus(); });
 
   renderMemoryDrawer();
 }

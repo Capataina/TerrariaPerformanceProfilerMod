@@ -83,6 +83,7 @@ public sealed class ProfilerSelfHealth
     //   v0.5   38.0 KB/hook
     //   v0.6.1 35.0 KB/hook
     //   v0.7.x 36.8 KB/hook
+    //   v0.13  ~30   KB/hook (post-scaffolding-trim; install-ram.md exec log)
     // BaselineBytesPerHook below pins the "healthy normal" we measure
     // against. Bump it when an intentional install-path improvement lands
     // and we want the new floor to be the comparison point; leave it alone
@@ -92,7 +93,13 @@ public sealed class ProfilerSelfHealth
     // release that improves install to 20 KB/hook would update Baseline
     // to 20, and Concerning would automatically become 30 KB/hook
     // (1.5×) rather than the stale 55 KB constant the previous design used.
-    private const long BaselineBytesPerHook = 36L * 1024L;     // v0.7.x measured normal
+    //
+    // NOTE: the constant is still pinned at the v0.7.x 36 KB normal, NOT the
+    // v0.13 ~30 KB measured post-trim floor. Re-pinning to 30 KB tightens the
+    // amber/red bands (Concerning would drop 54→45 KB), which shifts a
+    // player- and agent-visible Severity badge — a tuning decision held for
+    // engineer sign-off, not a free comment update.
+    private const long BaselineBytesPerHook = 36L * 1024L;     // v0.7.x measured normal (retune to ~30 KB deferred)
     private const double ConcerningRatio = 1.5;                // 1.5× baseline → amber
     private const double SevereRatio     = 2.5;                // 2.5× baseline → red
 
@@ -260,23 +267,6 @@ public sealed class ProfilerSelfHealth
             // OS denies a stat call. We never let self-health monitoring crash
             // the profiler — the worst case is one stale reading.
         }
-    }
-
-    /// <summary>Resets the measurement so a fresh session starts clean.</summary>
-    public void Reset()
-    {
-        _lastRefreshTickIndex = 0L;
-        _hasEverRefreshed = false;
-        _lastSampleUtc = DateTime.MinValue;
-        ManagedHeapAtInstallStartBytes = 0L;
-        ManagedHeapAtInstallEndBytes = 0L;
-        InstalledHookCount = 0;
-        ProcessWorkingSetBytes = 0L;
-        ProcessManagedHeapBytes = 0L;
-        ManagedFractionOfWorkingSet = 0d;
-        InstallDeltaFractionOfProcess = 0d;
-        Severity = SelfHealthSeverity.Healthy;
-        IsInstalled = false;
     }
 
     private static SelfHealthSeverity ClassifySeverity(long bytesPerHook)

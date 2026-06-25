@@ -215,6 +215,8 @@ public sealed class ModInteractionAggregator : IDataAggregator<ModInteractionSna
         }
         double denom = Math.Sqrt(vi * vj);
         if (denom <= 0d) return 0d;
-        return cov / denom;
+        // Clamp to the declared [-1, +1] contract: floating-point error in cov/denom
+        // can push a perfect ±1 correlation a hair past the bound (CHA data-pipeline finding).
+        return Math.Clamp(cov / denom, -1d, 1d);
     }
 }

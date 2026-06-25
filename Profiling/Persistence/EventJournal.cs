@@ -3,19 +3,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using PerformanceProfiler.Profiling.Persistence.Records;
 using JsonSerializer = System.Text.Json.JsonSerializer;
 using JsonSerializerOptions = System.Text.Json.JsonSerializerOptions;
 
-using PerformanceProfiler.Data.Detectors;
-using PerformanceProfiler.Data.Aggregators;
-using PerformanceProfiler.Data.Aggregators.Segments;
-using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
-using PerformanceProfiler.Data.Collectors;
-using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Events;
 namespace PerformanceProfiler.Profiling.Persistence;
 
 /// <summary>
@@ -72,7 +63,14 @@ public sealed class EventJournal : IDisposable
     {
         if (_stream == null || batch.Count == 0) return;
 
-        StringBuilder buf = new StringBuilder(batch.Count * 256);
+        // Serialise each line straight to UTF-8 bytes and stream it. The old
+        // path built a whole-batch StringBuilder, materialised it as one
+        // string, then re-encoded that string to a byte[] — two redundant
+        // full-buffer copies of the same payload per drain cycle. SerializeToUtf8Bytes
+        // skips the UTF-16 string entirely (documented as lower-allocation than
+        // Serialize-to-string-then-encode). Output is byte-identical: the same
+        // JSON, the same single-byte '\n' frame, in the same order.
+        long appended = 0;
         for (int i = 0; i < batch.Count; i++)
         {
             DbWriteOp op = batch[i];
@@ -85,13 +83,13 @@ public sealed class EventJournal : IDisposable
                 TicksObserved = op.TicksObserved,
                 Payload = SerializePayload(op.Payload),
             };
-            buf.Append(JsonSerializer.Serialize(line, JsonOpts));
-            buf.Append('\n');
+            byte[] lineBytes = JsonSerializer.SerializeToUtf8Bytes(line, JsonOpts);
+            _stream.Write(lineBytes, 0, lineBytes.Length);
+            _stream.WriteByte((byte)'\n');
+            appended += lineBytes.Length + 1;
         }
 
-        byte[] bytes = Encoding.UTF8.GetBytes(buf.ToString());
-        _stream.Write(bytes, 0, bytes.Length);
-        UnflushedBytes += bytes.Length;
+        UnflushedBytes += appended;
     }
 
     /// <summary>Fsync the underlying file. Cheap if no writes have happened since the last call.</summary>

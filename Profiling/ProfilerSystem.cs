@@ -620,7 +620,7 @@ public sealed class ProfilerSystem : ModSystem
             if (segs != null)
             {
                 long unixMs = Time.UnixMsNow();
-                segs.OnTick(tickIndex, unixMs, in tagger.Current, frameMs, collector.PerModCategoryRawMs);
+                segs.OnTick(tickIndex, unixMs, in tagger.Current, frameMs, collector.PerModCategoryRawMsArray);
 
                 // Diff spike + stall counts to detect new arrivals this tick.
                 int spikesNow = collector.Spikes.Count;

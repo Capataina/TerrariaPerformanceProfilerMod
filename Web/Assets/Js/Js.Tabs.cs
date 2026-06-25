@@ -26,7 +26,7 @@ function switchTab(name) {
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
-// Keyboard 1-5 switches tabs.
+// Keyboard 1-6 switches tabs.
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   const map = { '1': 'summary', '2': 'timeline', '3': 'lag', '4': 'insights', '5': 'self', '6': 'memory' };

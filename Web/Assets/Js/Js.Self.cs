@@ -107,8 +107,8 @@ function renderHookDistribution() {
   // hook-level detail belongs; this panel only needs the top mods by count.
   const mods = lastMemory && lastMemory.mods;
   if (!mods || mods.length === 0) {
-    root.innerHTML = emptyState('loading hook distribution…');
     sub.textContent = 'loading';
+    renderIfChanged('selfHookDist', 'loading', () => { root.innerHTML = emptyState('loading hook distribution…'); });
     return;
   }
   // Join per-mod cost (ms) from /api/mods when present, so the secondary bar shows
@@ -123,14 +123,20 @@ function renderHookDistribution() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 12);
   if (entries.length === 0) {
-    root.innerHTML = emptyState('no installed hooks recorded yet');
     sub.textContent = '0 mods';
+    renderIfChanged('selfHookDist', 'empty', () => { root.innerHTML = emptyState('no installed hooks recorded yet'); });
     return;
   }
   const max = entries[0].count || 1;
   const maxMs = entries.reduce((m, e) => Math.max(m, e.ms), 0);
   const hasMs = maxMs > 0;
   sub.textContent = mods.length + ' mods · top ' + entries.length + ' by hook count';
+  // Signature gate: the top-12 entries (id + hook count + cost ms). A no-change
+  // poll skips the rowlist rebuild; the sub-header above is a cheap sibling left
+  // ungated. The cost ms moves under load (rebuilds); idle polls are skipped.
+  const hdSig = entries.map(m => m.id + ':' + m.count + ':' + (m.ms || 0).toFixed(3)).join(',');
+  if (_renderSig['selfHookDist'] === hdSig) return;
+  _renderSig['selfHookDist'] = hdSig;
   // The count bar is sorted-by (the primary metric); ms gets its own faint
   // secondary cellBar on an independent scale so where cost and hook count
   // diverge is visible instead of two bare number columns parsed by eye.

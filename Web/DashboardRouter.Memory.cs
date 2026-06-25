@@ -3,7 +3,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 
 namespace PerformanceProfiler.Web;

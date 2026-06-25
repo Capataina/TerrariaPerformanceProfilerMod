@@ -52,6 +52,15 @@ internal static class BiomeRegistry
     /// <summary>Every registered biome in id order. Stable for the session.</summary>
     public static IReadOnlyList<BiomeDescriptor> Biomes => _biomes;
 
+    /// <summary>
+    /// The backing <see cref="List{T}"/> for same-assembly per-tick folds. Indexing
+    /// the concrete <c>List&lt;BiomeDescriptor&gt;</c> is non-virtual and devirtualisable,
+    /// whereas the <see cref="IReadOnlyList{T}"/> view forces interface dispatch on
+    /// every read. Stable for the session like <see cref="Biomes"/>; callers must
+    /// treat it as read-only.
+    /// </summary>
+    internal static List<BiomeDescriptor> BiomesList => _biomes;
+
     /// <summary>True if the modded-biome direct-read binding succeeded; false means modded biome bits will stay zero.</summary>
     public static bool ModBiomeBindingOk => _modBiomeFlagsField != null;
 

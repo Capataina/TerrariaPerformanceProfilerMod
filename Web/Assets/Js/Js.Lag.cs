@@ -28,9 +28,20 @@ let lastLagClusters = null, lastGcPressure = null, lastSegmentLagDensity = null,
     lastAllocCausality = null, lastLagRhythm = null;
 
 // Selection + sort state for the reshaped surfaces.
-let lagGalaxySelected = null;          // selected fingerprintId in the cluster table
+let lagClustersSelected = null;        // selected fingerprintId in the cluster table
 let lagClusterSort = { key: 'eventCount', dir: -1 };
 let lagDensitySort = { key: 'vsBaseline', dir: -1 };
+
+// A field counts as real context only if it is a non-empty string that is NOT a
+// placeholder sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no
+// context'. Declared once here so the heatmap degeneration guard and the cluster
+// table's chip/column logic agree on what counts as context (a weaker case-
+// sensitive copy in the heatmap previously let an all-'—' column survive).
+function lagRealCtx(s) {
+  if (typeof s !== 'string') return false;
+  const t = s.trim().toLowerCase();
+  return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
+}
 
 async function pollLagData() {
   if (activeTab !== 'lag') return;
@@ -52,7 +63,7 @@ setInterval(pollLagData, 3000);
 function renderLag() {
   renderLagKpiStrip();
   renderLagHeatmap();
-  renderLagGalaxy();
+  renderLagClusters();
   renderLagDensity();
   renderLagGcPressure();
   renderLagCausality();
@@ -78,6 +89,25 @@ function lagApplySort(rows, state) {
     }
     return dir * (((va || 0)) - ((vb || 0)));
   });
+}
+
+// Dominant-mod inline cell shared by the cluster + rhythm-cluster tables: a
+// modColor-tinted truncated name + a muted share%, optionally trailed by a thin
+// split bar of share-vs-rest. Collapses the three hand-rolled copies of this
+// idiom onto one site (kept Lag-local — these are its only consumers).
+function lagTopModCell(modId, modName, share, withBar) {
+  const colour = modColor(modId || 0);
+  const s = Math.max(0, Math.min(1, share || 0));
+  const sharePct = (s * 100).toFixed(0) + '%';
+  const name = modName || '—';
+  let cell = `<span class='nm' style='color:${colour}'>${escapeHtml(truncate(name, 16))}</span> <span class='muted'>${sharePct}</span>`;
+  if (withBar) {
+    cell += splitBar([
+      { frac: s, color: colour, label: name, value: sharePct },
+      { frac: 1 - s, color: 'var(--surface-2)' },
+    ], { thin: true });
+  }
+  return cell;
 }
 
 // ---------------------------------------------------------------- KPI strip
@@ -135,6 +165,15 @@ function renderLagHeatmap() {
   if (!root) return;
   const cells = (lastLagClusters && lastLagClusters.causeContext) || [];
 
+  // Signature gate: the title + body are fully derived from `cells`, so an
+  // unchanged cell set re-derives nothing and rebuilds neither (heatmapMatrix /
+  // barChart re-parse the whole SVG/bar subtree otherwise). Keyed on cell count
+  // + each (cause, context, eventCount) so any real change still rebuilds.
+  const sig = cells.length + '|' +
+    cells.map(c => (c.causeClass || '') + ':' + (c.context || '') + ':' + (c.eventCount || 0)).join(',');
+  if (_renderSig['lagHeatmap'] === sig) return;
+  _renderSig['lagHeatmap'] = sig;
+
   if (cells.length === 0) {
     setLagHeatmapTitle('lag events by cause', 'ranked by event count');
     root.innerHTML = emptyState('no events observed');
@@ -149,9 +188,12 @@ function renderLagHeatmap() {
     if (!ctxSet.has(c.context))      { ctxSet.add(c.context);      contexts.push(c.context); }
   }
 
-  // Distinct meaningful contexts: drop empty / '-' placeholders. If 0 or 1
-  // remain the grid degenerates to one column, so render a ranked bar list.
-  const realContexts = contexts.filter(c => c != null && c !== '' && c !== '-');
+  // Distinct meaningful contexts: drop empty / placeholder sentinels via the
+  // shared lagRealCtx() guard. If 0 or 1 remain the grid degenerates to one
+  // column, so render a ranked bar list. (lagRealCtx trims + lowercases and
+  // rejects '—'/'none'/'n/a' too, so an all-placeholder set no longer survives
+  // here as a junk single-column grid — the cluster table already used it.)
+  const realContexts = contexts.filter(lagRealCtx);
   if (realContexts.length <= 1) {
     const agg = new Map();
     for (const c of cells) {
@@ -221,25 +263,36 @@ function renderLagHeatmap() {
 // with a cause .chip + statLines). Selection keyed on fingerprintId.
 //
 // Scroll-stability: the table is written into the STABLE scroll container
-// #lag-clusters-body via setHTML(), preserving scrollTop across the 3s poll.
-// The detail strip is a separate static node replaced outside that container.
-function lagGalaxySort(key) {
+// #lag-clusters-body via setHTML(), preserving scrollTop across the 3s poll. A
+// renderIfChanged() signature gate keyed on the cluster set + sort + selection
+// skips the table rebuild on a no-change poll. The detail strip is a separate
+// static node replaced outside that container.
+function lagClustersSort(key) {
   if (lagClusterSort.key === key) lagClusterSort.dir *= -1;
   else lagClusterSort = { key, dir: -1 };
-  renderLagGalaxy();
+  renderLagClusters();
 }
 
-function renderLagGalaxy() {
+function renderLagClusters() {
   const root = document.getElementById('lag-clusters-body');
   const detailRoot = document.getElementById('lag-clusters-detail');
   if (!root) return;
   const clusters = (lastLagClusters && lastLagClusters.clusters) || [];
 
   if (clusters.length === 0) {
-    setHTML(root, emptyState('no clusters yet'));
-    if (detailRoot) detailRoot.innerHTML = '';
+    renderIfChanged('lagClusters', 'empty', () => {
+      setHTML(root, emptyState('no clusters yet'));
+      if (detailRoot) detailRoot.innerHTML = '';
+    });
     return;
   }
+
+  // Signature gate: cluster count + each row's (cause, events, p95) + sort +
+  // selection. A no-change poll re-derives nothing and rebuilds no DOM.
+  const sig = clusters.length + '|' + lagClusterSort.key + lagClusterSort.dir + '|' + (lagClustersSelected || '') +
+    '|' + clusters.map(c => (c.fingerprintId || '') + ':' + (c.eventCount || 0) + ':' + (c.p95Ms || 0)).join(',');
+  if (_renderSig['lagClusters'] === sig) return;
+  _renderSig['lagClusters'] = sig;
 
   const sorted = lagApplySort(clusters, lagClusterSort);
   // perf tint for p95 is a ratio against the median p95 across clusters (1 =
@@ -248,56 +301,42 @@ function renderLagGalaxy() {
   const medianP95 = p95s.length > 0 ? p95s[Math.floor(p95s.length / 2)] : 0;
 
   // The context column is dead width when no cluster carries a real context, so
-  // it is dropped from both the header and the rows in that case. A field counts
-  // as real context only if it is a non-empty string that is NOT a placeholder
-  // sentinel ('—', '-', 'none', 'n/a') — the data ships those for 'no context',
-  // and the prior guard let them through, so an all-'—' column survived. The
-  // same realCtx() decides whether a chip is drawn below, so guard and rows agree.
-  const realCtx = s => {
-    if (typeof s !== 'string') return false;
-    const t = s.trim().toLowerCase();
-    return t !== '' && t !== '—' && t !== '-' && t !== 'none' && t !== 'n/a';
-  };
-  const hasCtx = c => realCtx(c.primaryBiome) || realCtx(c.weatherFlags) || c.hardmode === true;
+  // it is dropped from both the header and the rows in that case. The shared
+  // lagRealCtx() (declared at the top of the fragment) decides both what counts
+  // as a column and whether a chip is drawn below, so the heatmap guard, this
+  // column, and the chips all agree on what context is.
+  const hasCtx = c => lagRealCtx(c.primaryBiome) || lagRealCtx(c.weatherFlags) || c.hardmode === true;
   const anyContext = clusters.filter(hasCtx).length >= 1;
   const ctxTh = anyContext ? `<th class='l'>context</th>` : '';
 
-  const head = `<thead><tr>
-    ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagGalaxySort')}
+  const head = `<tr>
+    ${lagSortTh(lagClusterSort, 'causeClass', 'cause', true, 'lagClustersSort')}
     ${ctxTh}
-    ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagGalaxySort')}
-    ${lagSortTh(lagClusterSort, 'topModShare', 'top mod', true, 'lagGalaxySort')}
-  </tr></thead>`;
+    ${lagSortTh(lagClusterSort, 'eventCount', 'events', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'p95Ms', 'p95', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'totalMs', 'total', false, 'lagClustersSort')}
+    ${lagSortTh(lagClusterSort, 'topModShare', 'top mod', true, 'lagClustersSort')}
+  </tr>`;
 
   const body = sorted.map(c => {
-    const sel = c.fingerprintId === lagGalaxySelected ? ' sel' : '';
+    const sel = c.fingerprintId === lagClustersSelected ? ' sel' : '';
     let ctxCell = '';
     if (anyContext) {
       let ctxChips = '';
-      if (realCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
-      if (realCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
+      if (lagRealCtx(c.primaryBiome)) ctxChips += `<span class='chip'>${escapeHtml(c.primaryBiome)}</span>`;
+      if (lagRealCtx(c.weatherFlags)) ctxChips += `<span class='chip cool'>${escapeHtml(c.weatherFlags)}</span>`;
       if (c.hardmode) ctxChips += `<span class='chip warn'>hardmode</span>`;
       if (!ctxChips) ctxChips = `<span class='muted'>—</span>`;
       ctxCell = `<td class='l'>${ctxChips}</td>`;
     }
 
     const tint = tintClass(medianP95 > 0 ? (c.p95Ms || 0) / medianP95 : 0);
-    const colour = modColor(c.topModId || 0);
-    const share = Math.max(0, Math.min(1, c.topModShare || 0));
-    const sharePct = (share * 100).toFixed(0) + '%';
-    const topModName = c.topModName || '—';
     // Inline split bar: top mod's share vs the rest, coloured by modColor.
-    const modBar = splitBar([
-      { frac: share, color: colour, label: topModName, value: sharePct },
-      { frac: 1 - share, color: 'var(--surface-2)' },
-    ], { thin: true });
-    const modCell = `<span class='nm' style='color:${colour}'>${escapeHtml(truncate(topModName, 16))}</span> <span class='muted'>${sharePct}</span>${modBar}`;
+    const modCell = lagTopModCell(c.topModId, c.topModName, c.topModShare, true);
 
     const fpId = c.fingerprintId || '';
     const causeTip = fpId ? (c.causeClass || '—') + ' · id ' + fpId : (c.causeClass || '—');
-    return `<tr class='clickable${sel}' onclick='lagGalaxyPick(""${escapeHtml(fpId)}"")'>
+    return `<tr class='clickable${sel}' onclick='lagClustersPick(""${escapeHtml(fpId)}"")'>
       <td class='l' title='${escapeHtml(causeTip)}'>${escapeHtml(c.causeClass || '—')}</td>
       ${ctxCell}
       <td>${fmtInt(c.eventCount)}</td>
@@ -309,11 +348,11 @@ function renderLagGalaxy() {
 
   // Detail strip for the selected fingerprint — same per-fingerprint fields.
   let details;
-  const pick = clusters.find(c => c.fingerprintId === lagGalaxySelected);
+  const pick = clusters.find(c => c.fingerprintId === lagClustersSelected);
   if (pick) {
     const subBits = [];
-    if (realCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
-    if (realCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
+    if (lagRealCtx(pick.primaryBiome)) subBits.push(pick.primaryBiome);
+    if (lagRealCtx(pick.weatherFlags)) subBits.push(pick.weatherFlags);
     if (pick.hardmode) subBits.push('hardmode');
     const ctxText = subBits.join(' · ') || 'no context';
     // Human-readable headline for the cluster: 'spike · CalamityMod · no context'
@@ -337,13 +376,13 @@ function renderLagGalaxy() {
     details = emptyState('click a row to inspect a fingerprint cluster');
   }
 
-  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
+  setHTML(root, dtable(head, body));
   if (detailRoot) detailRoot.innerHTML = details;
 }
-function lagGalaxyPick(fp) {
+function lagClustersPick(fp) {
   if (!fp) return;
-  lagGalaxySelected = (lagGalaxySelected === fp) ? null : fp;
-  renderLagGalaxy();
+  lagClustersSelected = (lagClustersSelected === fp) ? null : fp;
+  renderLagClusters();
 }
 
 // ---------------------------------------------------------------- Density table
@@ -375,22 +414,39 @@ function renderLagDensity() {
     setHTML(root, emptyState('no segments closed yet'));
     if (subRoot) subRoot.textContent = '—';
     if (legendRoot) legendRoot.innerHTML = '';
+    _renderSig['lagDensity'] = 'empty';   // so a later identical non-empty set still rebuilds
     return;
   }
 
   const baseline = (snap && snap.sessionBaselinePerMin) || 0;
+  // The sub-header + legend are cheap static siblings of the gated table, so they
+  // stay outside the signature gate (the legend content is constant; the sub is a
+  // single textContent write). Only the table body — the heavy rebuild — is gated.
+  if (subRoot) subRoot.textContent = 'session baseline · ' + baseline.toFixed(2) + ' events/min';
+  if (legendRoot) legendRoot.innerHTML = splitLegend([
+    { color: 'var(--spike)', label: 'spike' },
+    { color: 'var(--stall)', label: 'stall' },
+  ]);
+
+  // Signature gate: entry count + each row's (name, events, eventsPerMin) + sort.
+  // A no-change poll skips the sort, the body map, and the table rebuild.
+  const sig = entries.length + '|' + lagDensitySort.key + lagDensitySort.dir + '|' +
+    entries.map(e => (e.name || '') + ':' + (e.eventCount || 0) + ':' + (e.eventsPerMin || 0)).join(',');
+  if (_renderSig['lagDensity'] === sig) return;
+  _renderSig['lagDensity'] = sig;
+
   const sorted = lagApplySort(entries, lagDensitySort);
   // Busiest segment sets the bar's full extent so the lengths read comparably.
   let maxPerMin = 0;
   for (const e of entries) { if ((e.eventsPerMin || 0) > maxPerMin) maxPerMin = e.eventsPerMin; }
   if (maxPerMin <= 0) maxPerMin = 1;
 
-  const head = `<thead><tr>
+  const head = `<tr>
     ${lagSortTh(lagDensitySort, 'name', 'segment', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'eventCount', 'events', false, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'eventsPerMin', 'density', true, 'lagDensitySortBy')}
     ${lagSortTh(lagDensitySort, 'vsBaseline', 'vs base', false, 'lagDensitySortBy')}
-  </tr></thead>`;
+  </tr>`;
 
   const body = sorted.map(e => {
     const spikes = e.spikeCount || 0;
@@ -420,12 +476,7 @@ function renderLagDensity() {
     </tr>`;
   }).join('');
 
-  if (subRoot) subRoot.textContent = 'session baseline · ' + baseline.toFixed(2) + ' events/min';
-  setHTML(root, `<table class='dtable'>${head}<tbody>${body}</tbody></table>`);
-  if (legendRoot) legendRoot.innerHTML = splitLegend([
-    { color: 'var(--spike)', label: 'spike' },
-    { color: 'var(--stall)', label: 'stall' },
-  ]);
+  setHTML(root, dtable(head, body));
 }
 
 // ---------------------------------------------------------------- GC pressure
@@ -569,10 +620,22 @@ function renderLagRhythm() {
   const clusters = (snap && snap.clusters) || [];
 
   if (hist.length === 0 && clusters.length === 0) {
-    histRoot.innerHTML = emptyState('not enough events for periodicity');
-    setHTML(clusterRoot, '');
+    renderIfChanged('lagRhythm', 'empty', () => {
+      histRoot.innerHTML = emptyState('not enough events for periodicity');
+      setHTML(clusterRoot, '');
+    });
     return;
   }
+
+  // Signature gate: both sub-panels are derived from hist + clusters, so an
+  // unchanged snapshot rebuilds neither (the re-bin + barChart + cluster table
+  // are the heavy work). Keyed on hist length + total count and the per-cluster
+  // (centre, events) so any real change still rebuilds.
+  const histCount = hist.reduce((s, b) => s + ((b && b.count) || 0), 0);
+  const sig = hist.length + ':' + histCount + '|' +
+    clusters.map(c => c.centreSeconds + ':' + (c.eventCount || 0) + ':' + (c.topModId || 0)).join(',');
+  if (_renderSig['lagRhythm'] === sig) return;
+  _renderSig['lagRhythm'] = sig;
 
   // Coarse, legible histogram: re-bin to ~12 buckets, highlight the modal one.
   const bins = lagRebinHist(hist, 12);
@@ -605,20 +668,15 @@ function renderLagRhythm() {
     clusterInner = emptyState('no rhythm clusters detected');
   } else {
     const rows = clusters.map(c => {
-      const colour = modColor(c.topModId || 0);
       const share = Math.max(0, Math.min(1, c.shareOfSession || 0));
-      const topModName = c.topModName || '—';
-      const topShare = ((c.topModShare || 0) * 100).toFixed(0) + '%';
       return `<tr>
         <td class='l'>${c.centreSeconds.toFixed(2)}s ± ${c.widthSeconds.toFixed(2)}s</td>
         <td>${fmtInt(c.eventCount)}</td>
-        <td class='l'><span class='nm' style='color:${colour}'>${escapeHtml(truncate(topModName, 16))}</span> <span class='muted'>${topShare}</span></td>
+        <td class='l'>${lagTopModCell(c.topModId, c.topModName, c.topModShare, false)}</td>
         <td>${(share * 100).toFixed(1)}%</td>
       </tr>`;
     }).join('');
-    clusterInner = `<table class='dtable'>
-      <thead><tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr></thead>
-      <tbody>${rows}</tbody></table>`;
+    clusterInner = dtable(`<tr><th class='l'>interval</th><th>events</th><th class='l'>top mod</th><th>of session</th></tr>`, rows);
   }
   const clusterHtml = sectionHeader('rhythm clusters', 'periodic signatures') + clusterInner;
 

@@ -104,8 +104,6 @@ internal static partial class DashboardAssets
   --orange:       var(--perf-3);
   --danger:       var(--destructive);
   --magenta:      oklch(0.72 0.11 350);
-  --purple:       oklch(0.72 0.11 300);
-  --cyan:         oklch(0.72 0.11 215);
 
   /* Series colours — a value with a single semantic axis (same family) */
   --cpu:          var(--perf-0);

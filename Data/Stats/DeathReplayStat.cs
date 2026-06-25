@@ -187,7 +187,7 @@ public sealed class DeathReplayStat : IDataStat<DeathReplaySnapshot>
                 finalModId = ResolveDamageModIdFromContributor(top, modNames);
             }
 
-            string primaryBiome = ResolvePrimaryBiome(); // best-effort live read
+            string primaryBiome = ResolvePrimaryBiome(); // documented seam; always "" today
             result.Add(new DeathReplay(
                 DeathUnixMs: death.UnixMs,
                 DeathTickIndex: death.Tick,
@@ -265,26 +265,14 @@ public sealed class DeathReplayStat : IDataStat<DeathReplaySnapshot>
 
     /// <summary>
     /// Best-effort primary-biome read at snapshot time. The death row itself
-    /// does not persist a biome, so this returns the player's current biome;
-    /// stale relative to the death moment but useful when the player respawns
-    /// near where they died. Returns empty when no world is loaded.
+    /// does not persist a biome and there is no cheap name path without
+    /// allocating a bitset (PrimaryBitIndex needs one), so this is a documented
+    /// seam that always returns empty today; a future refinement could sample
+    /// the player's zone state. Kept as a method so the call site and intent
+    /// are explicit.
     /// </summary>
     private static string ResolvePrimaryBiome()
     {
-        try
-        {
-            var player = Terraria.Main.LocalPlayer;
-            if (player == null) return string.Empty;
-            // Defer to BiomeRegistry's name resolution by sampling the player's
-            // current state. We don't allocate a bitset just for the name —
-            // PrimaryBitIndex is not available without one, so fall back to a
-            // simple vanilla check via the player's zone properties is left to
-            // future refinement. Today: empty string when no cheap path.
-            return string.Empty;
-        }
-        catch
-        {
-            return string.Empty;
-        }
+        return string.Empty;
     }
 }

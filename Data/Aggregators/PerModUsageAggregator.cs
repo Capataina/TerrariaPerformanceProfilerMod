@@ -179,7 +179,7 @@ public sealed class PerModUsageAggregator : IDataAggregator<ModUsageSnapshot>, I
         // ---- Biome attendance: one tick credit per active modded biome.
         // Vanilla biome bits (id < VanillaCount) have no owning mod and
         // are skipped.
-        IReadOnlyList<BiomeDescriptor> biomes = BiomeRegistry.Biomes;
+        List<BiomeDescriptor> biomes = BiomeRegistry.BiomesList;
         int vanillaCount = BiomeRegistry.VanillaCount;
         int n = biomes.Count;
         for (int b = vanillaCount; b < n; b++)

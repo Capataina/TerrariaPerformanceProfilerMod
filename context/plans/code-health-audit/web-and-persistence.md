@@ -20,7 +20,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ## Known Issues
 
 ### F1 — `405 Method Not Allowed` is written to the wire as `HTTP/1.1 405 OK`
-- [ ] Add a `405 => "Method Not Allowed"` arm to `DashboardHttpServer.StatusText`.
+- [x] Add a `405 => "Method Not Allowed"` arm to `DashboardHttpServer.StatusText`. — IMPLEMENTED: `Web/Server/DashboardHttpServer.cs` `StatusText` switch, new arm between `404` and `500`.
 
 **Category:** Known Issues / Correctness   **Severity:** Low   **Effort:** Trivial   **Behavioural Impact:** None for the shipped SPA (it only issues GETs over loopback); a protocol-conformance fix for any non-GET probe.
 
@@ -41,7 +41,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ## Performance Improvement
 
 ### F2 — `EventJournal.AppendBatch` double-buffers every batch (StringBuilder → string → UTF-8 byte[]) on the writer thread
-- [ ] Stream each `JournalLine`'s UTF-8 bytes to the `FileStream` directly (or reuse a pooled byte buffer) instead of materialising the whole batch as one `string` then one `byte[]`.
+- [x] Stream each `JournalLine`'s UTF-8 bytes to the `FileStream` directly (or reuse a pooled byte buffer) instead of materialising the whole batch as one `string` then one `byte[]`. — IMPLEMENTED: `Profiling/Persistence/EventJournal.cs` `AppendBatch` now does option (b) — `JsonSerializer.SerializeToUtf8Bytes(line)` per op → `_stream.Write(bytes)` + `_stream.WriteByte('\n')`, dropping the StringBuilder, the whole-batch string, and the whole-batch UTF-8 encode. `UnflushedBytes` accumulated from the streamed byte count. The now-dead `using System.Text;` + the dead `Data.*`/`Profiling.*` block were pruned from the file as the free sub-part. Byte-identical output pinned by `Tests/AuditPin_Web_Journal.cs`.
 
 **Category:** Performance Improvement (allocation reduction) — writer thread, **not** the game thread.   **Severity:** Low   **Effort:** Small   **Behavioural Impact:** None — identical bytes land in the journal.
 
@@ -73,7 +73,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ---
 
 ### F4 — Every `/api/*` response re-runs reflection-based `System.Text.Json` serialisation (no source-gen `JsonSerializerContext`)
-- [ ] Consider a `[JsonSerializable]` source-generated context for the wire shapes **only if** a future profile shows the serialiser on the hot path; otherwise leave as-is (see Impact — anonymous types block the cheap version of this).
+- [ ] Consider a `[JsonSerializable]` source-generated context for the wire shapes **only if** a future profile shows the serialiser on the hot path; otherwise leave as-is (see Impact — anonymous types block the cheap version of this). — DEFERRED (not-free): source-gen needs named DTO types; the 29 endpoints serialise anonymous objects, so capturing the win means converting all 29 wire shapes to named records — a high-churn change that adds maintenance surface (29 types to keep in sync with the JS readers) and fails the "provably free, no new burden" bar today. Left unchanged pending a measurement that the serialiser is on the hot path.
 
 **Category:** Performance Improvement (conditional / flagged, not mandated)   **Severity:** Low   **Effort:** Medium-Large (and partly blocked — see below)   **Behavioural Impact:** None — identical JSON.
 
@@ -94,7 +94,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ## Dead Code
 
 ### F5 — 10 unused `using` directives repeated verbatim in every cluster file (CS8019, distinct from cross-cutting F6's CS0105 duplicates)
-- [ ] Remove the unused `using PerformanceProfiler.Data.* / .Profiling.*` block from files where no symbol references those namespaces — at minimum the two pure-DTO server files where **all** of them are dead.
+- [x] Remove the unused `using PerformanceProfiler.Data.* / .Profiling.*` block from files where no symbol references those namespaces — at minimum the two pure-DTO server files where **all** of them are dead. — IMPLEMENTED: pruned to each file's actually-referenced set across the whole cluster. `Web/Server/HttpRequest.cs` (whole 10-line block deleted → zero project usings), `Web/Server/HttpResponse.cs` (block deleted → `System`, `System.Text` only), `Web/Server/DashboardHttpServer.cs` (block deleted; all 10 were dead), `Profiling/Persistence/EventJournal.cs` (block + dead `System.Text` deleted). Router files folded into the F8 sweep below. Verified by symbol-grep per file (no bare type from a removed namespace) + compile gate (0 `error CS`).
 
 **Category:** Dead Code   **Severity:** Low   **Effort:** Small (mechanical)   **Behavioural Impact:** None — `using` directives are inert; removal changes no emitted IL.
 
@@ -143,7 +143,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ---
 
 ### F8 — Router-partial `using` headers are inconsistent: Lag/Timeline/Insights add `Data.Contracts`, others do not, but all carry the same dead block
-- [ ] Fold into the F5 sweep — normalise each partial's `using` set to what it actually references.
+- [x] Fold into the F5 sweep — normalise each partial's `using` set to what it actually references. — IMPLEMENTED: each `Web/DashboardRouter*.cs` pruned to its real reference set, determined by resolving every bare (non-`Data.`/`Profiling.`-qualified) type token to its declaring namespace. Per-file minimal sets: `DashboardRouter.cs` {System, …Generic, …Text.Json, Data.Detectors, Web.Server}; `Summary` {System, …Generic, …Text.Json, Profiling, Profiling.Persistence, Data.Stats, Data.Detectors}; `Mods` {…, Profiling, Profiling.Persistence, Data.Aggregators}; `Hooks` {…, Profiling, Data.Aggregators}; `Self` {…Text.Json} only; `Memory` {System, …Generic, …Text.Json, Profiling}; `Lag` {…, Profiling, Data.Aggregators, Data.Contracts}; `Timeline` {…, Profiling, Data.Aggregators.Segments, Data.Contracts}; `Insights` {…, Profiling, Data.Contracts, Insights}. `Data.Contracts` kept only on the three rollout partials (Lag/Timeline/Insights), as the finding requires. Note: the finding called `Memory.cs` the clean template carrying "only the 6 it needs" — in fact its `using Terraria.ModLoader;` was itself dead (no `Terraria.ModLoader` type is used bare in any partial), so the strict-minimal reading ("what it actually references") dropped `Terraria.ModLoader` cluster-wide, including from `Memory.cs`. Compile gate: 0 `error CS`.
 
 **Category:** Inconsistent Patterns   **Severity:** Low   **Effort:** Small   **Behavioural Impact:** None.
 
@@ -164,7 +164,7 @@ All findings are **free**: identical behaviour, no new maintenance burden, full 
 ## Test Coverage Gaps
 
 ### F9 — No frozen-schema / serialisation-equivalence test guards the journal-line ↔ row round-trip or the wire-shape stability
-- [ ] FLAG (do not write here): two diagnostic tests would close real gaps. Both are pure-logic, runnable without a game.
+- [ ] FLAG (do not write here): two diagnostic tests would close real gaps. Both are pure-logic, runnable without a game. — PARTIAL: this implementation pass added `Tests/AuditPin_Web_Journal.cs` to anchor the F2 change (asserts the new `AppendBatch` is byte-identical to the old double-buffer form for a representative 4-op batch via an independent old-form oracle). That pins the *journal line shape* — a field rename / framing drift in `AppendBatch` now fails at build/test rather than in-game. T1 (per-`IPersistenceStream` `Reconstruct` round-trip over the NDJSON line) and T2 (29-endpoint wire-shape golden) as fully specified remain DEFERRED to the test-writing pass; the dual-mapper (System.Text.Json journal vs BSON-short-name LiteDB over the same records) hazard T1 targets is still untested.
 
 **Category:** Test Coverage Gap   **Severity:** Medium   **Effort:** Small (both tests)   **Behavioural Impact:** None (tests only).
 
