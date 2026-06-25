@@ -10,23 +10,23 @@ internal static partial class DashboardAssets
     //   1. an OVERVIEW pane — one panel split by a gentle vertical divider:
     //      left 2/3 = a cleaned summary (headline tiles + a confidence donut),
     //      right 1/3 = the cross-cutting signal roll-up.
-    //   2. a KANBAN board below it — one column per insight FAMILY (cost
-    //      deviation / temporal drift / distribution / headroom / structure /
-    //      interaction / segment), cards sorted strongest-confidence first.
+    //   2. a KANBAN board below it — findings as cards in columns cut along a
+    //      chosen axis (pattern / confidence / family). Pattern is the default
+    //      because it yields the most, most-natural columns; family alone
+    //      collapses to one column on a cost-deviation-heavy session. Columns
+    //      flex to fill the width so the board never reads as a lonely column.
     //   3. a slide-in DRAWER on card click — the mod's full context: what it
-    //      ADDS (roster composition), its cost/usage, and every live insight
-    //      about it. This is the answer to 'an insight about one hook is
-    //      meaningless without knowing everything the mod adds' — the drawer
-    //      shows the whole roster so the finding can be judged in context.
+    //      ADDS (roster composition), its cost/usage, and every insight about it,
+    //      because a single-hook finding is meaningless without the whole mod.
     //
     // Every finding string is the engine's own descriptive render (InsightRenderer
-    // bans verdict vocabulary); the UI only adds the badges, the board, and the
-    // drawer. Reads /api/insights (the feed, which had no home before the
-    // Observatory/Insights split), /api/cross-cutting, and /api/mod-observatory
+    // bans verdict vocabulary); the UI adds the badges, the board, and the drawer.
+    // Reads /api/insights (the feed), /api/cross-cutting, and /api/mod-observatory
     // (for the drawer's roster context).
     private const string JsInsights = @"
 let lastCrossCutting = null;
 let insAudience = 'all';   // kanban lens: all | player | modder
+let kanGroup = 'pattern';  // kanban grouping axis: pattern | confidence | family
 
 // Pattern -> family (mirrors the engine's families + segment/interaction groups).
 const INSIGHT_FAMILIES = {
@@ -41,8 +41,14 @@ const INSIGHT_FAMILIES = {
   SegmentOutlier: 'segment', SegmentTopMod: 'segment', SegmentDeathCorrelation: 'segment',
 };
 function insightFamily(p) { return INSIGHT_FAMILIES[p] || 'other'; }
-// Fixed column order for the kanban (only families present are shown).
-const FAMILY_ORDER = ['cost deviation', 'temporal drift', 'distribution', 'headroom', 'structure', 'interaction', 'segment', 'other'];
+
+// Kanban grouping: the axis the board's columns are cut along.
+function kanGroupKey(r) {
+  if (kanGroup === 'confidence') return r.confidence || 'Preliminary';
+  if (kanGroup === 'family') return insightFamily(r.pattern);
+  return r.pattern;
+}
+function kanGroupLabel(k) { return kanGroup === 'confidence' ? k.toLowerCase() : humanizeLabel(k); }
 
 // Confidence ranking + colour, so cards sort strongest-first and badge + edge
 // read consistently.
@@ -82,8 +88,6 @@ function renderInsights() {
 }
 
 // ----- combined overview pane (summary | cross-cutting) --------------
-// One panel, two halves divided by a gentle vertical rule. Built once; each half
-// fills + gates independently.
 function renderInsightOverview() {
   const root = document.getElementById('ins-overview');
   if (!root) return;
@@ -105,7 +109,7 @@ function renderInsightOverview() {
 }
 
 // Left 2/3: headline tiles + a confidence donut. Family distribution is left to
-// the kanban columns below (so this no longer duplicates it).
+// the kanban below (so this no longer duplicates it).
 function fillInsightSummary() {
   const body = document.getElementById('ins-sum-body');
   const subEl = document.getElementById('ins-sum-sub');
@@ -148,8 +152,7 @@ function fillInsightSummary() {
 }
 
 // Right 1/3: one stacked bar per signal class — which mods recur across the
-// detector patterns. Each segment is a leader mod (its per-mod hue), width = its
-// share of that class's appearances.
+// detector patterns.
 function fillCrossCutting() {
   const body = document.getElementById('ins-cc-body');
   const subEl = document.getElementById('ins-cc-sub');
@@ -191,9 +194,8 @@ function fillCrossCutting() {
 }
 
 // ----- the kanban board ----------------------------------------------
-// One column per insight family; cards sorted strongest-confidence first. Audience
-// lens filters player- vs modder-facing findings. Clicking a card opens the mod
-// context drawer.
+// Findings as cards in columns cut along the chosen axis. Group + audience
+// controls live on the panel header; columns flex to fill the width.
 function renderInsightKanban() {
   const root = document.getElementById('ins-kanban');
   if (!root) return;
@@ -201,18 +203,30 @@ function renderInsightKanban() {
   let board = root.querySelector('#kanban-body');
   if (!board) {
     root.innerHTML = panel({
-      title: 'findings by category',
-      actions: segmented({ id: 'kan-aud', attr: 'data-aud', active: insAudience, options: [
-        { value: 'all', label: 'all' }, { value: 'player', label: 'player' }, { value: 'modder', label: 'modder' }] }),
+      title: 'findings',
+      actions:
+        `<span class='kan-lbl'>group</span>` +
+        segmented({ id: 'kan-group', attr: 'data-grp', active: kanGroup, options: [
+          { value: 'pattern', label: 'pattern' }, { value: 'confidence', label: 'confidence' }, { value: 'family', label: 'family' }] }) +
+        `<span class='kan-lbl'>show</span>` +
+        segmented({ id: 'kan-aud', attr: 'data-aud', active: insAudience, options: [
+          { value: 'all', label: 'all' }, { value: 'player', label: 'player' }, { value: 'modder', label: 'modder' }] }),
       body: `<div id='kanban-body'></div>`,
       pad: 'tight',
     });
     board = root.querySelector('#kanban-body');
-    const ctl = root.querySelector('#kan-aud');
-    if (ctl) ctl.addEventListener('click', e => {
+    const gctl = root.querySelector('#kan-group');
+    if (gctl) gctl.addEventListener('click', e => {
+      const b = e.target.closest('[data-grp]'); if (!b) return;
+      kanGroup = b.dataset.grp;
+      gctl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.grp === kanGroup));
+      renderInsightKanban();
+    });
+    const actl = root.querySelector('#kan-aud');
+    if (actl) actl.addEventListener('click', e => {
       const b = e.target.closest('[data-aud]'); if (!b) return;
       insAudience = b.dataset.aud;
-      ctl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.aud === insAudience));
+      actl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.aud === insAudience));
       renderInsightKanban();
     });
   }
@@ -231,27 +245,35 @@ function renderInsightKanban() {
     return;
   }
 
-  // Group by family, sort each column strongest-first.
+  // Group along the chosen axis.
   const groups = {};
   for (const r of recs) {
-    const f = insightFamily(r.pattern);
-    if (!groups[f]) groups[f] = [];
-    groups[f].push(r);
+    const k = kanGroupKey(r);
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
   }
+  // Column order: confidence in its fixed ladder (strongest first), else by size.
+  let keys = Object.keys(groups);
+  if (kanGroup === 'confidence') keys = ['High', 'Medium', 'Low', 'Preliminary'].filter(k => groups[k]);
+  else keys.sort((a, b) => groups[b].length - groups[a].length || a.localeCompare(b));
+
   const byStrength = (a, b) => (CONF_RANK[b.confidence] || 0) - (CONF_RANK[a.confidence] || 0)
     || Math.abs(b.ratioOrDelta || 0) - Math.abs(a.ratioOrDelta || 0)
     || (b.lastSeenTick || 0) - (a.lastSeenTick || 0);
-  const cols = FAMILY_ORDER.filter(f => groups[f] && groups[f].length).map(f => ({ fam: f, cards: groups[f].sort(byStrength) }));
 
-  const sig = insAudience + '|' + cols.map(c => c.fam + ':' + c.cards.length + ':' +
-    c.cards.map(r => r.pattern + r.subjectModId + r.confidence + (r.ratioOrDelta || 0).toFixed(2)).join('')).join('|');
+  const sig = kanGroup + '|' + insAudience + '|' + keys.map(k => k + ':' + groups[k].length + ':' +
+    groups[k].map(r => r.subjectModId + r.confidence + (r.ratioOrDelta || 0).toFixed(2)).join('')).join('|');
   if (_renderSig['insKanban'] === sig) return;
   _renderSig['insKanban'] = sig;
 
-  const html = cols.map(col => `<div class='kan-col'>
-    <div class='kan-col-h'><span>${escapeHtml(col.fam)}</span><span class='kan-count'>${fmtInt(col.cards.length)}</span></div>
-    <div class='kan-col-body'>${col.cards.map(kanbanCard).join('')}</div>
-  </div>`).join('');
+  const html = keys.map(k => {
+    const cards = groups[k].slice().sort(byStrength);
+    const accent = kanGroup === 'confidence' ? confColor(k) : 'var(--border-soft)';
+    return `<div class='kan-col' style='--accent:${accent}'>
+      <div class='kan-col-h'><span class='kan-col-t'>${escapeHtml(kanGroupLabel(k))}</span><span class='kan-count'>${fmtInt(cards.length)}</span></div>
+      <div class='kan-col-body'>${cards.map(kanbanCard).join('')}</div>
+    </div>`;
+  }).join('');
   setHTML(board, `<div class='kanban'>${html}</div>`);
 
   board.querySelectorAll('.kan-card').forEach(el => {
@@ -259,31 +281,33 @@ function renderInsightKanban() {
   });
 }
 
-// One kanban card. The family is the column, so the card carries the finding
-// sentence (the value), the confidence + data-strength badges, the subject mod,
-// the pattern, and a magnitude strength bar. Clickable -> mod context drawer.
+// One kanban card. Confidence-tinted left edge + a soft shadow (the card feel).
+// Top: the subject mod chip + the confidence badge. Body: the finding sentence
+// (the hero). Foot: a magnitude strength bar + the data-strength badge.
 function kanbanCard(r) {
   const conf = r.confidence || 'Preliminary';
   const edge = confColor(conf);
   const hasMod = r.subjectModId != null && r.subjectModId >= 0;
-  const modName = r.subjectModName || (hasMod ? 'mod ' + r.subjectModId : 'session');
-  const modChip = `<span class='chip'><span class='dot' style='background:${hasMod ? modColor(r.subjectModId) : 'var(--muted)'}'></span>${escapeHtml(modName)}</span>`;
+  const modName = truncate(r.subjectModName || (hasMod ? 'mod ' + r.subjectModId : 'session'), 20);
+  const dotColor = hasMod ? modColor(r.subjectModId) : 'var(--muted)';
   const strength = Math.max(0, Math.min(1, Math.abs(r.ratioOrDelta || 0)));
-  return `<div class='kan-card' data-mod='${hasMod ? r.subjectModId : -1}' style='border-left-color:${edge}' title='${escapeHtml(r.mediumText || r.shortText || '')}'>
-    <div class='kc-badges'>${scopeBadge(r.scope)}${badge(conf.toLowerCase(), confTone(conf))}</div>
+  return `<div class='kan-card' data-mod='${hasMod ? r.subjectModId : -1}' style='--edge:${edge}' title='${escapeHtml(r.mediumText || r.shortText || '')}'>
+    <div class='kc-top'>
+      <span class='chip kc-mod'><span class='dot' style='background:${dotColor}'></span>${escapeHtml(modName)}</span>
+      ${badge(conf.toLowerCase(), confTone(conf))}
+    </div>
     <div class='kc-text'>${escapeHtml(r.shortText || '')}</div>
-    <div class='kc-foot'>${modChip}<span class='kc-pat'>${escapeHtml(humanizeLabel(r.pattern))}</span></div>
-    <div class='kc-bar'>${cellBar(strength, edge)}</div>
+    <div class='kc-foot'>
+      <span class='kc-strength'>${cellBar(strength, edge)}</span>
+      ${scopeBadge(r.scope)}
+    </div>
   </div>`;
 }
 
 // ----- mod context drawer --------------------------------------------
 // The slide-in opened by a card click. Leads with WHAT THE MOD ADDS (its roster
 // composition) so a single-hook finding can be judged against the whole mod, then
-// its roster-vs-usage, cost & engagement, and every live insight about it. Reads
-// the observatory card (roster) + the insight records for the mod. Degrades
-// gracefully when the observatory snapshot has not arrived or the subject is
-// session-level (no mod).
+// its cost & engagement, roster-vs-usage, and every live insight about it.
 function openInsightDetail(modId) {
   const drawer = document.getElementById('ins-drawer');
   const body = document.getElementById('ins-dr-body');

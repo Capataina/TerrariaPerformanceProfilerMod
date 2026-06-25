@@ -1296,7 +1296,6 @@ html, body {
 }
 
 /* ----- Overview pane: summary (2/3) | cross-cutting (1/3) ----- */
-/* One panel, two halves split by a gentle vertical rule. */
 .ins-ov-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 0; align-items: stretch; }
 .ins-ov-left  { padding-right: 1.1rem; min-width: 0; }
 .ins-ov-right { padding-left: 1.1rem; border-left: 1px solid var(--border); min-width: 0; }
@@ -1305,52 +1304,65 @@ html, body {
   .ins-ov-left { padding-right: 0; }
   .ins-ov-right { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 0.8rem; margin-top: 0.5rem; }
 }
-
-/* Cleaned summary: headline tiles | confidence donut. */
 .ins-sum-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1rem; align-items: center; }
 @media (max-width: 680px) { .ins-sum-layout { grid-template-columns: 1fr; } }
 .ins-sum-chart { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
 .ins-sum-chart .chart-donut-wrap { max-width: 10rem; }
-
-/* Cross-cutting stack: one stacked bar per signal class. */
 .cc-stack { display: flex; flex-direction: column; gap: 0.85rem; }
 .cc-class .split-bar { margin-top: 0.1rem; }
 .cc-class .bar-legend { margin-top: 0.3rem; }
 
-/* ----- Kanban board: a column per insight family ----- */
-.kanban { display: flex; gap: 0.6rem; overflow-x: auto; padding-bottom: 0.3rem; align-items: flex-start; }
+/* ----- Kanban board ----- */
+/* Small uppercase label before each header control (group / show). */
+.kan-lbl { font-family: var(--ui); font-size: 0.6rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--dim); align-self: center; margin-left: 0.2rem; }
+
+/* The board: columns flex to FILL the width (so 2-3 columns never leave dead
+   space) but hold a min so a busy session scrolls horizontally instead of
+   crushing them. align-items:start lets short columns stay short. */
+.kanban { display: flex; gap: 0.7rem; overflow-x: auto; padding: 0.15rem 0 0.4rem; align-items: flex-start; }
 .kan-col {
-  flex: 0 0 17.5rem; max-width: 17.5rem; min-width: 0;
-  background: var(--panel-2); border: 1px solid var(--border-soft); border-radius: 5px;
-  display: flex; flex-direction: column;
+  flex: 1 1 16rem; min-width: 15rem; max-width: 26rem;
+  background: var(--panel-2); border: 1px solid var(--border-soft);
+  border-radius: 7px; overflow: hidden; display: flex; flex-direction: column;
 }
 .kan-col-h {
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
   padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border);
-  font-family: var(--ui); font-size: 0.72rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text);
+  border-top: 2px solid var(--accent, var(--border-soft));
+}
+.kan-col-t {
+  font-family: var(--ui); font-size: 0.74rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
 .kan-count {
-  font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
-  background: var(--surface); padding: 0.05rem 0.45rem; border-radius: 10px;
+  font-family: var(--mono); font-size: 0.7rem; color: var(--text-bright);
+  background: var(--surface); padding: 0.05rem 0.5rem; border-radius: 10px; flex: none;
 }
-.kan-col-body { display: flex; flex-direction: column; gap: 0.45rem; padding: 0.5rem;
-  max-height: 34rem; overflow-y: auto; overscroll-behavior: contain; }
+.kan-col-body {
+  display: flex; flex-direction: column; gap: 0.5rem; padding: 0.55rem;
+  max-height: 36rem; overflow-y: auto; overscroll-behavior: contain;
+}
 
-/* Kanban card: confidence-tinted edge; the finding sentence is the hero; badges +
-   mod chip + pattern + strength bar carry the metadata. Clickable -> drawer. */
+/* Card: a confidence-tinted left edge + a soft shadow gives the lift-off-the-
+   column 'card' feel; on hover it rises and the shadow deepens. The card sits
+   on --card (lighter than the column's --panel-2) for depth. */
 .kan-card {
-  border: 1px solid var(--border-soft); border-left: 3px solid var(--muted);
-  border-radius: 4px; background: var(--secondary); padding: 0.45rem 0.55rem;
-  display: flex; flex-direction: column; gap: 0.3rem; cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  border: 1px solid var(--border-soft); border-left: 3px solid var(--edge, var(--muted));
+  border-radius: 5px; background: var(--card); padding: 0.55rem 0.6rem;
+  display: flex; flex-direction: column; gap: 0.45rem; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.28);
+  transition: transform 0.1s ease-out, box-shadow 0.12s, background 0.12s, border-color 0.12s;
 }
-.kan-card:hover { background: var(--hover); }
-.kc-badges { display: flex; gap: 0.3rem; flex-wrap: wrap; }
-.kc-text { font-family: var(--ui); font-size: 0.8rem; color: var(--text); line-height: 1.35; }
+.kan-card:hover { background: var(--hover); box-shadow: 0 4px 12px rgba(0,0,0,0.42);
+  transform: translateY(-1px); border-color: var(--border); }
+.kc-top { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+.kc-mod { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+.kc-text { font-family: var(--ui); font-size: 0.82rem; color: var(--text); line-height: 1.4; }
 .kc-text::first-letter { text-transform: uppercase; }
-.kc-foot { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
-.kc-pat { font-family: var(--mono); font-size: 0.64rem; color: var(--muted); white-space: nowrap; }
+.kc-foot { display: flex; align-items: center; gap: 0.5rem; }
+.kc-strength { flex: 1; min-width: 3rem; }
 
 /* ----- Mod-context drawer: the insight list inside it ----- */
 .dr-insights { display: flex; flex-direction: column; gap: 0.45rem; }
@@ -1737,7 +1749,7 @@ html, body {
     <div class="brand">
       <span class="brand-mark"></span>
       <span class="brand-name">Performance Profiler</span>
-      <span class="brand-version" id="brand-version">v0.25.0</span>
+      <span class="brand-version" id="brand-version">v0.26.0</span>
     </div>
     <div class="live">
       <span class="live-dot" id="live-dot"></span>
@@ -6428,6 +6440,7 @@ function renderDormantSurface() {
 
 let lastCrossCutting = null;
 let insAudience = 'all';   // kanban lens: all | player | modder
+let kanGroup = 'pattern';  // kanban grouping axis: pattern | confidence | family
 
 // Pattern -> family (mirrors the engine's families + segment/interaction groups).
 const INSIGHT_FAMILIES = {
@@ -6442,8 +6455,14 @@ const INSIGHT_FAMILIES = {
   SegmentOutlier: 'segment', SegmentTopMod: 'segment', SegmentDeathCorrelation: 'segment',
 };
 function insightFamily(p) { return INSIGHT_FAMILIES[p] || 'other'; }
-// Fixed column order for the kanban (only families present are shown).
-const FAMILY_ORDER = ['cost deviation', 'temporal drift', 'distribution', 'headroom', 'structure', 'interaction', 'segment', 'other'];
+
+// Kanban grouping: the axis the board's columns are cut along.
+function kanGroupKey(r) {
+  if (kanGroup === 'confidence') return r.confidence || 'Preliminary';
+  if (kanGroup === 'family') return insightFamily(r.pattern);
+  return r.pattern;
+}
+function kanGroupLabel(k) { return kanGroup === 'confidence' ? k.toLowerCase() : humanizeLabel(k); }
 
 // Confidence ranking + colour, so cards sort strongest-first and badge + edge
 // read consistently.
@@ -6483,8 +6502,6 @@ function renderInsights() {
 }
 
 // ----- combined overview pane (summary | cross-cutting) --------------
-// One panel, two halves divided by a gentle vertical rule. Built once; each half
-// fills + gates independently.
 function renderInsightOverview() {
   const root = document.getElementById('ins-overview');
   if (!root) return;
@@ -6506,7 +6523,7 @@ function renderInsightOverview() {
 }
 
 // Left 2/3: headline tiles + a confidence donut. Family distribution is left to
-// the kanban columns below (so this no longer duplicates it).
+// the kanban below (so this no longer duplicates it).
 function fillInsightSummary() {
   const body = document.getElementById('ins-sum-body');
   const subEl = document.getElementById('ins-sum-sub');
@@ -6549,8 +6566,7 @@ function fillInsightSummary() {
 }
 
 // Right 1/3: one stacked bar per signal class — which mods recur across the
-// detector patterns. Each segment is a leader mod (its per-mod hue), width = its
-// share of that class's appearances.
+// detector patterns.
 function fillCrossCutting() {
   const body = document.getElementById('ins-cc-body');
   const subEl = document.getElementById('ins-cc-sub');
@@ -6592,9 +6608,8 @@ function fillCrossCutting() {
 }
 
 // ----- the kanban board ----------------------------------------------
-// One column per insight family; cards sorted strongest-confidence first. Audience
-// lens filters player- vs modder-facing findings. Clicking a card opens the mod
-// context drawer.
+// Findings as cards in columns cut along the chosen axis. Group + audience
+// controls live on the panel header; columns flex to fill the width.
 function renderInsightKanban() {
   const root = document.getElementById('ins-kanban');
   if (!root) return;
@@ -6602,18 +6617,30 @@ function renderInsightKanban() {
   let board = root.querySelector('#kanban-body');
   if (!board) {
     root.innerHTML = panel({
-      title: 'findings by category',
-      actions: segmented({ id: 'kan-aud', attr: 'data-aud', active: insAudience, options: [
-        { value: 'all', label: 'all' }, { value: 'player', label: 'player' }, { value: 'modder', label: 'modder' }] }),
+      title: 'findings',
+      actions:
+        `<span class='kan-lbl'>group</span>` +
+        segmented({ id: 'kan-group', attr: 'data-grp', active: kanGroup, options: [
+          { value: 'pattern', label: 'pattern' }, { value: 'confidence', label: 'confidence' }, { value: 'family', label: 'family' }] }) +
+        `<span class='kan-lbl'>show</span>` +
+        segmented({ id: 'kan-aud', attr: 'data-aud', active: insAudience, options: [
+          { value: 'all', label: 'all' }, { value: 'player', label: 'player' }, { value: 'modder', label: 'modder' }] }),
       body: `<div id='kanban-body'></div>`,
       pad: 'tight',
     });
     board = root.querySelector('#kanban-body');
-    const ctl = root.querySelector('#kan-aud');
-    if (ctl) ctl.addEventListener('click', e => {
+    const gctl = root.querySelector('#kan-group');
+    if (gctl) gctl.addEventListener('click', e => {
+      const b = e.target.closest('[data-grp]'); if (!b) return;
+      kanGroup = b.dataset.grp;
+      gctl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.grp === kanGroup));
+      renderInsightKanban();
+    });
+    const actl = root.querySelector('#kan-aud');
+    if (actl) actl.addEventListener('click', e => {
       const b = e.target.closest('[data-aud]'); if (!b) return;
       insAudience = b.dataset.aud;
-      ctl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.aud === insAudience));
+      actl.querySelectorAll('button').forEach(x => x.classList.toggle('active', x.dataset.aud === insAudience));
       renderInsightKanban();
     });
   }
@@ -6632,27 +6659,35 @@ function renderInsightKanban() {
     return;
   }
 
-  // Group by family, sort each column strongest-first.
+  // Group along the chosen axis.
   const groups = {};
   for (const r of recs) {
-    const f = insightFamily(r.pattern);
-    if (!groups[f]) groups[f] = [];
-    groups[f].push(r);
+    const k = kanGroupKey(r);
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(r);
   }
+  // Column order: confidence in its fixed ladder (strongest first), else by size.
+  let keys = Object.keys(groups);
+  if (kanGroup === 'confidence') keys = ['High', 'Medium', 'Low', 'Preliminary'].filter(k => groups[k]);
+  else keys.sort((a, b) => groups[b].length - groups[a].length || a.localeCompare(b));
+
   const byStrength = (a, b) => (CONF_RANK[b.confidence] || 0) - (CONF_RANK[a.confidence] || 0)
     || Math.abs(b.ratioOrDelta || 0) - Math.abs(a.ratioOrDelta || 0)
     || (b.lastSeenTick || 0) - (a.lastSeenTick || 0);
-  const cols = FAMILY_ORDER.filter(f => groups[f] && groups[f].length).map(f => ({ fam: f, cards: groups[f].sort(byStrength) }));
 
-  const sig = insAudience + '|' + cols.map(c => c.fam + ':' + c.cards.length + ':' +
-    c.cards.map(r => r.pattern + r.subjectModId + r.confidence + (r.ratioOrDelta || 0).toFixed(2)).join('')).join('|');
+  const sig = kanGroup + '|' + insAudience + '|' + keys.map(k => k + ':' + groups[k].length + ':' +
+    groups[k].map(r => r.subjectModId + r.confidence + (r.ratioOrDelta || 0).toFixed(2)).join('')).join('|');
   if (_renderSig['insKanban'] === sig) return;
   _renderSig['insKanban'] = sig;
 
-  const html = cols.map(col => `<div class='kan-col'>
-    <div class='kan-col-h'><span>${escapeHtml(col.fam)}</span><span class='kan-count'>${fmtInt(col.cards.length)}</span></div>
-    <div class='kan-col-body'>${col.cards.map(kanbanCard).join('')}</div>
-  </div>`).join('');
+  const html = keys.map(k => {
+    const cards = groups[k].slice().sort(byStrength);
+    const accent = kanGroup === 'confidence' ? confColor(k) : 'var(--border-soft)';
+    return `<div class='kan-col' style='--accent:${accent}'>
+      <div class='kan-col-h'><span class='kan-col-t'>${escapeHtml(kanGroupLabel(k))}</span><span class='kan-count'>${fmtInt(cards.length)}</span></div>
+      <div class='kan-col-body'>${cards.map(kanbanCard).join('')}</div>
+    </div>`;
+  }).join('');
   setHTML(board, `<div class='kanban'>${html}</div>`);
 
   board.querySelectorAll('.kan-card').forEach(el => {
@@ -6660,31 +6695,33 @@ function renderInsightKanban() {
   });
 }
 
-// One kanban card. The family is the column, so the card carries the finding
-// sentence (the value), the confidence + data-strength badges, the subject mod,
-// the pattern, and a magnitude strength bar. Clickable -> mod context drawer.
+// One kanban card. Confidence-tinted left edge + a soft shadow (the card feel).
+// Top: the subject mod chip + the confidence badge. Body: the finding sentence
+// (the hero). Foot: a magnitude strength bar + the data-strength badge.
 function kanbanCard(r) {
   const conf = r.confidence || 'Preliminary';
   const edge = confColor(conf);
   const hasMod = r.subjectModId != null && r.subjectModId >= 0;
-  const modName = r.subjectModName || (hasMod ? 'mod ' + r.subjectModId : 'session');
-  const modChip = `<span class='chip'><span class='dot' style='background:${hasMod ? modColor(r.subjectModId) : 'var(--muted)'}'></span>${escapeHtml(modName)}</span>`;
+  const modName = truncate(r.subjectModName || (hasMod ? 'mod ' + r.subjectModId : 'session'), 20);
+  const dotColor = hasMod ? modColor(r.subjectModId) : 'var(--muted)';
   const strength = Math.max(0, Math.min(1, Math.abs(r.ratioOrDelta || 0)));
-  return `<div class='kan-card' data-mod='${hasMod ? r.subjectModId : -1}' style='border-left-color:${edge}' title='${escapeHtml(r.mediumText || r.shortText || '')}'>
-    <div class='kc-badges'>${scopeBadge(r.scope)}${badge(conf.toLowerCase(), confTone(conf))}</div>
+  return `<div class='kan-card' data-mod='${hasMod ? r.subjectModId : -1}' style='--edge:${edge}' title='${escapeHtml(r.mediumText || r.shortText || '')}'>
+    <div class='kc-top'>
+      <span class='chip kc-mod'><span class='dot' style='background:${dotColor}'></span>${escapeHtml(modName)}</span>
+      ${badge(conf.toLowerCase(), confTone(conf))}
+    </div>
     <div class='kc-text'>${escapeHtml(r.shortText || '')}</div>
-    <div class='kc-foot'>${modChip}<span class='kc-pat'>${escapeHtml(humanizeLabel(r.pattern))}</span></div>
-    <div class='kc-bar'>${cellBar(strength, edge)}</div>
+    <div class='kc-foot'>
+      <span class='kc-strength'>${cellBar(strength, edge)}</span>
+      ${scopeBadge(r.scope)}
+    </div>
   </div>`;
 }
 
 // ----- mod context drawer --------------------------------------------
 // The slide-in opened by a card click. Leads with WHAT THE MOD ADDS (its roster
 // composition) so a single-hook finding can be judged against the whole mod, then
-// its roster-vs-usage, cost & engagement, and every live insight about it. Reads
-// the observatory card (roster) + the insight records for the mod. Degrades
-// gracefully when the observatory snapshot has not arrived or the subject is
-// session-level (no mod).
+// its cost & engagement, roster-vs-usage, and every live insight about it.
 function openInsightDetail(modId) {
   const drawer = document.getElementById('ins-drawer');
   const body = document.getElementById('ins-dr-body');
