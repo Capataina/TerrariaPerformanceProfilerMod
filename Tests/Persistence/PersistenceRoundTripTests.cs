@@ -4,8 +4,8 @@ using System;
 using System.IO;
 using System.Linq;
 using LiteDB;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 using Xunit;
 
 namespace PerformanceProfiler.Tests.Persistence;

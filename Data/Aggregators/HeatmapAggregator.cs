@@ -5,14 +5,14 @@ using System.Collections.Generic;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Data.Aggregators.Segments;
-using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Persistence;
 
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Data.Aggregators;
 
 /// <summary>One minute of session frame-time data, plus the worst single frame in that minute.</summary>

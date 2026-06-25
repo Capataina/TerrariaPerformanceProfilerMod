@@ -5,10 +5,10 @@ using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Data.Aggregators.Segments;
 
 /// <summary>

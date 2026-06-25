@@ -7,8 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using LiteDB;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 using Xunit;
 using Xunit.Abstractions;
 

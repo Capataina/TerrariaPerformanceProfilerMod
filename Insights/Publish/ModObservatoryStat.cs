@@ -10,7 +10,7 @@ using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence.Records;
 
 namespace PerformanceProfiler.Insights.Publish;
 

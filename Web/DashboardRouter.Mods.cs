@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Persistence;
 using PerformanceProfiler.Data.Aggregators;
 
 namespace PerformanceProfiler.Web;

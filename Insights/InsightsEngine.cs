@@ -13,10 +13,10 @@ using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Insights;
 
 /// <summary>
@@ -189,7 +189,7 @@ public sealed class InsightsEngine
 
     /// <summary>
     /// Installs a pre-loaded context baseline (typically seeded with prior-session
-    /// data by <see cref="ReferenceFrames.CrossSessionStore"/>) before the first
+    /// data by <see cref="Persistence.CrossSessionStore"/>) before the first
     /// evaluation, so this session accumulates on top of the lifetime total. A
     /// no-op once a baseline already exists, so a late call cannot clobber
     /// mid-session accumulation.

@@ -6,8 +6,8 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using LiteDB;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 using Xunit;
 
 namespace PerformanceProfiler.Tests;

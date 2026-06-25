@@ -7,7 +7,7 @@ using Terraria;
 using Terraria.GameInput;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Persistence;
+using PerformanceProfiler.Persistence;
 using PerformanceProfiler.UI;
 using PerformanceProfiler.Web;
 using PerformanceProfiler.Web.Server;
@@ -16,10 +16,10 @@ using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler;
 
 /// <summary>

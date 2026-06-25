@@ -83,8 +83,8 @@
     <!-- Wave 3 reference-frame substrate (pure stats + the per-context accumulator). -->
     <Compile Include="..\Insights\Shared\Stats.cs" Link="Source\Insights\Shared\Stats.cs" />
     <Compile Include="..\Insights\ReferenceFrames\ContextBaseline.cs" Link="Source\Insights\ReferenceFrames\ContextBaseline.cs" />
-    <!-- Wave 6 cross-session store (LiteDB round-trip of the per-context baselines). -->
-    <Compile Include="..\Insights\ReferenceFrames\CrossSessionStore.cs" Link="Source\Insights\ReferenceFrames\CrossSessionStore.cs" />
+    <!-- CrossSessionStore moved into the top-level Persistence/ folder; it is now
+         covered by the ..\Persistence\*.cs glob below, not included explicitly here. -->
     <!-- Wave 5 family B substrate: the early/late temporal baseline + the driver contracts. -->
     <Compile Include="..\Insights\Contracts\IInsightInput.cs" Link="Source\Insights\Contracts\IInsightInput.cs" />
     <Compile Include="..\Insights\Contracts\IDriver.cs" Link="Source\Insights\Contracts\IDriver.cs" />
@@ -103,43 +103,44 @@
     <Compile Include="..\Profiling\Util\BoolIndex.cs" Link="Source\Util\BoolIndex.cs" />
     <Compile Include="..\Profiling\EnumStringTable.cs" Link="Source\EnumStringTable.cs" />
 
-    <!-- Persistence sources. ProfilerDatabase, records, writer, journal stayed
-         under Profiling/Persistence/; the per-collection STREAM classes moved to
-         Data/Streams/ in v0.11. ProfilerDatabase references StreamRegistry, so
-         Data/Streams/ must be linked. All reference LiteDB only (no tModLoader);
-         the streams' inert Data.Collectors / Data.Aggregators.Segments header
-         usings resolve against the empty stubs in _TestNamespaceStubs.cs. -->
-    <Compile Include="..\Profiling\Persistence\*.cs" Link="Source\Persistence\%(Filename)%(Extension)" />
-    <Compile Include="..\Profiling\Persistence\Records\*.cs" Link="Source\Persistence\Records\%(Filename)%(Extension)" />
-    <Compile Include="..\Data\Streams\*.cs" Link="Source\Streams\%(Filename)%(Extension)" />
+    <!-- Persistence sources. The whole memory layer lives under the top-level
+         Persistence/ folder: ProfilerDatabase, records, writer, journal,
+         CrossSessionStore, and the per-collection STREAM classes under Streams/.
+         ProfilerDatabase references StreamRegistry, so Streams/ must be linked.
+         All reference LiteDB only (no tModLoader); the streams' inert
+         Data.Collectors / Data.Aggregators.Segments header usings resolve
+         against the empty stubs in _TestNamespaceStubs.cs. -->
+    <Compile Include="..\Persistence\*.cs" Link="Source\Persistence\%(Filename)%(Extension)" />
+    <Compile Include="..\Persistence\Records\*.cs" Link="Source\Persistence\Records\%(Filename)%(Extension)" />
+    <Compile Include="..\Persistence\Streams\*.cs" Link="Source\Streams\%(Filename)%(Extension)" />
     <!-- Files that reference Terraria types must be excluded from the
          test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
          imports legacy JSON via game-runtime calls, ProfilerCompactCommand
          is a tModLoader ModCommand, ModlistFingerprint reads HookInterceptor.
          The Terraria-free constants live in PersistenceFileNames so the
          tests reach those without dragging in the game runtime. -->
-    <Compile Remove="..\Profiling\Persistence\ProfilerPaths.cs" />
-    <Compile Remove="..\Profiling\Persistence\LegacyJsonImporter.cs" />
-    <Compile Remove="..\Profiling\Persistence\ProfilerCompactCommand.cs" />
-    <Compile Remove="..\Profiling\Persistence\ModlistFingerprint.cs" />
+    <Compile Remove="..\Persistence\ProfilerPaths.cs" />
+    <Compile Remove="..\Persistence\LegacyJsonImporter.cs" />
+    <Compile Remove="..\Persistence\ProfilerCompactCommand.cs" />
+    <Compile Remove="..\Persistence\ModlistFingerprint.cs" />
     <!-- DbReadModel reads the PerformanceProfiler Mod class's static Database
          property (a Terraria.ModLoader.Mod subclass), so it cannot compile in the
          runtime-free test harness. Its only consumers are the dashboard routers,
          which are integration code excluded here anyway. -->
-    <Compile Remove="..\Profiling\Persistence\DbReadModel.cs" />
-    <!-- SessionRecorder (now Data/Streams/) + TickDownsampler + ContextTransitionWatcher
+    <Compile Remove="..\Persistence\DbReadModel.cs" />
+    <!-- SessionRecorder (now Persistence/Streams/) + TickDownsampler + ContextTransitionWatcher
          + WorldSnapshotter + PlayerDeathDetector + SessionSummaryLogger all depend
          on MetricCollector + SpikeWindow which transitively pull in HookInterceptor
          and a Terraria entry point. They're integration code; the persistence-layer
          tests exercise the writer + records directly. -->
-    <Compile Remove="..\Data\Streams\SessionRecorder.cs" />
-    <Compile Remove="..\Profiling\Persistence\TickDownsampler.cs" />
-    <Compile Remove="..\Profiling\Persistence\ContextTransitionWatcher.cs" />
-    <Compile Remove="..\Profiling\Persistence\WorldSnapshotter.cs" />
-    <Compile Remove="..\Profiling\Persistence\PlayerDeathDetector.cs" />
-    <Compile Remove="..\Profiling\Persistence\SessionSummaryLogger.cs" />
-    <Compile Remove="..\Profiling\Persistence\Commands\*.cs" />
-    <Compile Remove="..\Profiling\Persistence\Interactions\*.cs" />
+    <Compile Remove="..\Persistence\Streams\SessionRecorder.cs" />
+    <Compile Remove="..\Persistence\TickDownsampler.cs" />
+    <Compile Remove="..\Persistence\ContextTransitionWatcher.cs" />
+    <Compile Remove="..\Persistence\WorldSnapshotter.cs" />
+    <Compile Remove="..\Persistence\PlayerDeathDetector.cs" />
+    <Compile Remove="..\Persistence\SessionSummaryLogger.cs" />
+    <Compile Remove="..\Persistence\Commands\*.cs" />
+    <Compile Remove="..\Persistence\Interactions\*.cs" />
     <Compile Remove="..\Profiling\ProfilerFocusProbe.cs" />
   </ItemGroup>
 

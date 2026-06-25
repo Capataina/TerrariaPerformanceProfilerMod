@@ -8,8 +8,8 @@ using Terraria.ModLoader;
 
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Profiling;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 
 namespace PerformanceProfiler.Data.Stats;
 

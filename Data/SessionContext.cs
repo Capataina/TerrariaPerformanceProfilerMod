@@ -4,12 +4,12 @@ using PerformanceProfiler.Data.Detectors;
 using PerformanceProfiler.Data.Aggregators;
 using PerformanceProfiler.Data.Aggregators.Segments;
 using PerformanceProfiler.Data.Stats;
-using PerformanceProfiler.Data.Streams;
+using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
-using PerformanceProfiler.Profiling.Persistence;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Data;
 
 /// <summary>
@@ -33,8 +33,8 @@ public sealed class SessionContext
 
     /// <summary>
     /// The LiteDB facade. <c>null</c> when the DB failed to open at mod load —
-    /// see <c>PerformanceProfiler.Profiling.Persistence.ProfilerDatabase</c>'s
+    /// see <c>PerformanceProfiler.Persistence.ProfilerDatabase</c>'s
     /// abort-clean contract.
     /// </summary>
-    public Profiling.Persistence.ProfilerDatabase? Database { get; init; }
+    public Persistence.ProfilerDatabase? Database { get; init; }
 }

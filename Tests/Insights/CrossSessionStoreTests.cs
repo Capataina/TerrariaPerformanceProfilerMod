@@ -5,7 +5,8 @@ using System.IO;
 using LiteDB;
 using PerformanceProfiler.Insights.ReferenceFrames;
 using PerformanceProfiler.Insights.Shared;
-using PerformanceProfiler.Profiling.Persistence.Records;
+using PerformanceProfiler.Persistence;
+using PerformanceProfiler.Persistence.Records;
 using Xunit;
 
 namespace PerformanceProfiler.Tests.Insights;
