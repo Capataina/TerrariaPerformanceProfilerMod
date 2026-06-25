@@ -95,12 +95,6 @@ internal static partial class DashboardAssets
 .bar-col .bar-mark.spike { background: var(--spike); }
 .bar-col .bar-mark.stall { background: var(--stall); transform: translateY(5px); }
 
-/* ===== Radial bars: concentric polar bars ========================= */
-.chart-radial { display: block; max-width: 100%; height: auto; }
-.chart-radial .ra-track { fill: none; stroke: var(--surface); opacity: 0.55; }
-.chart-radial .ra-val { fill: none; transition: filter 0.12s; }
-.chart-radial .ra-val:hover { filter: brightness(1.15); }
-
 /* ===== Chord: circular pairwise relationships ===================== */
 .chart-chord { display: block; max-width: 100%; height: auto; }
 .chart-chord .cd-arc { stroke: var(--bg-page); stroke-width: 0.5; }

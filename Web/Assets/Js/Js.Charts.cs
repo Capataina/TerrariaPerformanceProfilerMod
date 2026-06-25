@@ -425,34 +425,6 @@ function heatmapMatrix(o) {
   return h + `</div>`;
 }
 
-// ---- Radial bars: concentric arcs, one ring per category ------------
-// A polar bar chart — each category is a ring whose arc length encodes
-// value/max over a 270° sweep (90° gap centred at the bottom). A compact,
-// striking read for a small ranked set (findings per family, leaders per
-// class). Returns the arcs only (each with a <title>); pair with legend() for
-// the labels, the same split-of-labour as waffle(). opts:
-//   { items:[{label,value,color?}], w?, max?, sweep?, fmt? }
-function radialBars(o) {
-  o = o || {};
-  const items = (o.items || []).filter(it => it && isFinite(it.value));
-  if (!items.length) return emptyState('no data');
-  const size = o.w || 220, cx = size / 2, cy = size / 2;
-  const max = o.max || Math.max(1e-9, ...items.map(it => it.value));
-  const fmt = o.fmt || (v => fmtInt(v));
-  const sweep = o.sweep || 270, start = 225;               // 90° gap centred at the bottom
-  const rMax = size / 2 - 3, rMin = size * 0.2, n = items.length;
-  const step = n > 1 ? (rMax - rMin) / (n - 1) : 0;
-  const stroke = Math.max(4, Math.min(20, (n > 1 ? step : rMax * 0.5) * 0.62));
-  let svg = '';
-  for (let i = 0; i < n; i++) {
-    const it = items[i], r = n > 1 ? rMax - i * step : (rMax + rMin) / 2;
-    const frac = Math.max(0, Math.min(1, (it.value || 0) / max));
-    svg += `<path class='ra-track' d='${_arcStroke(cx, cy, r, start, start + sweep)}' stroke-width='${stroke.toFixed(1)}'></path>`;
-    if (frac > 0) svg += `<path class='ra-val' d='${_arcStroke(cx, cy, r, start, start + sweep * frac)}' stroke='${it.color || 'var(--good-bar)'}' stroke-width='${stroke.toFixed(1)}' stroke-linecap='round'><title>${escapeHtml(it.label + ' · ' + fmt(it.value))}</title></path>`;
-  }
-  return `<svg viewBox='0 0 ${size} ${size}' class='chart-radial' preserveAspectRatio='xMidYMid meet'>${svg}</svg>`;
-}
-
 // ---- Chord: circular pairwise-relationship diagram ------------------
 // The textbook encoding for symmetric pairwise links between entities (here:
 // mod-pair cost correlation). Each node is an arc sized by its total coupling;
