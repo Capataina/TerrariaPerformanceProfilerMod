@@ -1,101 +1,63 @@
-# Code Health Audit — Potential Issues
+# Code Health Audit — Potential Issues (2026-06-25)
 
-**Date:** 2026-06-22
-**Supersedes:** the 2026-05-20/21 potential-issues list in this folder.
-
-> Suspicions grounded in concrete code reading that did not meet the certain-bar because
-> resolving them needs an in-game install pass (which the audit cannot run off-game) or
-> upstream MonoMod cooperation. Each cites the specific files and a concrete next step.
+Suspicions grounded in concrete code reading that did **not** meet the certain-free bar — either not-free (behaviour-changing / public-shape) or resolvable only with the implementing engineer's domain knowledge / out-of-process state. Separate bar from `findings.md`. Supersedes the 2026-06-22 list.
 
 ---
 
-### 1. The avoidable retained slice — reclaiming the read-only `ILContext` per hook needs MonoMod cooperation, and the in-repo workaround is fragile {#p-1}
+### 1. Delegate-path `HookProbe` per-hook object retention at scale
 
-**Locations to inspect:**
-- `Profiling/ILHookInterceptor.cs:441-448` — `InstallTimingHook` → `new ILHook(target, manipulator, applyByDefault: true)`.
-- `Profiling/ILHookInterceptor.cs:88` — `_installedHooks` (the `ILHook` references the mod owns).
-- MonoMod `DetourManager.ILHookEntry.LastContext` (`/tmp/dm.cs:314`), `InvokeManipulator` (`/tmp/dm.cs:679`, the `MakeReadOnly()`-not-`Dispose()` choice).
+**Locations:** `Profiling/HookInterceptor.cs` (the per-signature `HookProbe` instances).
+**Observation:** the delegate-pair backend allocates one small `HookProbe`-family object per hooked method. On a 150k-hook kitchen-sink stack the dormant delegate/Parallel path would retain ~150k small objects — a second RAM source the `install-ram-optimisation.md` (IL/Cecil-focused) analysis never covered.
+**Reasoning:** IL is the default backend, so this is dormant today; but Parallel mode runs both, and a delegate-only fallback would surface it.
+**Suggested investigation:** measure managed-heap delta on a large stack in delegate + Parallel mode vs IL-only; if material, consider a flyweight/struct probe.
+**Why not a certain finding:** not free (a probe redesign), and the cost only bites in a non-default backend — needs the engineer's call on whether Parallel-at-scale is a real scenario.
 
-**Observation:**
-F1 establishes that per hooked method MonoMod retains two Cecil method bodies for the
-hook's lifetime: the `SourceCloneIl` DMD (needed to rebuild the chain) and the read-only
-`LastContext` ILContext (the manipulated body). The mod's hooks are install-once and the
-chain for each method never changes after `PostSetupContent`. So the read-only
-`LastContext` — kept only so MonoMod can re-run the manipulator if the chain changes — is
-dead weight for this mod's usage. At 152,310 hooks, reclaiming it could roughly halve the
-per-hook retained Cecil cost (order of GB). But MonoMod exposes no public "trim retained
-IL but keep the hook applied" call, and the comment-history already lists "Cecil ILContext
-dispose" as a deferred win (`decisions.md:25`).
+### 2. `TrimRetainedScaffolding` silently no-ops on MonoMod version drift
 
-**Reasoning:**
-For the reclaim to be safe, one of these must hold and none currently does in a free way:
-(a) MonoMod adds a public `TrimRetainedIL()` that disposes `LastContext` while keeping the
-generated method live — requires an upstream PR; (b) the mod reflects into
-`ILHookEntry.LastContext` and disposes it post-install — but ILHookEntry is an internal
-type whose field layout is exactly the "loader/library internals that change across
-updates" Invariant 4 forbids depending on, so this needs an abort-clean guard and would
-re-break on any MonoMod bump; (c) MonoMod changes `InvokeManipulator` to dispose rather
-than `MakeReadOnly` when no `DetourConfig` implies future re-chaining — again upstream.
-None is an in-repo free change, so F1's structural reclaim is filed here rather than as a
-clean finding.
+**Locations:** `Profiling/ILHookInterceptor.cs` (`TrimRetainedScaffolding`, reflection into `ILHookEntry.LastContext`).
+**Observation:** the RAM reclaim (~3.7→1.0 GB) is now load-bearing for the 32 GB target, but it reaches MonoMod internals by reflection; a host update that renames those internals makes it silently no-op (Invariant-4-guarded — a `client.log` Info line, no crash) and RAM reverts with no player-visible signal.
+**Reasoning:** safe-by-construction, but the silent regression is the risk given the trim is now relied upon.
+**Suggested investigation:** add a surfaced signal (Self-tab warning) when the trim path detects a signature mismatch — a feature decision, not free.
+**Why not a certain finding:** the fix is a new surfacing feature (out of scope); flagging the load-bearing reflection invariant is the in-scope action.
 
-**Suggested investigation:**
-1. Open a MonoMod issue/PR proposing a `RuntimeDetour` API to release the read-only
-   manipulator context for install-once hooks (the use case: thousands of static IL
-   detours that never re-chain). Reference the decompiled `InvokeManipulator` /
-   `CleanILContexts` behaviour.
-2. If upstream is slow, prototype option (b) behind a hard try/catch + a MonoMod-version
-   check (`typeof(ILHook).Assembly.GetName().Version`) that disables the reflection path
-   on any unrecognised version (Invariant 4). Measure the in-game install delta before/after
-   with the F2-fixed forced-Gen2 measurement to confirm the reclaim actually drops retained
-   bytes and does not break dispatch or unload.
+### 3. `RunningStat.Without` catastrophic cancellation → dishonest confidence (HIGH — routed to findings, restated here for the engineer)
 
-**Why not a certain finding:**
-No test the audit can write would help — the resolution depends on out-of-process state
-the audit cannot create (a running tModLoader with mods installing real hooks, and a
-MonoMod build with or without an upstream API). The decompiled binaries prove the
-*retention*; whether the *reclaim* is safe and how much it actually saves can only be
-established by an in-game install pass plus (for option b) a MonoMod-internals dependency
-that this repo's Invariant 4 treats as conditional. This is the no-test-physically-possible
-deferral, with a concrete next step.
+**Locations:** `Insights/Shared/Stats.cs:67` — `Without(in RunningStat subset)`.
+**Observation:** the reverse-merge (`Without`) subtracts a subset's `(Count, Mean, M2)` to recover the complement; on near-equal large means with a small subset this is catastrophic cancellation → a degenerate/negative variance → a spuriously small p-value → a dishonest Medium/High confidence badge (Invariant 3).
+**Reasoning:** research-confirmed (Schubert SSDBM18: the deletion case is the dangerous one); the existing `ReferenceFrameTests.RunningStat_Without_RecoversTheComplement` uses well-separated integers and does NOT exercise the cancellation regime.
+**Suggested investigation / fix:** guard the complement (floor variance at 0; or require a minimum complement count before trusting the recovered variance) — this is a **correctness fix** filed as a Known-Issue in `insights.md`; it changes p-values (for the better), so it is NOT a zero-behaviour-change free finding. Implementation writes a cancellation-regime test that asserts the post-fix stable variance.
+**Why here too:** the *fix* is behaviour-changing (more honest output), so it cannot be presented as a free upgrade; it is a deliberate correctness change.
 
----
+### 4. KPI `IsEmpty` sentinel diverges from the universal `Empty` convention
 
-### 2. `MarkInstallEnd` denominator (`PerModAttribution.HookCount`) may not equal MonoMod's installed `ILHook` count, skewing `BytesPerHook` {#p-2}
+**Locations:** `Data/Stats/KpiStat.cs` (`IsEmpty` flag) vs the `Empty` static sentinel every other snapshot exposes.
+**Observation:** KPI uses an `IsEmpty` boolean where peers use a shared `Empty` default; the inconsistency is the strongest consistency signal in the data layer but fixing it is a public-shape change.
+**Suggested investigation:** grep KPI consumers (dashboard + tests); if uniform, migrate to the `Empty` sentinel.
+**Why not a certain finding:** public-shape change → not zero-behaviour by construction; recommended default is leave-as-is unless the engineer wants the consistency pass.
 
-**Locations to inspect:**
-- `Profiling/ProfilerSystem.cs:156` — `SelfHealth.MarkInstallEnd(PerModAttribution.HookCount)`.
-- `Profiling/ILHookInterceptor.cs:170-173` — install summary logs `_installedHooks.Count` (a different count).
-- `Profiling/ILHookInterceptor.cs:383-385` — `RegisterOrReuseHook` (collapses parallel-mode duplicates; the source of `HookCount`).
+### 5. Five stats declare a local `public const StreamName` instead of the central `RolloutStreamNames`
 
-**Observation:**
-`BytesPerHook = InstallDeltaBytes / InstalledHookCount`, and `InstalledHookCount` is set to
-`PerModAttribution.HookCount`. But `PerModAttribution.HookCount` is the count of distinct
-`(modId, categoryId, displayName)` hook *identities* registered via `RegisterOrReuseHook`,
-whereas the number of actual `ILHook` objects (each carrying its own retained Cecil graph)
-is `_installedHooks.Count`. In single-ILHook mode these may coincide, but the closed-generic
-dedup path (`_instrumentedHandles`) and the `RegisterOrReuseHook` collapse can make
-`HookCount` < `_installedHooks.Count` (or vice-versa). If the denominator is the identity
-count but the retained-memory driver is the `ILHook` count, the headline `BytesPerHook` is
-divided by the wrong N.
+**Locations:** five `Data/Stats/*` + `Insights/Publish/*` files.
+**Observation:** convention §16 says streams are looked up by the central name constant; five stats re-declare the name locally.
+**Why not a certain finding:** consolidating touches the public surface of each stat; needs a consumer grep + the engineer's call. Recommended default: leave unless doing a consistency pass.
 
-**Reasoning:**
-The retained Cecil graphs scale with the number of `ILHook` objects (one
-`ManagedDetourState` + `LastContext` per distinct hooked method), not with the number of
-attribution identities. The 100-mod investigation reports 152,310 hooks installed and
-~60 KB/hook — if those two numbers come from different counters, the per-hook figure (and
-the README claim, and the severity band) is computed on an inconsistent basis.
+### 6. `Baseline.AllocBytesPerTickMedian` is named "Median" but computes an EMA
 
-**Suggested investigation:**
-In-game, log both `_installedHooks.Count` and `PerModAttribution.HookCount` at install end
-(the install summary at `ILHookInterceptor.cs:170` already logs the former; compare to the
-denominator at `ProfilerSystem.cs:156`). If they differ materially, decide which is the
-honest denominator for a *memory* metric (it should be the `ILHook`-object count, since
-that is what drives retained Cecil state) and align `MarkInstallEnd`'s argument with it.
+**Locations:** `Data/Stats/Baseline.cs`.
+**Observation:** the field/accessor name says Median; the computation is an exponential moving average.
+**Suggested investigation:** the doc-comment correction is free (filed as doc-rot); the *rename* has blast radius (consumers + any persisted name) → not free.
+**Why not a certain finding:** the rename is behaviour-adjacent (serialised names / consumers); only the comment fix is free.
 
-**Why not a certain finding:**
-The two counts may well coincide in the production single-ILHook configuration — the audit
-cannot determine that off-game without a real modlist install (the closed-generic dedup and
-RegisterOrReuse collapse only diverge for specific mod content shapes). Confirming the
-divergence and its magnitude needs an in-game run; this is the no-test-physically-possible
-deferral with a one-line in-game probe as the next step.
+### 7. Web UI semantic-colour collisions + per-render rebind (subsumed by CC-1)
+
+**Locations:** `Js.Timeline.cs` (death-chip `buff-on→green` vs the perf-ramp green), `Js.Insights.cs` (`sortableHead` per-render `setTimeout` re-bind), `Js.Lag.cs` (`lagApplySort` per-render sort).
+**Observation:** the green-means-two-things collision is a readability ambiguity, not a bug; the per-render rebind/sort are subsumed by adopting `renderIfChanged` (CC-1).
+**Why not a certain finding:** the colour collision is a design-judgement call (the engineer decides if the two greens must differ); the rebind/sort dissolve once CC-1 lands, so they are not independent findings.
+
+### 8. `ContextBaselines` writes bypass the single writer thread
+
+**Locations:** `Profiling/ProfilerSystem.cs:402` — `CrossSessionStore.Save` on a background `Task`.
+**Observation:** the documented invariant is "all DB writes go through the single `DbWriterThread`"; the cross-session baseline save runs on its own background task instead.
+**Reasoning:** it is off the game thread (so not a hot-path block) and fires at world-unload, but it is an architectural exception to the writer-thread contract.
+**Suggested investigation:** confirm LiteDB tolerates the concurrent writer (it is the same DB file); if not, route through the writer-thread queue.
+**Why not a certain finding:** needs the engineer's knowledge of whether the two writers ever overlap in practice; routing it through the queue is a behaviour-adjacent change.
