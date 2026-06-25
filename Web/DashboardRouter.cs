@@ -82,6 +82,10 @@ internal static partial class DashboardRouter
             "/api/engagement-cost"          => HttpResponse.Json(BuildEngagementCost()),
             "/api/mod-interaction"          => HttpResponse.Json(BuildModInteraction()),
 
+            "/api/history"                  => HttpResponse.Json(BuildHistory(req)),
+            "/api/data-health"              => HttpResponse.Json(BuildDataHealth()),
+            "/api/reset"                    => HttpResponse.Json(BuildReset(req)),
+
             _                    => HttpResponse.NotFound,
         };
     }

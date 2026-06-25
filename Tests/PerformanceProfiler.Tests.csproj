@@ -90,10 +90,9 @@
     <Compile Include="..\Insights\Contracts\IDriver.cs" Link="Source\Insights\Contracts\IDriver.cs" />
     <Compile Include="..\Insights\Drivers\Drivers.cs" Link="Source\Insights\Drivers\Drivers.cs" />
     <Compile Include="..\Insights\ReferenceFrames\TemporalBaseline.cs" Link="Source\Insights\ReferenceFrames\TemporalBaseline.cs" />
-    <!-- DB rework wave 4: the Insight record + the cross-session detector family are
-         Terraria-free (they read the persisted HistoryStore types, not MetricCollector),
-         so the cross-session reasoning is unit-tested against synthetic histories. -->
-    <Compile Include="..\Insights\Insight.cs" Link="Source\Insights\Insight.cs" />
+    <!-- DB rework wave 4: the cross-session detector family is Terraria-free (it reads the
+         persisted HistoryStore types, not MetricCollector), so the cross-session reasoning
+         is unit-tested against synthetic histories. Insight.cs is already linked above. -->
     <Compile Include="..\Insights\CrossSession\*.cs" Link="Source\Insights\CrossSession\%(Filename)%(Extension)" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
@@ -121,6 +120,9 @@
     <!-- Wave 1 cross-session rollup: the pure fold (RollupFold) + its DTO + the read
          layer (HistoryStore) are runtime-free and unit-tested against synthetic rows. -->
     <Compile Include="..\Persistence\History\*.cs" Link="Source\History\%(Filename)%(Extension)" />
+    <!-- Wave 3 lifecycle: modlist-change diff (pure) + the reset logic (over the public
+         collections), unit-tested against a synthetic store. -->
+    <Compile Include="..\Persistence\Lifecycle\*.cs" Link="Source\Lifecycle\%(Filename)%(Extension)" />
     <!-- Files that reference Terraria types must be excluded from the
          test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
          imports legacy JSON via game-runtime calls, ProfilerCompactCommand

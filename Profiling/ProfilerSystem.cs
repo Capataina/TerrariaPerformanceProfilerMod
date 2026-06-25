@@ -21,6 +21,7 @@ using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
 using PerformanceProfiler.Insights.CrossSession;
 using PerformanceProfiler.Persistence.History;
+using PerformanceProfiler.Persistence.Lifecycle;
 using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Profiling;
 
@@ -317,9 +318,27 @@ public sealed class ProfilerSystem : ModSystem
                     try
                     {
                         var store = new HistoryStore(histDb);
-                        System.Collections.Generic.List<Insight> cross = CrossSessionEvaluator.Run(store, roster, fp);
+                        List<Insight> cross = CrossSessionEvaluator.Run(store, roster, fp);
                         InsightsEngine.Shared?.SetCrossSessionInsights(cross);
                         PerformanceProfiler.LoggerOrNull?.Info($"Cross-session insights: {cross.Count} lifetime findings over the current stack.");
+
+                        // Modlist-change detection (wave 3) — agent surface here (client.log);
+                        // the player surface is /api/data-health's modlistChanged fields.
+                        var recent = store.RecentSessions(1);
+                        if (recent.Count > 0)
+                        {
+                            ModlistRow? prevList = histDb.Modlists.FindOne(x => x.Fingerprint == recent[0].Fingerprint);
+                            if (prevList != null)
+                            {
+                                var prevNames = new List<string>(prevList.Mods.Count);
+                                foreach (ModEntry me in prevList.Mods) prevNames.Add(me.Name);
+                                ModlistChange change = ModlistChange.Diff(roster, prevNames);
+                                if (change.Changed)
+                                    PerformanceProfiler.LoggerOrNull?.Info(
+                                        $"Modlist changed since last session: +{change.Added.Count} / -{change.Removed.Count}" +
+                                        $"  added=[{string.Join(", ", change.Added)}]  removed=[{string.Join(", ", change.Removed)}]");
+                            }
+                        }
                     }
                     catch (Exception ex) { PerformanceProfiler.LoggerOrNull?.Warn($"Cross-session insight eval failed: {ex.GetType().Name}: {ex.Message}"); }
                 });

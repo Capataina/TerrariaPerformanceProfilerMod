@@ -266,6 +266,27 @@ public sealed class ProfilerDatabase : IDisposable
         return _db.Rebuild();
     }
 
+    /// <summary>
+    /// Drops every collection, returning the count dropped. Backs the player-initiated
+    /// "reset everything" control (DB rework wave 3). The writer thread re-creates any
+    /// collection lazily on its next write, so an in-flight live session keeps recording
+    /// against a fresh store. Checkpoints + rebuilds afterwards to reclaim the file space.
+    /// The journal is left to truncate on the next clean shutdown; the only window where a
+    /// dropped row could be resurrected is a crash between this reset and that shutdown.
+    /// </summary>
+    public int DropAllUserData()
+    {
+        int dropped = 0;
+        foreach (string name in System.Linq.Enumerable.ToList(_db.GetCollectionNames()))
+        {
+            try { if (_db.DropCollection(name)) dropped++; }
+            catch (Exception ex) { _log($"ProfilerDatabase: drop collection '{name}' failed", ex); }
+        }
+        try { _db.Checkpoint(); _db.Rebuild(); }
+        catch (Exception ex) { _log("ProfilerDatabase: rebuild after reset failed", ex); }
+        return dropped;
+    }
+
     /// <summary>File size of the main DB, in bytes.</summary>
     public long DbFileSize
     {
