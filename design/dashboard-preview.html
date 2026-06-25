@@ -1733,6 +1733,61 @@ html, body {
    width (the strip's thin trailing slices used to spill past the edge). */
 .bar-legend, .split-bar { max-width: 100%; box-sizing: border-box; }
 
+/* =================================================== RESET CONTROL */
+.topbar-reset {
+  margin-left: auto; align-self: center;
+  font-family: var(--ui); font-size: 0.7rem; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: lowercase;
+  color: var(--dim); background: transparent;
+  border: 1px solid var(--border-soft); border-radius: 6px;
+  padding: 0.3rem 0.6rem; cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.topbar-reset:hover { color: var(--text); border-color: var(--border); background: var(--hover); }
+
+.reset-backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+}
+.reset-backdrop.hidden { display: none; }
+
+.reset-modal {
+  width: min(30rem, calc(100vw - 2rem));
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1.1rem 1.2rem 0.9rem;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.reset-modal h2 {
+  margin: 0 0 0.3rem; font-family: var(--ui); font-size: 1rem; font-weight: 700; color: var(--text);
+}
+.reset-sub { margin: 0 0 0.9rem; font-family: var(--ui); font-size: 0.78rem; line-height: 1.45; color: var(--muted); }
+
+.reset-opts { display: flex; flex-direction: column; gap: 0.55rem; }
+.reset-opt {
+  display: flex; flex-direction: column; gap: 0.2rem; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--muted); border-radius: 6px;
+  padding: 0.6rem 0.7rem; cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s ease-out;
+}
+.reset-opt:hover { background: var(--hover); border-color: var(--border); transform: translateY(-1px); }
+.reset-opt:disabled { opacity: 0.5; cursor: default; transform: none; }
+.reset-opt.danger { border-left-color: var(--danger); }
+.reset-opt.danger:hover { border-color: var(--danger); }
+.reset-opt-t { font-family: var(--ui); font-size: 0.85rem; font-weight: 600; color: var(--text); }
+.reset-opt.danger .reset-opt-t { color: var(--danger); }
+.reset-opt-d { font-family: var(--ui); font-size: 0.72rem; line-height: 1.4; color: var(--dim); }
+
+.reset-foot { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.9rem; }
+.reset-cancel {
+  font-family: var(--ui); font-size: 0.76rem; color: var(--muted);
+  background: transparent; border: 1px solid var(--border-soft); border-radius: 6px;
+  padding: 0.35rem 0.8rem; cursor: pointer; transition: color 0.12s, border-color 0.12s;
+}
+.reset-cancel:hover { color: var(--text); border-color: var(--border); }
+.reset-status { font-family: var(--mono); font-size: 0.72rem; color: var(--muted); }
+
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
@@ -1762,6 +1817,9 @@ html, body {
       <div class="topstat" data-explain="tick-gc"><span class="k">gc</span><span class="v" id="ts-gc">—</span></div>
       <div class="topstat" data-explain="backend"><span class="k">backend</span><span class="v" id="ts-backend">—</span></div>
     </div>
+    <!-- Discreet reset control (DB rework wave 3). Opens a confirm dialog; the only
+         path that deletes the player's profiler data, and always their choice. -->
+    <button class="topbar-reset" id="reset-btn" title="reset the profiler database" aria-label="reset the profiler database">reset db</button>
   </header>
 
   <!-- ===== Tab strip ====================================================== -->
@@ -1790,6 +1848,28 @@ html, body {
       <p>open a save in tModLoader and walk around — the dashboard will populate automatically.</p>
       <p class="hint">tip: in single-player Terraria pauses when the window loses focus.
         for a live dashboard while alt-tabbed, host via Multiplayer → Host &amp; Play on the same world.</p>
+    </div>
+  </div>
+
+  <!-- ===== Reset dialog (DB rework wave 3, decision E) =================== -->
+  <div class="reset-backdrop hidden" id="reset-dialog">
+    <div class="reset-modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+      <h2 id="reset-title">reset the profiler database</h2>
+      <p class="reset-sub">this clears stored profiling history only. it never touches your world, your saves, or any other mod. pick what to forget:</p>
+      <div class="reset-opts">
+        <button class="reset-opt" data-scope="modlist">
+          <span class="reset-opt-t">forget this modlist</span>
+          <span class="reset-opt-d">drops this stack's sessions and per-stack stats; keeps each mod's lifetime history across your other modlists</span>
+        </button>
+        <button class="reset-opt danger" data-scope="everything">
+          <span class="reset-opt-t">reset everything</span>
+          <span class="reset-opt-d">wipes every session, all cross-session history, and all insights — the store starts completely fresh</span>
+        </button>
+      </div>
+      <div class="reset-foot">
+        <button class="reset-cancel" id="reset-cancel">cancel</button>
+        <span class="reset-status" id="reset-status"></span>
+      </div>
     </div>
   </div>
 
@@ -7294,6 +7374,49 @@ function memRestoreSearchFocus() {
     if (b.dataset.basis === 'modlist' && lastMemory && !lastMemory.tmlAvailable) return;
     memBasis = b.dataset.basis;
     if (activeTab === 'memory') renderMemory();
+  });
+})();
+
+// ====== Reset control ================================================
+(function bindReset() {
+  const btn = document.getElementById('reset-btn');
+  const dialog = document.getElementById('reset-dialog');
+  const cancel = document.getElementById('reset-cancel');
+  const status = document.getElementById('reset-status');
+  if (!btn || !dialog) return;
+
+  function open() { status.textContent = ''; setOptsDisabled(false); dialog.classList.remove('hidden'); }
+  function close() { dialog.classList.add('hidden'); }
+  function setOptsDisabled(v) { dialog.querySelectorAll('.reset-opt').forEach(b => b.disabled = v); }
+
+  function doReset(scope) {
+    status.textContent = 'resetting…';
+    setOptsDisabled(true);
+    fetch('/api/reset?scope=' + encodeURIComponent(scope))
+      .then(r => r.json())
+      .then(j => {
+        if (j && j.ok) {
+          status.textContent = scope === 'everything'
+            ? 'store reset — everything cleared.'
+            : 'forgot this modlist (' + (j.sessionsCleared || 0) + ' sessions); lifetime history kept.';
+          setTimeout(close, 1700);   // the next poll repaints the cleared store
+        } else {
+          status.textContent = 'reset failed: ' + ((j && j.error) || 'unknown');
+          setOptsDisabled(false);
+        }
+      })
+      .catch(err => { status.textContent = 'reset failed: ' + err; setOptsDisabled(false); });
+  }
+
+  btn.addEventListener('click', open);
+  cancel.addEventListener('click', close);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !dialog.classList.contains('hidden')) close();
+  });
+  dialog.addEventListener('click', e => {
+    if (e.target === dialog) { close(); return; }       // click the backdrop to dismiss
+    const opt = e.target.closest('.reset-opt');
+    if (opt && !opt.disabled) doReset(opt.dataset.scope);
   });
 })();
 

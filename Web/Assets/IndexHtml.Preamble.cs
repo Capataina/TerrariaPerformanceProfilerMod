@@ -37,6 +37,9 @@ internal static partial class DashboardAssets
       <div class=""topstat"" data-explain=""tick-gc""><span class=""k"">gc</span><span class=""v"" id=""ts-gc"">—</span></div>
       <div class=""topstat"" data-explain=""backend""><span class=""k"">backend</span><span class=""v"" id=""ts-backend"">—</span></div>
     </div>
+    <!-- Discreet reset control (DB rework wave 3). Opens a confirm dialog; the only
+         path that deletes the player's profiler data, and always their choice. -->
+    <button class=""topbar-reset"" id=""reset-btn"" title=""reset the profiler database"" aria-label=""reset the profiler database"">reset db</button>
   </header>
 
   <!-- ===== Tab strip ====================================================== -->
@@ -65,6 +68,28 @@ internal static partial class DashboardAssets
       <p>open a save in tModLoader and walk around — the dashboard will populate automatically.</p>
       <p class=""hint"">tip: in single-player Terraria pauses when the window loses focus.
         for a live dashboard while alt-tabbed, host via Multiplayer → Host &amp; Play on the same world.</p>
+    </div>
+  </div>
+
+  <!-- ===== Reset dialog (DB rework wave 3, decision E) =================== -->
+  <div class=""reset-backdrop hidden"" id=""reset-dialog"">
+    <div class=""reset-modal"" role=""dialog"" aria-modal=""true"" aria-labelledby=""reset-title"">
+      <h2 id=""reset-title"">reset the profiler database</h2>
+      <p class=""reset-sub"">this clears stored profiling history only. it never touches your world, your saves, or any other mod. pick what to forget:</p>
+      <div class=""reset-opts"">
+        <button class=""reset-opt"" data-scope=""modlist"">
+          <span class=""reset-opt-t"">forget this modlist</span>
+          <span class=""reset-opt-d"">drops this stack's sessions and per-stack stats; keeps each mod's lifetime history across your other modlists</span>
+        </button>
+        <button class=""reset-opt danger"" data-scope=""everything"">
+          <span class=""reset-opt-t"">reset everything</span>
+          <span class=""reset-opt-d"">wipes every session, all cross-session history, and all insights — the store starts completely fresh</span>
+        </button>
+      </div>
+      <div class=""reset-foot"">
+        <button class=""reset-cancel"" id=""reset-cancel"">cancel</button>
+        <span class=""reset-status"" id=""reset-status""></span>
+      </div>
     </div>
   </div>
 

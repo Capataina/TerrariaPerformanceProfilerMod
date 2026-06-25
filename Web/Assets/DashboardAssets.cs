@@ -65,6 +65,7 @@ internal static partial class DashboardAssets
         CssNowPlaying,
         CssChartToggle,
         CssCoherence,
+        CssReset,
         CssScrollbar);
 
     /// <summary>
@@ -94,5 +95,6 @@ internal static partial class DashboardAssets
         JsObservatory,
         JsInsights,
         JsSelf,
-        JsMemory);
+        JsMemory,
+        JsReset);
 }
