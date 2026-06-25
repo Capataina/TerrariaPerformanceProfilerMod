@@ -24,7 +24,7 @@ internal static partial class DashboardAssets
     <div class=""brand"">
       <span class=""brand-mark""></span>
       <span class=""brand-name"">Performance Profiler</span>
-      <span class=""brand-version"" id=""brand-version"">v0.22.0</span>
+      <span class=""brand-version"" id=""brand-version"">v0.24.0</span>
     </div>
     <div class=""live"">
       <span class=""live-dot"" id=""live-dot""></span>
@@ -44,9 +44,10 @@ internal static partial class DashboardAssets
     <button class=""tab active"" data-tab=""summary""><span class=""ki"">1</span>Summary</button>
     <button class=""tab"" data-tab=""timeline""><span class=""ki"">2</span>Timeline</button>
     <button class=""tab"" data-tab=""lag""><span class=""ki"">3</span>Lag</button>
-    <button class=""tab"" data-tab=""insights""><span class=""ki"">4</span>Insights</button>
-    <button class=""tab"" data-tab=""self""><span class=""ki"">5</span>Self</button>
-    <button class=""tab"" data-tab=""memory""><span class=""ki"">6</span>Memory</button>
+    <button class=""tab"" data-tab=""observatory""><span class=""ki"">4</span>Observatory</button>
+    <button class=""tab"" data-tab=""insights""><span class=""ki"">5</span>Insights</button>
+    <button class=""tab"" data-tab=""self""><span class=""ki"">6</span>Self</button>
+    <button class=""tab"" data-tab=""memory""><span class=""ki"">7</span>Memory</button>
   </nav>
 
   <!-- ===== Disconnect / no-world overlays =============================== -->

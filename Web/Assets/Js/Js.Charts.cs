@@ -424,5 +424,83 @@ function heatmapMatrix(o) {
   }
   return h + `</div>`;
 }
+
+// ---- Radial bars: concentric arcs, one ring per category ------------
+// A polar bar chart — each category is a ring whose arc length encodes
+// value/max over a 270° sweep (90° gap centred at the bottom). A compact,
+// striking read for a small ranked set (findings per family, leaders per
+// class). Returns the arcs only (each with a <title>); pair with legend() for
+// the labels, the same split-of-labour as waffle(). opts:
+//   { items:[{label,value,color?}], w?, max?, sweep?, fmt? }
+function radialBars(o) {
+  o = o || {};
+  const items = (o.items || []).filter(it => it && isFinite(it.value));
+  if (!items.length) return emptyState('no data');
+  const size = o.w || 220, cx = size / 2, cy = size / 2;
+  const max = o.max || Math.max(1e-9, ...items.map(it => it.value));
+  const fmt = o.fmt || (v => fmtInt(v));
+  const sweep = o.sweep || 270, start = 225;               // 90° gap centred at the bottom
+  const rMax = size / 2 - 3, rMin = size * 0.2, n = items.length;
+  const step = n > 1 ? (rMax - rMin) / (n - 1) : 0;
+  const stroke = Math.max(4, Math.min(20, (n > 1 ? step : rMax * 0.5) * 0.62));
+  let svg = '';
+  for (let i = 0; i < n; i++) {
+    const it = items[i], r = n > 1 ? rMax - i * step : (rMax + rMin) / 2;
+    const frac = Math.max(0, Math.min(1, (it.value || 0) / max));
+    svg += `<path class='ra-track' d='${_arcStroke(cx, cy, r, start, start + sweep)}' stroke-width='${stroke.toFixed(1)}'></path>`;
+    if (frac > 0) svg += `<path class='ra-val' d='${_arcStroke(cx, cy, r, start, start + sweep * frac)}' stroke='${it.color || 'var(--good-bar)'}' stroke-width='${stroke.toFixed(1)}' stroke-linecap='round'><title>${escapeHtml(it.label + ' · ' + fmt(it.value))}</title></path>`;
+  }
+  return `<svg viewBox='0 0 ${size} ${size}' class='chart-radial' preserveAspectRatio='xMidYMid meet'>${svg}</svg>`;
+}
+
+// ---- Chord: circular pairwise-relationship diagram ------------------
+// The textbook encoding for symmetric pairwise links between entities (here:
+// mod-pair cost correlation). Each node is an arc sized by its total coupling;
+// each link is a ribbon whose ends occupy a slice of both arcs proportional to
+// the link magnitude, curved through the centre. Ribbon colour encodes the
+// caller's sign/category; node arcs use a supplied colour or modColor. opts:
+//   { nodes:[{label,color?}], links:[{a,b,value,color?,tip?}], w? }
+// a/b are indices into nodes. Returns the SVG; pair it with a compact table for
+// the exact figures — the chord shows the coupling STRUCTURE, not precise r.
+function chord(o) {
+  o = o || {};
+  const nodes = o.nodes || [], links = (o.links || []).filter(k => k && k.value > 0);
+  if (nodes.length < 2 || links.length === 0) return emptyState('no coupling data');
+  const size = o.w || 300, cx = size / 2, cy = size / 2;
+  const rO = size / 2 - 2, rI = rO - Math.max(7, size * 0.04);
+  const P = (r, deg) => { const p = _polar(cx, cy, r, deg); return p[0].toFixed(1) + ' ' + p[1].toFixed(1); };
+
+  // Node weight = sum of the magnitudes of the links touching it.
+  const tot = nodes.map(() => 0);
+  for (const k of links) { tot[k.a] += k.value; tot[k.b] += k.value; }
+  const grand = tot.reduce((s, v) => s + v, 0) || 1;
+  const gapDeg = Math.min(7, 200 / nodes.length);
+  const drawSpan = 360 - gapDeg * nodes.length;
+  // Arc extent + a running cursor (consumed as ribbons attach) per node.
+  const arc = []; let ang = 0;
+  for (let i = 0; i < nodes.length; i++) {
+    const w = drawSpan * (tot[i] / grand);
+    arc.push({ a0: ang, a1: ang + w, cur: ang });
+    ang += w + gapDeg;
+  }
+  // Node ring band.
+  let band = '';
+  for (let i = 0; i < nodes.length; i++) {
+    band += `<path class='cd-arc' d='${_ring(cx, cy, rO, rI, arc[i].a0, arc[i].a1)}' fill='${nodes[i].color || modColor(i)}'><title>${escapeHtml(nodes[i].label)}</title></path>`;
+  }
+  // Ribbons (widest first so thin ones stay legible on top). Each end takes an
+  // angular slice = drawSpan·value/grand on both nodes (symmetric), curved
+  // through the centre. The cursors fill each arc exactly (Σ slices = arc width).
+  let ribbons = '';
+  links.slice().sort((a, b) => b.value - a.value).forEach(k => {
+    const w = drawSpan * (k.value / grand);
+    const A = arc[k.a], B = arc[k.b];
+    const a0 = A.cur, a1 = A.cur + w; A.cur = a1;
+    const b0 = B.cur, b1 = B.cur + w; B.cur = b1;
+    const d = `M ${P(rI, a0)} A ${rI} ${rI} 0 0 1 ${P(rI, a1)} Q ${cx} ${cy} ${P(rI, b0)} A ${rI} ${rI} 0 0 1 ${P(rI, b1)} Q ${cx} ${cy} ${P(rI, a0)} Z`;
+    ribbons += `<path class='cd-link' d='${d}' fill='${k.color || 'var(--cpu)'}'><title>${escapeHtml(k.tip || (nodes[k.a].label + ' × ' + nodes[k.b].label))}</title></path>`;
+  });
+  return `<svg viewBox='0 0 ${size} ${size}' class='chart-chord' preserveAspectRatio='xMidYMid meet'>${ribbons}${band}</svg>`;
+}
 ";
 }

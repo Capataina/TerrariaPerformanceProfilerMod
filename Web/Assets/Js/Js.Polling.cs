@@ -38,16 +38,18 @@ async function pollNow() {
 }
 
 async function pollDetail() {
-  const [mods, spikes, stalls, ins, events] = await Promise.all([
+  // /api/insights + /api/cross-cutting are fetched by the Insights tab's own
+  // poll (pollInsights); /api/mod-observatory etc. by the Observatory tab's
+  // (pollObservatory). pollDetail feeds the summary / lag surfaces.
+  const [mods, spikes, stalls, events] = await Promise.all([
     fetchJson('/api/mods'), fetchJson('/api/spikes'), fetchJson('/api/stalls'),
-    fetchJson('/api/insights'), fetchJson('/api/events'),
+    fetchJson('/api/events'),
   ]);
   if (mods) { lastMods = mods; foldModSparkHistory(mods); }
   if (spikes) lastSpikes = spikes;
   if (stalls) lastStalls = stalls;
-  if (ins) lastInsights = ins;
   if (events) lastEvents = events;
-  if (activeTab === 'summary' || activeTab === 'lag' || activeTab === 'insights') renderAll();
+  if (activeTab === 'summary' || activeTab === 'lag') renderAll();
 }
 
 async function pollHooks() {

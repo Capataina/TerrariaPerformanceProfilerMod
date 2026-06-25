@@ -129,7 +129,7 @@ window.addEventListener('load', function () {
     var pollFns = Object.keys(window).filter(function (k) {
       return /^poll/.test(k) && typeof window[k] === 'function';
     });
-    var tabs = ['summary', 'timeline', 'lag', 'insights', 'self', 'memory'];
+    var tabs = ['summary', 'timeline', 'lag', 'observatory', 'insights', 'self', 'memory'];
     tabs.forEach(function (t) {
       try { if (typeof switchTab === 'function') switchTab(t); } catch (e) {}
       pollFns.forEach(function (p) { try { window[p](); } catch (e) {} });

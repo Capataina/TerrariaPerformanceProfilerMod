@@ -49,6 +49,7 @@ function renderAll() {
     case 'summary':  renderSummary();  break;
     case 'timeline': renderTimeline(); break;
     case 'lag':      renderLag();      break;
+    case 'observatory': renderObservatory(); break;
     case 'insights': renderInsights(); break;
     case 'self':     renderSelf();     break;
     case 'memory':   renderMemory();   break;

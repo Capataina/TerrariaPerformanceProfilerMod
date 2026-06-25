@@ -53,6 +53,7 @@ internal static partial class DashboardAssets
         CssMods,
         CssTimeline,
         CssLag,
+        CssObservatory,
         CssInsights,
         CssSelf,
         CssMemory,
@@ -90,6 +91,7 @@ internal static partial class DashboardAssets
         JsModCard,
         JsTimeline,
         JsLag,
+        JsObservatory,
         JsInsights,
         JsSelf,
         JsMemory);

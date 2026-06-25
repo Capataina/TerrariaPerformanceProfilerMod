@@ -87,6 +87,20 @@ internal static partial class DashboardAssets
 .chip.bad  { color: var(--danger); border-color: rgba(185,78,88,0.35); }
 .chip.cool { color: var(--accent); border-color: var(--accent-line); }
 
+/* ===== Badge: dense status pill (confidence / scope / tag) ========== */
+/* Flatter + denser than .chip (no border, a tinted wash) so a row of them reads
+   as status metadata rather than interactive tags. The tone modifiers reuse the
+   state-hue washes the chip/callout already use, so the badge stays on-palette. */
+.badge { display: inline-flex; align-items: center; font-family: var(--mono);
+  font-size: 0.66rem; line-height: 1; padding: 0.18rem 0.4rem; border-radius: 3px;
+  letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap;
+  background: var(--surface-2); color: var(--muted); }
+.badge.good   { background: rgba(79,157,106,0.16); color: var(--good); }
+.badge.warn   { background: rgba(184,138,37,0.16); color: var(--amber); }
+.badge.bad    { background: rgba(185,78,88,0.16);  color: var(--danger); }
+.badge.accent { background: var(--accent-soft);    color: var(--text-bright); }
+.badge.dim    { background: var(--surface);        color: var(--dim); }
+
 /* ===== Stat line: label + value pair ================================ */
 .statline { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
   font-family: var(--mono); font-size: 0.82rem; padding: 0.22rem 0;

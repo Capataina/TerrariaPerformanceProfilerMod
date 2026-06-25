@@ -218,6 +218,16 @@ function statLine(k, v, vClass) {
 // Bordered callout. kind: '' | 'warn' | 'bad'.
 function callout(html, kind) { return `<div class='callout${kind ? ' ' + kind : ''}'>${html || ''}</div>`; }
 
+// Badge: a small status pill (confidence tier, data-strength scope, category
+// tag). Flatter + denser than chip() — no border, a tinted wash instead — so a
+// row of them reads as status metadata, not as interactive tags. kind selects
+// the tone: '' (neutral) | good | warn | bad | info | accent | dim. The caller
+// maps its domain (e.g. confidence High -> good, scope NeedsPersistence -> warn)
+// onto a tone, so the badge stays domain-agnostic.
+function badge(text, kind) {
+  return `<span class='badge${kind ? ' ' + kind : ''}'>${escapeHtml(String(text == null ? '' : text))}</span>`;
+}
+
 // Legend (one impl). items: [{color, label, value?}]. opts: {stack?, inline?}.
 function legend(items, o) {
   o = o || {};

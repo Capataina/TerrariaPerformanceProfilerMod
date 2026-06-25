@@ -12,6 +12,7 @@ internal static partial class DashboardAssets
         HtmlSummary,
         HtmlTimeline,
         HtmlLag,
+        HtmlObservatory,
         HtmlInsights,
         HtmlSelf,
         HtmlMemory,
