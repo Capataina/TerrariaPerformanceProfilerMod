@@ -85,6 +85,10 @@ public static class InsightRenderer
             PatternKey.HeapLeak => RenderHeapLeak(rec, density),
             PatternKey.SustainedCostShift => RenderSustainedCostShift(rec, density),
             PatternKey.NewContributor => RenderNewContributor(rec, density),
+            PatternKey.UnusedAcrossSessions => RenderUnusedAcrossSessions(rec, density),
+            PatternKey.LifetimeSpikeContributor => RenderLifetimeSpikeContributor(rec, density),
+            PatternKey.CostlyDespiteLowUsage => RenderCostlyDespiteLowUsage(rec, density),
+            PatternKey.CrossModpackCostDivergence => RenderCrossModpackCostDivergence(rec, density),
             _ => RenderUnsupported(rec),
         };
     }
@@ -321,6 +325,65 @@ public static class InsightRenderer
         if (density == Density.Short)
             return $"{mod} was idle early, then began costing {late} ms/t.";
         return $"{mod} was effectively silent in the first part of the session, then climbed to {late} ms/t — a mechanic that came online later (a boss, a biome, a built structure). {BaselineClause(rec.Evidence.Baseline)}.";
+    }
+
+    // ---- DB rework wave 4: cross-session templates (LifetimeData) ------------
+
+    private static string RenderUnusedAcrossSessions(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        int sessions = rec.Magnitude.Count;
+        if (density == Density.Short)
+            return $"{mod} did no measurable work in your last {sessions} sessions.";
+        if (density == Density.Medium)
+            return $"{mod} was loaded but idle across your last {sessions} sessions — no measured frame cost in any of them.";
+        return $"[UNUSED_ACROSS_SESSIONS] {mod}\n" +
+               $"  Sessions observed: {sessions}, all with cost below the active floor.\n" +
+               $"  Scope: lifetime data. Descriptive only — the mod is present and idle, not a recommendation.";
+    }
+
+    private static string RenderLifetimeSpikeContributor(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        int windows = rec.Magnitude.Count;
+        int sessions = rec.Evidence.SampleN;
+        if (density == Density.Short)
+            return $"{mod} was a top spike contributor in {windows} spike windows over your last {sessions} sessions.";
+        if (density == Density.Medium)
+            return $"{mod} appeared among the top contributors to {windows} frame-spike windows across your last {sessions} sessions.";
+        return $"[LIFETIME_SPIKE_CONTRIBUTOR] {mod}\n" +
+               $"  Spike-window contributions: {windows} over {sessions} sessions.\n" +
+               $"  Attribution across sessions, not a hypothesis test. Scope: lifetime data.";
+    }
+
+    private static string RenderCostlyDespiteLowUsage(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        int sessions = rec.Magnitude.Count;
+        string cost = Ms(rec.Magnitude.ObservedMs);
+        if (density == Density.Short)
+            return $"{mod} is among your costliest mods but least-engaged, across your last {sessions} sessions.";
+        if (density == Density.Medium)
+            return $"{mod} ranked in your top cost quartile yet your bottom engagement quartile over your last {sessions} sessions ({cost} ms/t average).";
+        return $"[COSTLY_DESPITE_LOW_USAGE] {mod}\n" +
+               $"  Avg cost over {sessions} sessions: {cost} ms/t (top quartile); engagement: bottom quartile.\n" +
+               $"  A cost-vs-usage ranking, not a verdict. Scope: lifetime data.";
+    }
+
+    private static string RenderCrossModpackCostDivergence(Insight rec, Density density)
+    {
+        string mod = ModName(rec.Subject.ModId);
+        string ratio = Multiple(rec.Magnitude.RatioOrDelta);
+        int stacks = rec.Magnitude.Count;
+        string lo = Ms(rec.Magnitude.BaselineMs);
+        string hi = Ms(rec.Magnitude.ObservedMs);
+        if (density == Density.Short)
+            return $"{mod} costs {ratio} more in one of your {stacks} modlists than another.";
+        if (density == Density.Medium)
+            return $"{mod} averaged {hi} ms/t in one modlist vs {lo} ms/t in another ({ratio}) — a cost that depends on the stack it runs in.";
+        return $"[CROSS_MODPACK_COST_DIVERGENCE] {mod}\n" +
+               $"  Across {stacks} well-sampled modlists: {lo} ms/t to {hi} ms/t ({ratio}).\n" +
+               $"  Measured divergence between stacks, not a recommendation. Scope: lifetime data.";
     }
 
     private static string RenderUnsupported(Insight rec) =>

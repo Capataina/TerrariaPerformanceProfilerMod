@@ -45,6 +45,13 @@ public enum PatternKey : byte
     FrameJitter            = 19,
     // Wave 5 family B (behaviour over time): the runtime heap-leak signal.
     HeapLeak               = 20,
+    // DB rework wave 4 — cross-session patterns (read the persisted rollup, badged
+    // LifetimeData; the first patterns that span sessions rather than the live world).
+    UnusedAcrossSessions     = 21,
+    LifetimeSpikeContributor = 22,
+    CostlyDespiteLowUsage    = 23,
+    // Cross-modpack: a mod's behaviour compared across the stacks it has been in.
+    CrossModpackCostDivergence = 24,
 }
 
 /// <summary>

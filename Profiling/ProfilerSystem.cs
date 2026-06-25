@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Terraria;
@@ -18,6 +19,8 @@ using PerformanceProfiler.Persistence.Streams;
 using PerformanceProfiler.Data.Collectors;
 using PerformanceProfiler.Data.Contracts;
 using PerformanceProfiler.Insights.Shared;
+using PerformanceProfiler.Insights.CrossSession;
+using PerformanceProfiler.Persistence.History;
 using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Profiling;
 
@@ -297,6 +300,33 @@ public sealed class ProfilerSystem : ModSystem
         {
             Mod.Logger.Warn($"Cross-session baseline seed skipped ({ex.GetType().Name}: {ex.Message}); fresh baseline this session.");
         }
+
+        // DB rework wave 4: compute this stack's cross-session insights (LifetimeData) over
+        // the persisted rollup — the player's PRIOR sessions — on a background task, so the
+        // "across your last N sessions" feed populates without blocking world load. Guarded;
+        // a failure just leaves the cross-session feed empty this session (Invariant 4).
+        try
+        {
+            ProfilerDatabase? histDb = PerformanceProfiler.Database;
+            string[] roster = HookInterceptor.ProfiledModNames;
+            string fp = ModlistFingerprint.Compute();
+            if (histDb != null && roster.Length > 0)
+            {
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    try
+                    {
+                        var store = new HistoryStore(histDb);
+                        System.Collections.Generic.List<Insight> cross = CrossSessionEvaluator.Run(store, roster, fp);
+                        InsightsEngine.Shared?.SetCrossSessionInsights(cross);
+                        PerformanceProfiler.LoggerOrNull?.Info($"Cross-session insights: {cross.Count} lifetime findings over the current stack.");
+                    }
+                    catch (Exception ex) { PerformanceProfiler.LoggerOrNull?.Warn($"Cross-session insight eval failed: {ex.GetType().Name}: {ex.Message}"); }
+                });
+            }
+        }
+        catch (Exception ex) { Mod.Logger.Warn($"Cross-session insight eval skipped: {ex.GetType().Name}: {ex.Message}"); }
+
         _wasDeadLastTick = false;
 
         // v0.9.x data pipeline — initialise every registered IDataStream
@@ -386,6 +416,44 @@ public sealed class ProfilerSystem : ModSystem
         }
         catch { capturedInsights = null; }
 
+        // DB rework wave 4 — the insight producer: render this session's top insights
+        // (live + cross-session) to InsightRows on the game thread (where mod names
+        // resolve), captured for the off-thread enqueue below. Closes the long-orphaned
+        // `insights` collection (a writer with no producer), so confidence can accrue
+        // across sessions and the persisted feed exists.
+        List<InsightRow>? capturedInsightRows = null;
+        try
+        {
+            InsightsEngine? engine = InsightsEngine.Shared;
+            if (engine != null)
+            {
+                var rows = new List<InsightRow>();
+                void AddRows(IEnumerable<Insight> src)
+                {
+                    foreach (Insight rec in src)
+                    {
+                        rows.Add(new InsightRow
+                        {
+                            SessionId = sessionId,
+                            PatternKey = rec.Pattern.ToString(),
+                            Audience = rec.Audience.ToString(),
+                            RenderedShort = InsightRenderer.Render(rec, Audience.Both, Density.Short),
+                            RenderedLong = InsightRenderer.Render(rec, Audience.Modder, Density.Long),
+                            Confidence = rec.Confidence.ToString(),
+                            EvidenceScope = rec.Scope.ToString(),
+                            PValueAdjusted = rec.Evidence.PValueAdjusted,
+                            FirstSeenTick = rec.FirstSeenTick,
+                            LastConfirmedTick = rec.LastSeenTick,
+                        });
+                    }
+                }
+                AddRows(engine.Store.Top(8, (long)Main.GameUpdateCount));
+                AddRows(engine.CrossSessionInsights);
+                if (rows.Count > 0) capturedInsightRows = rows;
+            }
+        }
+        catch { capturedInsightRows = null; }
+
         // Capture per-mod engagement weights on the game thread (wave 1). The live usage
         // snapshot is cleared by OnWorldUnload's DataRegistry.ResetAll, which can race the
         // background End below, so the rollup's engagement axis must be read here, indexed
@@ -422,6 +490,16 @@ public sealed class ProfilerSystem : ModSystem
                 // Persist the per-context baselines for this stack (prior + this
                 // session). Independently guarded: a failure here must not abort the
                 // recorder-end work above (Invariant 4).
+                // Persist this session's top insights to the `insights` collection (wave 4).
+                if (capturedDb != null && capturedInsightRows != null)
+                {
+                    try
+                    {
+                        foreach (InsightRow row in capturedInsightRows)
+                            capturedDb.Writer.Enqueue(DbWriteOp.Insight(row));
+                    }
+                    catch (Exception ex) { PerformanceProfiler.LoggerOrNull?.Warn($"Insight producer enqueue failed: {ex.GetType().Name}: {ex.Message}"); }
+                }
                 if (capturedDb != null && capturedBaseline != null)
                 {
                     try { CrossSessionStore.Save(capturedDb.ContextBaselines, capturedFingerprint, capturedBaseline); }

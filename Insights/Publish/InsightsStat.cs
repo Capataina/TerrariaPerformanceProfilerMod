@@ -16,16 +16,19 @@ using PerformanceProfiler.Persistence;
 using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Insights.Publish;
 
-/// <summary>Live reference into <see cref="InsightsEngine.Shared"/>'s store.</summary>
+/// <summary>Live reference into <see cref="InsightsEngine.Shared"/>'s store, plus the
+/// cross-session (LifetimeData) set computed once at session start.</summary>
 public readonly struct InsightsSnapshot
 {
     public readonly bool WorldLoaded;
     public readonly IEnumerable<Insight>? Live;
+    public readonly IEnumerable<Insight>? CrossSession;
 
-    public InsightsSnapshot(bool worldLoaded, IEnumerable<Insight>? live)
+    public InsightsSnapshot(bool worldLoaded, IEnumerable<Insight>? live, IEnumerable<Insight>? crossSession = null)
     {
         WorldLoaded = worldLoaded;
         Live = live;
+        CrossSession = crossSession;
     }
 
     public static readonly InsightsSnapshot Empty = new InsightsSnapshot(false, null);
@@ -53,7 +56,7 @@ public sealed class InsightsStat : IDataStat<InsightsSnapshot>
     {
         var eng = InsightsEngine.Shared;
         if (eng == null) return InsightsSnapshot.Empty;
-        return new InsightsSnapshot(worldLoaded: true, live: eng.Store.AllLive());
+        return new InsightsSnapshot(worldLoaded: true, live: eng.Store.AllLive(), crossSession: eng.CrossSessionInsights);
     }
 
     public object CurrentSnapshotBoxed() => CurrentSnapshot();

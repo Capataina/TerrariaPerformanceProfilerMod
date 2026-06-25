@@ -90,6 +90,11 @@
     <Compile Include="..\Insights\Contracts\IDriver.cs" Link="Source\Insights\Contracts\IDriver.cs" />
     <Compile Include="..\Insights\Drivers\Drivers.cs" Link="Source\Insights\Drivers\Drivers.cs" />
     <Compile Include="..\Insights\ReferenceFrames\TemporalBaseline.cs" Link="Source\Insights\ReferenceFrames\TemporalBaseline.cs" />
+    <!-- DB rework wave 4: the Insight record + the cross-session detector family are
+         Terraria-free (they read the persisted HistoryStore types, not MetricCollector),
+         so the cross-session reasoning is unit-tested against synthetic histories. -->
+    <Compile Include="..\Insights\Insight.cs" Link="Source\Insights\Insight.cs" />
+    <Compile Include="..\Insights\CrossSession\*.cs" Link="Source\Insights\CrossSession\%(Filename)%(Extension)" />
 
     <!-- v0.6 Phase alpha shared infrastructure. LangNameCache and ModOwnerCache
          depend on Terraria.ModLoader so they are NOT lifted; their verification

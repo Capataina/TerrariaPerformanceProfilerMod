@@ -6453,6 +6453,10 @@ const INSIGHT_FAMILIES = {
   CostConcentration: 'structure', FreeRemovalCandidate: 'structure',
   LoadoutCorrelatedCost: 'interaction', EventConditionalCost: 'interaction', LoadoutCombinationCost: 'interaction',
   SegmentOutlier: 'segment', SegmentTopMod: 'segment', SegmentDeathCorrelation: 'segment',
+  // DB rework wave 4: the cross-session families (read the persisted rollup, badged lifetime data).
+  UnusedAcrossSessions: 'cross-session', LifetimeSpikeContributor: 'cross-session',
+  CostlyDespiteLowUsage: 'cross-session',
+  CrossModpackCostDivergence: 'cross-modpack',
 };
 function insightFamily(p) { return INSIGHT_FAMILIES[p] || 'other'; }
 
@@ -6470,10 +6474,10 @@ const CONF_RANK = { High: 3, Medium: 2, Low: 1, Preliminary: 0 };
 function confTone(c) { return c === 'High' ? 'good' : c === 'Medium' ? 'accent' : c === 'Low' ? '' : 'dim'; }
 function confColor(c) { return c === 'High' ? 'var(--good)' : c === 'Medium' ? 'var(--good-bar)' : c === 'Low' ? 'var(--muted)' : 'var(--dim)'; }
 
-// Data-strength scope -> badge. ThisSession is the only scope the live store can
-// earn today (the cross-session insight producer is a future DB-rework step), so
-// most findings badge 'this session'; the lifetime / needs-persistence tones are
-// wired so they light up for free once that producer lands.
+// Data-strength scope -> badge. Live detectors badge 'this session'; the cross-session
+// family (the 'cross-session'/'cross-modpack' columns) reads the persisted rollup and
+// badges 'lifetime data'. The needs-persistence tone covers detectors with a claim they
+// cannot yet substantiate.
 function scopeBadge(scope) {
   if (scope === 'LifetimeData') return badge('lifetime data', 'good');
   if (scope === 'NeedsPersistence') return badge('needs persistence', 'warn');

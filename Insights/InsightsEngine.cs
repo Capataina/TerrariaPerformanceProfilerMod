@@ -176,6 +176,20 @@ public sealed class InsightsEngine
     /// <summary>The live + history store. Tabs and exporters read from here.</summary>
     public InsightStore Store => _store;
 
+    // Cross-session insights (DB rework wave 4). Computed once at session start over the
+    // persisted rollup, NOT through the live store: they carry data-derived confidence
+    // (N sessions of evidence, not 1 Hz confirmations) and must persist for the whole
+    // session rather than expiring under the live store's TTL/eviction. The dashboard
+    // payload concatenates these with the live set.
+    private volatile IReadOnlyList<Insight> _crossSession = Array.Empty<Insight>();
+
+    /// <summary>The cross-session (LifetimeData) insights surfaced this session.</summary>
+    public IReadOnlyList<Insight> CrossSessionInsights => _crossSession;
+
+    /// <summary>Installs the cross-session insights computed at session start. Replaces any prior set.</summary>
+    public void SetCrossSessionInsights(IReadOnlyList<Insight>? insights)
+        => _crossSession = insights ?? Array.Empty<Insight>();
+
     /// <summary>
     /// The per-context per-mod cost baseline, accumulated across the session. Null
     /// until the first <see cref="Evaluate"/> pass with a populated mod table. The

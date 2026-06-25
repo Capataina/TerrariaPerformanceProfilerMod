@@ -28,12 +28,13 @@ internal static partial class DashboardRouter
 
         string[] modNames = HookInterceptor.ProfiledModNames;
         var records = new List<object>();
-        foreach (var rec in snap.Live)
+
+        object ToRecord(Insight rec)
         {
             string subjectName = rec.Subject.ModId >= 0 && rec.Subject.ModId < modNames.Length
                 ? modNames[rec.Subject.ModId]
                 : null!;
-            records.Add(new
+            return new
             {
                 pattern = rec.Pattern.ToString(),
                 confidence = rec.Confidence.ToString(),
@@ -49,7 +50,15 @@ internal static partial class DashboardRouter
                 firstSeenTick = rec.FirstSeenTick,
                 lastSeenTick = rec.LastSeenTick,
                 confirmationCount = rec.ConfirmationCount,
-            });
+            };
+        }
+
+        foreach (var rec in snap.Live) records.Add(ToRecord(rec));
+        // Cross-session (LifetimeData) insights live outside the TTL'd live store; merge
+        // them into the same kanban feed so the dormant LifetimeData badge finally shows.
+        if (snap.CrossSession != null)
+        {
+            foreach (var rec in snap.CrossSession) records.Add(ToRecord(rec));
         }
 
         return JsonSerializer.Serialize(new
