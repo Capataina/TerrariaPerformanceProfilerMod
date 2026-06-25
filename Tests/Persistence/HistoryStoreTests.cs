@@ -173,6 +173,63 @@ public sealed class HistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void Backfill_RebuildsRollupFromExistingSessions()
+    {
+        using var db = new ProfilerDatabase(_root, log: NullLog, profilerVersion: "test");
+        var baseT = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // Three ended sessions, oldest first, each with the mod doing measurable work.
+        for (int i = 0; i < 3; i++)
+        {
+            var sid = ObjectId.NewObjectId();
+            db.Sessions.Insert(new SessionRow
+            {
+                Id = sid,
+                StartedUtc = baseT.AddDays(i),
+                EndedUtc = baseT.AddDays(i).AddHours(1),
+                ModlistFingerprint = "fp-A",
+                TicksObserved = 1000,
+            });
+            db.PerSessionMods.Insert(new PerSessionModAggregate
+            {
+                SessionId = sid,
+                ModId = 0,
+                ModInternalName = "HistMod",
+                AvgMs = 1.5,
+                AvgBytes = 200,
+            });
+            // One spike window attributing to the mod in the middle session.
+            if (i == 1)
+            {
+                db.SpikeWindows.Insert(new SpikeWindowRow
+                {
+                    SessionId = sid,
+                    TopContributors = { new SpikeContributor { ModId = 0, Name = "HistMod", Ms = 5 } },
+                });
+            }
+        }
+
+        int folded = RollupBackfill.Run(db, null);
+        Assert.Equal(3, folded);
+
+        var store = new HistoryStore(db);
+        ModHistory? h = store.GetModHistory("HistMod", lastN: 10);
+        Assert.NotNull(h);
+        Assert.Equal(3, h!.SessionCount);
+        Assert.Equal(3, h.ActiveSessionCount);          // cost above the active floor each session
+        Assert.Equal(1.5, h.LifetimeAvgCostMs, 6);
+        Assert.Equal(1, h.TotalSpikeContributions);     // the one mid-session spike
+        Assert.Equal(0d, h.LifetimeAvgEngagement, 6);   // historical sessions fold 0 engagement
+        Assert.Equal(3, h.RecentRing.Count);
+
+        // Re-running is dedup-safe: RollupApplier skips sessions already in the ring, so a
+        // second backfill does not double-count (SessionCount stays 3, not 6).
+        RollupBackfill.Run(db, null);
+        ModHistory? h2 = store.GetModHistory("HistMod", lastN: 10);
+        Assert.Equal(3, h2!.SessionCount);
+    }
+
+    [Fact]
     public void DataHealth_CountsModsAndSessions()
     {
         using var db = new ProfilerDatabase(_root, log: NullLog, profilerVersion: "test");

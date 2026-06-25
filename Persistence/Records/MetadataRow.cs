@@ -27,4 +27,9 @@ public sealed class MetadataRow
     public DateTime LastOpenedUtc { get; set; }
     public List<string> ProfilerVersionSeen { get; set; } = new();
     public int SessionCount { get; set; }
+
+    /// <summary>When the one-time cross-session rollup backfill last completed (DB rework
+    /// wave 1b). Null until the rollup has been built from the existing session history;
+    /// the marker that keeps the backfill from re-running (and re-folding) on every open.</summary>
+    public DateTime? RollupBackfillUtc { get; set; }
 }

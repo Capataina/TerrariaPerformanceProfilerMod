@@ -143,6 +143,54 @@ public sealed class ProfilerDatabase : IDisposable
         catch (Exception ex) { _log("ProfilerDatabase: initial checkpoint failed", ex); }
 
         _writer = new DbWriterThread(this, _journal, _log);
+
+        StartRollupBackfillIfNeeded();
+    }
+
+    /// <summary>
+    /// One-time rebuild of the cross-session rollup from existing sessions (DB rework
+    /// wave 1b). Runs on a background task so it never blocks mod load, and only when the
+    /// run-once marker is unset AND the rollup is still empty (a fresh upgrade) — so it
+    /// never double-folds or clobbers live data. Completes before any world loads, so it
+    /// does not contend with the writer thread on the rollup collections.
+    /// </summary>
+    private void StartRollupBackfillIfNeeded()
+    {
+        try
+        {
+            MetadataRow? meta = Metadata.FindById("metadata");
+            if (meta?.RollupBackfillUtc != null) return; // already backfilled
+
+            bool rollupEmpty = ModLifetimeRollups.Count() == 0;
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    // Defensive: only rebuild from history when the rollup is genuinely
+                    // empty. A non-empty rollup with an unset marker (e.g. a crash mid-
+                    // backfill) is left as-is rather than risking a double-fold of sessions
+                    // that have already aged out of the dedup ring.
+                    if (rollupEmpty) History.RollupBackfill.Run(this, _log);
+                    MarkRollupBackfillDone();
+                }
+                catch (Exception ex) { _log("ProfilerDatabase: rollup backfill task failed", ex); }
+            });
+        }
+        catch (Exception ex) { _log("ProfilerDatabase: rollup backfill trigger failed", ex); }
+    }
+
+    private void MarkRollupBackfillDone()
+    {
+        try
+        {
+            MetadataRow? meta = Metadata.FindById("metadata");
+            if (meta != null)
+            {
+                meta.RollupBackfillUtc = DateTime.UtcNow;
+                Metadata.Update(meta);
+            }
+        }
+        catch (Exception ex) { _log("ProfilerDatabase: rollup backfill marker write failed", ex); }
     }
 
     /// <summary>
