@@ -60,5 +60,13 @@ internal static partial class DashboardAssets
    default .big and add the gap that separates headline from supporting rows. */
 .self-share-hero { margin-bottom: 0.5rem; }
 .self-share-hero .stat-tile .v { font-size: 2rem; }
+
+/* Cross-session memory · modlist-change signal (DB rework wave 5). */
+.dh-change { margin-top: 0.7rem; }
+.dh-change-line { font-family: var(--ui); font-size: 0.74rem; color: var(--muted); margin-top: 0.3rem; }
+.dh-change-k {
+  font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--dim); margin-right: 0.4rem;
+}
 ";
 }

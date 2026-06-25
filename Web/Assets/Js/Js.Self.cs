@@ -21,6 +21,7 @@ internal static partial class DashboardAssets
     private const string JsSelf = @"
 // ====== SELF TAB ======================================================
 function renderSelf() {
+  renderDataHealth();   // independent of lastSelf — the cross-session store has data even when idle
   if (!lastSelf) return;
   const s = lastSelf;
   const sevClass = s.severity === 'Severe' ? 'bad' : s.severity === 'Concerning' ? 'warn' : 'good';
@@ -159,6 +160,35 @@ function renderHookDistribution() {
       `<span style='text-align:right'>${fmtInt(m.count)} hooks</span>`,
     ],
   })));
+}
+
+// Cross-session memory · the history layer's own health (DB rework wave 5). Reads
+// /api/data-health (independent of the live-session /api/self), so it shows what the
+// profiler remembers across sessions plus the modlist-change signal — the player half
+// of the dual-surface diff whose agent half is a client.log line at world load.
+function renderDataHealth() {
+  const el = document.getElementById('self-datahealth');
+  if (!el) return;
+  const h = lastDataHealth;
+  if (!h || !h.available) { el.innerHTML = emptyState('cross-session store unavailable'); return; }
+
+  let html = statGrid([
+    statTile({ k: 'sessions tracked', v: dash(h.endedSessionCount, fmtInt) }),
+    statTile({ k: 'modlists seen', v: dash(h.modlistCount, fmtInt) }),
+    statTile({ k: 'mods remembered', v: dash(h.modsTracked, fmtInt) }),
+    statTile({ k: 'store size', v: dash(h.dbFileSizeBytes, fmtBytes) }),
+  ]);
+
+  // Modlist-change signal (player surface for the wave-3 detection). Only when the
+  // current stack genuinely differs from the previous session's.
+  if (h.modlistHadPrior && h.modlistChanged) {
+    const added = (h.modsAdded || []), removed = (h.modsRemoved || []);
+    let body = `modlist changed since your last session ` + badge('+' + added.length, 'good') + ' ' + badge('-' + removed.length, 'bad');
+    if (added.length) body += `<div class='dh-change-line'><span class='dh-change-k'>added</span> ${added.map(escapeHtml).join(', ')}</div>`;
+    if (removed.length) body += `<div class='dh-change-line'><span class='dh-change-k'>removed</span> ${removed.map(escapeHtml).join(', ')}</div>`;
+    html += `<div class='dh-change'>` + callout(body) + `</div>`;
+  }
+  el.innerHTML = html;
 }
 ";
 }

@@ -61,8 +61,11 @@ async function pollHooks() {
 }
 
 async function pollSelf() {
-  const self = await fetchJson('/api/self');
+  const [self, health] = await Promise.all([
+    fetchJson('/api/self'), fetchJson('/api/data-health'),
+  ]);
   if (self) lastSelf = self;
+  if (health) lastDataHealth = health;
   if (activeTab === 'self') renderSelf();
 }
 

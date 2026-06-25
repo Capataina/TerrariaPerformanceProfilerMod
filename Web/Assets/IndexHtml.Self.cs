@@ -54,6 +54,15 @@ internal static partial class DashboardAssets
           <div class=""panel-body"" id=""self-backend""></div>
         </div>
 
+        <!-- Cross-session memory · the history layer's own health (DB rework wave 5) -->
+        <div class=""panel self-span"">
+          <header class=""panel-h"">
+            <span class=""panel-title"">cross-session memory</span>
+            <span class=""panel-sub"" data-explain=""data-health"">what the profiler remembers across sessions</span>
+          </header>
+          <div class=""panel-body"" id=""self-datahealth""></div>
+        </div>
+
         <!-- Hook distribution per mod -->
         <div class=""panel self-span"">
           <header class=""panel-h"">
