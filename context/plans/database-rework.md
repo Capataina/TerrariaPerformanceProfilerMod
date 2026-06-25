@@ -128,6 +128,47 @@ The consequences of treating them as one:
 
 ---
 
+## Module layout — where this lives
+
+A new top-level **`Persistence/`** module (the memory), with the cross-session
+*reasoning* staying in `Insights/`. This is the structural form of the unification:
+two top-level modules, `HistoryStore` the seam between them — exactly how `Data/`
+produces snapshots that `Insights/` consumes. It also ends the current scatter:
+persistence today is split across `Profiling/Persistence/` (the bulk),
+`Data/Streams/` (the write streams), and `Insights/ReferenceFrames/CrossSessionStore`
+(the cross-session save/load) — the same disease the data + insights reworks cured,
+and this is the moment to consolidate it into one home.
+
+```
+Persistence/                 ← top-level memory (promoted from Profiling/Persistence/)
+├── ProfilerDatabase · EventJournal · recovery · backups   (the store — kept as-is)
+├── Writer/   (DbWriterThread, DbWriteOp)                   (kept)
+├── Streams/                 ← moved in from Data/Streams/  (streams ARE persistence)
+├── Records/                 (+ the new rollup rows; ContextBaselineRow re-keyed)
+├── History/                 ← NEW: the two-level rollup fold + HistoryStore (read layer)
+├── Lifecycle/               ← NEW: modlist-change detect, retention/compaction, reset, fingerprint
+└── CrossSessionStore        ← moved in from Insights/ReferenceFrames/
+
+Insights/                    ← the reasoning home, unchanged
+├── ReferenceFrames/         (the ContextBaseline *frame* stays; reads Persistence)
+└── Detectors/ … CrossSession + CrossModpack families      ← NEW, read the HistoryStore
+```
+
+The cut between the two modules is **storage vs reasoning**: a *record* (e.g.
+`ContextBaselineRow`) and the DB I/O (`CrossSessionStore`) are persistence; the
+in-memory *frame* (`ContextBaseline`) and the *detectors* are reasoning. The
+top-level architecture then reads as a clean pipeline: **`Profiling/` (measure) →
+`Data/` (pipeline) → `Persistence/` (remember) → `Insights/` (interpret) → `Web/`
+(surface)**.
+
+Name: **`Persistence/`** — continuity with the existing folder, and broader than the
+`.litedb` file alone (it is the whole memory layer). The consolidation's blast radius
+is moderate and entirely mechanical (namespaces, the `StreamRegistry` wiring, every
+`using`), all caught by the compile gate; it is the first thing wave 0 does, so the
+functional waves land in a clean home rather than extending the scatter.
+
+---
+
 ## Locked decisions (from discussion)
 
 | # | Decision | Choice | Why |
@@ -329,6 +370,12 @@ the data-strength the badges promise.
 - **Keep the write layer; build the read layer.** The evidence says the write side
   is sound and the gap is entirely consume-side + lifecycle. Rewriting what works
   would be motion, not progress.
+- **One top-level `Persistence/` module + detectors in `Insights/`, over leaving
+  persistence scattered or building one mega-folder that swallows the detectors.**
+  Scattered is the status quo the rework exists to fix; a mega-folder absorbing the
+  cross-session detectors would break the storage/reasoning seam (`HistoryStore`)
+  that keeps the two halves independently testable and mirrors `Data/`→`Insights/`.
+  See Module layout. *Recommended.*
 
 ---
 
@@ -338,10 +385,13 @@ Core, foundation-first; each leaves the mod shippable and is independently
 verifiable (compile gate + the pure-logic suite — the query / rollup / ranking math
 is all testable off the game thread against synthetic session rows).
 
-0. **Contracts + identity.** Freeze the two-level rollup rows + the HistoryStore
-   interface; add `InternalName`/version to the cross-session keys; rework
-   `ContextBaseline` to identity-key with fingerprint as a dimension; demote the
-   fingerprint to a scope/analysis tag. No behaviour change yet.
+0. **Consolidate + contracts + identity.** First the consolidation (Module layout):
+   promote `Profiling/Persistence/` to a top-level `Persistence/` and move the
+   scattered pieces in (`Data/Streams/`, `CrossSessionStore`) — mechanical,
+   compile-gated, no behaviour change. Then freeze the two-level rollup rows + the
+   HistoryStore interface; add `InternalName`/version to the cross-session keys;
+   rework `ContextBaseline` to identity-key with fingerprint as a dimension; demote
+   the fingerprint to a scope/analysis tag.
 1. **Rollup substrate.** Build + maintain the global + per-modlist rollup at session
    end; backfill from existing `PerSessionModAggregate` rows on first open.
 2. **HistoryStore read layer.** Implement the cross-session queries; reroute
