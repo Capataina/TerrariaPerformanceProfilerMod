@@ -123,17 +123,24 @@ rhythm** (how often hitches recur). Get a 24 ms frame? You see who owned it.
 
 **Observatory** — the descriptive per-mod attribution surface: a per-mod **observatory**, a
 modlist-composition **waffle** (active vs dormant at a glance), a **dormant-content** ranking,
-an **engagement-vs-cost bubble scatter** (cost-heavy vs usage-heavy mods on one plot), and a
-**mod-pair cost-correlation** chord (which mods get busy together).
+an **engagement-vs-cost bubble scatter** (cost-heavy vs usage-heavy mods on one plot), a
+**mod-pair cost-correlation** chord (which mods get busy together), and a **roster-evolution
+matrix** (every modlist you have run as columns, mods as rows, with version changes marked).
 
 **Insights** — the interpretive findings feed: the engine's pattern-detection records on a
 **kanban board** (grouped by family, click a card for the mod's full context), now including
 **cross-session** and **cross-modpack** columns badged *lifetime data* — "unused in your last
-3 sessions", "top spike contributor over your last 5", "costly despite low usage".
+3 sessions", "top spike contributor over your last 5", "costly despite low usage". Aggregate
+cards (cost concentration) **name their top cost-contributing mods** and show the loaded-versus
+-idle roster, so a count like "3 of 26" reads clearly instead of looking wrong.
 
 **Self** — the profiler measuring *itself*: an **overhead gauge** against budget, its install
 footprint, bytes-per-hook, process context, and the per-mod **hook distribution**. We surface
-our own cost so the claim is verifiable, not trusted.
+our own cost so the claim is verifiable, not trusted. It also carries the **cross-session
+memory** panel: what the profiler remembers across sessions (sessions tracked, modlists seen,
+store size), a **roster banner** naming what changed since your last session, a **thin-session
+badge** (how much of your history is substantial enough to count toward lifetime averages), and
+the player-initiated **reset** control.
 
 **Memory** — per-mod **RAM**: each mod's profiler-scaffolding footprint *and* tModLoader's own
 estimate, as a split strip plus a sortable table with a per-mod breakdown drawer.
@@ -155,6 +162,7 @@ shape, not "bars everywhere":
 | **Waffle grid** | Insights modlist composition | active vs dormant as countable area |
 | Radial gauge | Self overhead, Insights KPIs | a value against a budget / reference |
 | Heatmap | Summary timeframe, Lag cause×context | magnitude across a 2-D grid |
+| **Presence/version grid** | Observatory roster evolution | which mods, and which versions, each past modlist ran |
 | **Swimlane gantt** | Timeline | every segment placed on the session's time axis |
 | Sparkline + KPI | Summary KPI strip | a headline number with its own micro-trend |
 
