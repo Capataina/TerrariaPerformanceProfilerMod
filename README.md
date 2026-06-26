@@ -34,7 +34,7 @@ back for that cost.
 
 - [The 60-second pitch](#the-60-second-pitch)
 - [What makes it one of a kind](#what-makes-it-one-of-a-kind)
-- [What you see — the six tabs](#what-you-see--the-six-tabs)
+- [What you see — the seven tabs](#what-you-see--the-seven-tabs)
 - [The chart vocabulary](#the-chart-vocabulary)
 - [How it works](#how-it-works)
 - [What it captures, every tick](#what-it-captures-every-tick)
@@ -95,11 +95,11 @@ tModLoader world.
 
 ---
 
-## What you see — the six tabs
+## What you see — the seven tabs
 
 ```
 ┌── F9 ─────────────────────────────────────────────────────────────────────┐
-│  SUMMARY   Timeline   Lag   Insights   Self   Memory                       │
+│  SUMMARY   Timeline   Lag   Observatory   Insights   Self   Memory         │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -121,10 +121,15 @@ attendance.
 the *worst tick*, **GC pressure** over time, a per-segment **lag-density** table, and the **lag
 rhythm** (how often hitches recur). Get a 24 ms frame? You see who owned it.
 
-**Insights** — pattern-detection records from the engine, plus a per-mod **observatory**, a
+**Observatory** — the descriptive per-mod attribution surface: a per-mod **observatory**, a
 modlist-composition **waffle** (active vs dormant at a glance), a **dormant-content** ranking,
 an **engagement-vs-cost bubble scatter** (cost-heavy vs usage-heavy mods on one plot), and a
-**mod-pair cost-correlation** table (which mods get busy together).
+**mod-pair cost-correlation** chord (which mods get busy together).
+
+**Insights** — the interpretive findings feed: the engine's pattern-detection records on a
+**kanban board** (grouped by family, click a card for the mod's full context), now including
+**cross-session** and **cross-modpack** columns badged *lifetime data* — "unused in your last
+3 sessions", "top spike contributor over your last 5", "costly despite low usage".
 
 **Self** — the profiler measuring *itself*: an **overhead gauge** against budget, its install
 footprint, bytes-per-hook, process context, and the per-mod **hook distribution**. We surface
@@ -195,7 +200,7 @@ server when you launch tModLoader with it enabled.
    └──────────┬───────────┘          │
               │                      ▼
               ▼              ┌────────────────┐
-   ┌──────────────────────┐ │    Browser     │   the six-tab dashboard — your screen,
+   ┌──────────────────────┐ │    Browser     │   the seven-tab dashboard — your screen,
    │  LiteDB persistence  │ │   dashboard    │   or a second monitor, updating 2–4×/sec
    └──────────────────────┘ └────────────────┘
      sessions + cross-session baselines,
@@ -348,7 +353,7 @@ running game:
 ```
 
 It is **generic**: tabs are discovered from the DOM, endpoints from the JS, panes from the
-markup — add a seventh tab tomorrow and it is audited with zero harness change. (See
+markup — add an eighth tab tomorrow and it is audited with zero harness change. (See
 `tools/testing/README.md`.)
 
 ---
