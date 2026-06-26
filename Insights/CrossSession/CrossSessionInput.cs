@@ -65,19 +65,27 @@ internal static class CrossSessionMath
     public static double AvgCost(IReadOnlyList<SessionRingEntry> ring, int n)
     {
         int lim = SessionsInWindow(ring, n);
-        if (lim == 0) return 0d;
-        double s = 0d;
-        for (int i = 0; i < lim; i++) s += ring[i].CostMs;
-        return s / lim;
+        double s = 0d; int cnt = 0;
+        for (int i = 0; i < lim; i++)
+        {
+            // Skip thin load-window sessions (same substance gate as the rollup fold), so a
+            // 6-second session's inflated per-tick cost cannot dominate the window average.
+            if (ring[i].TicksObserved < RollupFold.MinSessionTicks) continue;
+            s += ring[i].CostMs; cnt++;
+        }
+        return cnt == 0 ? 0d : s / cnt;
     }
 
     public static double AvgEngagement(IReadOnlyList<SessionRingEntry> ring, int n)
     {
         int lim = SessionsInWindow(ring, n);
-        if (lim == 0) return 0d;
-        double s = 0d;
-        for (int i = 0; i < lim; i++) s += ring[i].EngagementScore;
-        return s / lim;
+        double s = 0d; int cnt = 0;
+        for (int i = 0; i < lim; i++)
+        {
+            if (ring[i].TicksObserved < RollupFold.MinSessionTicks) continue;
+            s += ring[i].EngagementScore; cnt++;
+        }
+        return cnt == 0 ? 0d : s / cnt;
     }
 
     public static long SumSpikes(IReadOnlyList<SessionRingEntry> ring, int n)

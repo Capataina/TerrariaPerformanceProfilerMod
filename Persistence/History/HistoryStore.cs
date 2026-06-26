@@ -65,8 +65,11 @@ public sealed class HistoryStore
                 LastVersion = g.LastVersion,
                 SessionCount = g.SessionCount,
                 ActiveSessionCount = g.ActiveSessionCount,
-                LifetimeAvgCostMs = g.Cost.Mean,
-                LifetimeAvgEngagement = g.Engagement.Mean,
+                // The lifetime averages read the play-time-weighted mean, not the equal-weight
+                // session mean, so short load-window sessions cannot inflate them; WeightedMean
+                // falls back to the equal-weight Mean on legacy rows that folded no weight.
+                LifetimeAvgCostMs = g.Cost.WeightedMean,
+                LifetimeAvgEngagement = g.Engagement.WeightedMean,
                 TotalSpikeContributions = g.TotalSpikeContributions,
                 TotalStallContributions = g.TotalStallContributions,
                 FirstSeenUtc = g.FirstSeenUtc,
@@ -102,19 +105,29 @@ public sealed class HistoryStore
                     .ToList();
                 if (window.Count == 0) continue;
 
-                int active = 0;
+                int active = 0, substantial = 0;
                 double cost = 0d, alloc = 0d, eng = 0d;
                 long spikes = 0L, stalls = 0L;
                 foreach (SessionRingEntry e in window)
                 {
                     if (e.WasActive) active++;
+                    spikes += e.SpikeContributions;
+                    stalls += e.StallContributions;
+
+                    // Thin load-window entries carry the same divided-by-tiny-denominator cost
+                    // garbage the lifetime fold excludes (see RollupFold.MinSessionTicks), so they
+                    // stay in the presence tallies (active / spike / stall / SessionsInWindow) but
+                    // are skipped from the cost / alloc / engagement window averages. Skipping (the
+                    // simpler of the two correct options) keeps the window average on exactly the
+                    // same substance gate as the lifetime fold.
+                    if (e.TicksObserved < RollupFold.MinSessionTicks) continue;
+                    substantial++;
                     cost += e.CostMs;
                     alloc += e.AllocBytes;
                     eng += e.EngagementScore;
-                    spikes += e.SpikeContributions;
-                    stalls += e.StallContributions;
                 }
                 int n = window.Count;
+                int costN = substantial > 0 ? substantial : 1; // all-thin window: the sums are 0, so the divisor only avoids a NaN
 
                 result.Add(new ModWindowStats
                 {
@@ -123,9 +136,9 @@ public sealed class HistoryStore
                     LastVersion = g.LastVersion,
                     SessionsInWindow = n,
                     ActiveSessions = active,
-                    AvgCostMs = cost / n,
-                    AvgAllocBytes = alloc / n,
-                    AvgEngagement = eng / n,
+                    AvgCostMs = cost / costN,
+                    AvgAllocBytes = alloc / costN,
+                    AvgEngagement = eng / costN,
                     SpikeContributions = spikes,
                     StallContributions = stalls,
                     LastSeenUtc = window[0].EndedUtc,

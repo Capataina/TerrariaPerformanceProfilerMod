@@ -71,8 +71,14 @@
     <Compile Include="..\Profiling\Events\BossSlotArray.cs" Link="Source\Events\BossSlotArray.cs" />
     <Compile Include="..\Profiling\Events\EventContext.cs" Link="Source\Events\EventContext.cs" />
     <Compile Include="..\Insights\Insight.cs" Link="Source\Insights\Insight.cs" />
+    <Compile Include="..\Insights\InsightConstants.cs" Link="Source\Insights\InsightConstants.cs" />
     <Compile Include="..\Insights\InsightStore.cs" Link="Source\Insights\InsightStore.cs" />
     <Compile Include="..\Insights\RankingScorer.cs" Link="Source\Insights\RankingScorer.cs" />
+    <!-- Pure detector cores: the concentration / hot-hook math lifted out of the
+         MetricCollector-coupled detectors so the lever-naming and absolute-cost floors
+         are unit-testable against synthetic arrays (no game runtime). -->
+    <Compile Include="..\Insights\Detectors\CostConcentrationCore.cs" Link="Source\Insights\Detectors\CostConcentrationCore.cs" />
+    <Compile Include="..\Insights\Detectors\HotHookDominanceCore.cs" Link="Source\Insights\Detectors\HotHookDominanceCore.cs" />
     <!-- Wave 1 Shared primitives (pure math over the pure RolloutContracts
          entry types); the L1 axis of context/plans/extensive-testing-infrastructure.md
          guards their byte-identical contract for the waves that follow. -->

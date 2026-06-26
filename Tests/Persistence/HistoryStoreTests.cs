@@ -34,11 +34,15 @@ public sealed class HistoryStoreTests : IDisposable
 
     private static void NullLog(string _, Exception? __) { }
 
-    private static SessionRingEntry Ring(double cost, bool active, int spikes, double engagement, DateTime endedUtc)
+    private static SessionRingEntry Ring(double cost, bool active, int spikes, double engagement,
+                                         DateTime endedUtc, long ticks = 2000)
         => new SessionRingEntry
         {
             SessionId = ObjectId.NewObjectId(),
             EndedUtc = endedUtc,
+            // Substantial by default (above RollupFold.MinSessionTicks) so the windowed cost
+            // averages count the entry; a test passing a thin value exercises the skip path.
+            TicksObserved = ticks,
             CostMs = cost,
             EngagementScore = engagement,
             SpikeContributions = spikes,
@@ -144,7 +148,7 @@ public sealed class HistoryStoreTests : IDisposable
                 SessionId = sessionId,
                 Fingerprint = "fp-A",
                 EndedUtc = new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Utc),
-                TicksObserved = 500,
+                TicksObserved = 2000, // substantial: above RollupFold.MinSessionTicks, so cost folds
             };
             input.Mods.Add(new ModSessionContribution
             {
@@ -188,7 +192,7 @@ public sealed class HistoryStoreTests : IDisposable
                 StartedUtc = baseT.AddDays(i),
                 EndedUtc = baseT.AddDays(i).AddHours(1),
                 ModlistFingerprint = "fp-A",
-                TicksObserved = 1000,
+                TicksObserved = 2000, // substantial: above RollupFold.MinSessionTicks, so cost folds
             });
             db.PerSessionMods.Insert(new PerSessionModAggregate
             {

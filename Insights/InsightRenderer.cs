@@ -6,7 +6,9 @@
 
 #nullable enable
 
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
@@ -95,8 +97,7 @@ public static class InsightRenderer
 
     private static string RenderSegmentOutlier(Insight rec, Density density)
     {
-        string segName = SegmentNameTable.For(
-            (SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string segName = SegmentLabel(rec);
         string pct = Pct(rec.Magnitude.RatioOrDelta);
         string obs = Ms(rec.Magnitude.ObservedMs);
         string baseMs = Ms(rec.Magnitude.BaselineMs);
@@ -116,8 +117,7 @@ public static class InsightRenderer
     private static string RenderSegmentTopMod(Insight rec, Density density)
     {
         string mod = ModName(rec.Subject.ModId);
-        string segName = SegmentNameTable.For(
-            (SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
+        string segName = SegmentLabel(rec);
         string share = Pct(rec.Magnitude.RatioOrDelta);
         int wins = rec.Magnitude.Count;
         int n = rec.Evidence.SampleN;
@@ -257,12 +257,25 @@ public static class InsightRenderer
     private static string RenderCostConcentration(Insight rec, Density density)
     {
         int count = rec.Magnitude.Count;
-        int totalMods = rec.Evidence.SampleN;
+        int active = rec.Evidence.SampleN;          // mods with measurable cost
+        int loaded = rec.Magnitude.LoadedCount;     // every mod loaded (incl. idle); 0 on legacy records
         string share = Pct(rec.Magnitude.RatioOrDelta);
+        var contributors = rec.Contributors;
+
+        // Legacy / contributor-less record: the original count-only rendering.
+        if (contributors == null || contributors.Count == 0)
+        {
+            if (density == Density.Short)
+                return $"{count} of {active} mods account for {share} of measured mod cost.";
+            return $"{count} of {active} cost-contributing mods carry {share} of the measured per-mod cost this session; the rest is spread across the remaining {active - count}.";
+        }
+
+        // "(29 loaded, 3 idle)" — only when we know the loaded roster size.
+        string roster = loaded > 0 ? $" ({loaded} loaded, {loaded - active} idle)" : "";
 
         if (density == Density.Short)
-            return $"{count} of {totalMods} mods account for {share} of measured mod cost.";
-        return $"{count} of {totalMods} cost-contributing mods carry {share} of the measured per-mod cost this session; the rest is spread across the remaining {totalMods - count}.";
+            return $"{count} of {active} active mods carry {share} of cost: {ContributorNames(contributors)}{roster}.";
+        return $"{count} of {active} active mods carry {share} of the measured per-mod cost this session ({ContributorShares(contributors)}){roster}. The rest is spread across the other {active - count} active mods.";
     }
 
     private static string RenderFrameJitter(Insight rec, Density density)
@@ -406,6 +419,40 @@ public static class InsightRenderer
             : ratio.ToString("F1", Invariant) + "×";
 
     // ---- Slot helpers --------------------------------------------------------
+
+    /// <summary>
+    /// The segment's display name: the pre-resolved <see cref="Insight.SubjectLabel"/>
+    /// when the detector threaded one (segment keys are a stable hash the family table
+    /// cannot reverse to a name), else the family table's best effort from the subject ids.
+    /// </summary>
+    private static string SegmentLabel(Insight rec) =>
+        !string.IsNullOrEmpty(rec.SubjectLabel)
+            ? rec.SubjectLabel!
+            : SegmentNameTable.For((SegmentFamily)rec.Subject.ContextDim, rec.Subject.ContextKey);
+
+    /// <summary>Comma-joined mod names for an aggregate insight's contributors ("ImproveGame, CalamityMod").</summary>
+    private static string ContributorNames(List<InsightContributor> contributors)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < contributors.Count; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            sb.Append(ModName(contributors[i].Subject.ModId));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Comma-joined "name share" pairs for an aggregate insight ("ImproveGame 38 %, CalamityMod 29 %").</summary>
+    private static string ContributorShares(List<InsightContributor> contributors)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < contributors.Count; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            sb.Append(ModName(contributors[i].Subject.ModId)).Append(' ').Append(Pct(contributors[i].Share));
+        }
+        return sb.ToString();
+    }
 
     private static string ModName(int modId)
     {

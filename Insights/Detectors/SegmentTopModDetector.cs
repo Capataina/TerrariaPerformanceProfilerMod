@@ -106,6 +106,9 @@ public sealed class SegmentTopModDetector : IInsightDetector
                 // A mod-in-context subject: the top mod (bestMod) within this
                 // segment class. Kind=Context so the dedup key is per-(segment,mod).
                 Subject = new SubjectRef(SubjectKind.Context, bestMod, -1, first.Key, (byte)first.Family),
+                // Biome keys are a stable hash the renderer cannot reverse; carry the
+                // segment's already-resolved display name (see Insight.SubjectLabel).
+                SubjectLabel = first.Name,
                 Magnitude = new Magnitude
                 {
                     RatioOrDelta = share,

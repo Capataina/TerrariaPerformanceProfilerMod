@@ -320,6 +320,18 @@ public sealed class Insight
     /// </summary>
     public List<InsightContributor>? Contributors;
 
+    /// <summary>
+    /// Pre-resolved display label for the subject, set by the detector when the
+    /// renderer cannot derive a readable name from the numeric subject ids alone.
+    /// The segment families key a context subject on a STABLE hash (so the row
+    /// survives across sessions for the lifetime baseline), and that hash is not a
+    /// per-session registry index, so re-deriving the name at render time produces
+    /// "biome:2022653656" rather than "Forest". The detector already holds the
+    /// resolved name (<c>Segment.Name</c>), so it threads it here. Null for subjects
+    /// whose name the renderer can resolve directly (mod / hook ids).
+    /// </summary>
+    public string? SubjectLabel;
+
     /// <summary>Cached short-form string for the Player audience; cleared when ranking mutates state.</summary>
     public string? CachedShortPlayer;
     /// <summary>Cached medium-form string for the Player audience; cleared when ranking mutates state.</summary>

@@ -84,6 +84,10 @@ public sealed class SegmentOutlierDetector : IInsightDetector
             {
                 Pattern = PatternKey.SegmentOutlier,
                 Subject = SubjectRef.ForContext(seg.Key, (byte)seg.Family),
+                // Biome keys are a stable hash the renderer cannot reverse to a name; carry
+                // the segment's already-resolved display name so the card reads "a Forest …"
+                // rather than "a biome:2022653656 …" (see Insight.SubjectLabel).
+                SubjectLabel = seg.Name,
                 Magnitude = new Magnitude
                 {
                     BaselineMs = lifetimeAvg,

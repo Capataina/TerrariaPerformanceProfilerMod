@@ -62,6 +62,9 @@ public sealed class LifetimeSpikeContributorDetector : ICrossSessionDetector
         var ranked = new List<(ModHistory h, long spikes, int sessions)>();
         foreach (ModHistory h in input.CurrentStack)
         {
+            // The profiler runs every tick and so contributes to spike windows by
+            // construction; exclude it from its own ranking (see InsightConstants).
+            if (h.InternalName == InsightConstants.SelfModInternalName) continue;
             int sessions = CrossSessionMath.SessionsInWindow(h.RecentRing, Window);
             if (sessions < 3) continue;
             long spikes = CrossSessionMath.SumSpikes(h.RecentRing, Window);
@@ -109,6 +112,10 @@ public sealed class CostlyDespiteLowUsageDetector : ICrossSessionDetector
         double totalEng = 0d;
         foreach (ModHistory h in input.CurrentStack)
         {
+            // The profiler has zero engagement by construction and runs every tick, so it
+            // always lands in the top-cost / bottom-engagement quadrant; exclude it from
+            // its own ranking (see InsightConstants).
+            if (h.InternalName == InsightConstants.SelfModInternalName) continue;
             int sessions = CrossSessionMath.SessionsInWindow(h.RecentRing, Window);
             if (sessions < 3) continue;
             double cost = CrossSessionMath.AvgCost(h.RecentRing, Window);
@@ -184,7 +191,9 @@ public sealed class CrossModpackCostDivergenceDetector : ICrossSessionDetector
                 if (m.SessionCount < MinSessionsPerStack || m.Cost.Count == 0) continue;
                 qualifyingStacks++;
                 if (m.SessionCount < minSessions) minSessions = m.SessionCount;
-                double c = m.Cost.Mean;
+                // Tick-weighted lifetime average (WeightedMean), so a stack whose history is
+                // dominated by short load-window sessions does not read as spuriously cheap/dear.
+                double c = m.Cost.WeightedMean;
                 if (c < minCost) minCost = c;
                 if (c > maxCost) maxCost = c;
             }

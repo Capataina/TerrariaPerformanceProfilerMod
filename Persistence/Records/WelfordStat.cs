@@ -36,6 +36,23 @@ public sealed class WelfordStat
     public double Mean { get; set; }
     public double M2 { get; set; }
 
+    /// <summary>Sum of fold weights (e.g. total ticks observed across the folded sessions).
+    /// Backs <see cref="WeightedMean"/>. Additive — 0 on legacy rows and on rows only ever
+    /// folded through the unweighted <see cref="FoldSample"/> path.</summary>
+    public double WeightSum { get; set; }
+
+    /// <summary>Sum of value·weight across the folded sessions. Backs <see cref="WeightedMean"/>.</summary>
+    public double WeightedSum { get; set; }
+
+    /// <summary>The reliability-weighted mean (e.g. weighted by ticks observed), so a 6-second
+    /// load-window session can never count as loudly as a 6-minute one. This is the honest
+    /// "lifetime average" for a per-session metric whose sessions vary wildly in length;
+    /// <see cref="Mean"/> stays the equal-weight session-to-session mean (and <see cref="M2"/>
+    /// its variance) for callers that want the per-session distribution. Falls back to
+    /// <see cref="Mean"/> when nothing weighted was folded (legacy rows).</summary>
+    [BsonIgnore]
+    public double WeightedMean => WeightSum > 0d ? WeightedSum / WeightSum : Mean;
+
     /// <summary>Reconstructs the in-memory running stat from the persisted components.</summary>
     public RunningStat AsStat() => RunningStat.FromComponents(Count, Mean, M2);
 
@@ -63,5 +80,23 @@ public sealed class WelfordStat
         var one = new RunningStat();
         one.Add(value);
         Fold(one);
+    }
+
+    /// <summary>
+    /// Folds one per-session sample with a reliability <paramref name="weight"/> (the session's
+    /// ticks observed). Updates the equal-weight session distribution (<see cref="Count"/> /
+    /// <see cref="Mean"/> / <see cref="M2"/> — so the variance stays the honest session-to-session
+    /// spread) AND the weighted accumulators behind <see cref="WeightedMean"/>. Used by the
+    /// cross-session rollup fold so a substantial session dominates the lifetime average in
+    /// proportion to how long it was actually played, not one-session-one-vote.
+    /// </summary>
+    public void FoldSampleWeighted(double value, double weight)
+    {
+        FoldSample(value);
+        if (weight > 0d)
+        {
+            WeightSum += weight;
+            WeightedSum += value * weight;
+        }
     }
 }

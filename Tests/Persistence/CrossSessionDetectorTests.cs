@@ -31,8 +31,11 @@ public sealed class CrossSessionDetectorTests
             ByModlist = byModlist ?? Array.Empty<ModModlistRollupRow>(),
         };
 
-    private static SessionRingEntry Entry(double cost, bool active, int spikes = 0, double engagement = 0)
-        => new SessionRingEntry { CostMs = cost, WasActive = active, SpikeContributions = spikes, EngagementScore = engagement };
+    // ticks defaults above RollupFold.MinSessionTicks so fixtures represent substantial
+    // sessions; the window averages gate out thin (load-window) entries, so a test that
+    // wants a thin entry passes a small ticks value explicitly.
+    private static SessionRingEntry Entry(double cost, bool active, int spikes = 0, double engagement = 0, long ticks = 5000)
+        => new SessionRingEntry { CostMs = cost, WasActive = active, SpikeContributions = spikes, EngagementScore = engagement, TicksObserved = ticks };
 
     private static CrossSessionInput Input(params ModHistory[] mods)
     {
@@ -147,5 +150,41 @@ public sealed class CrossSessionDetectorTests
         for (int i = 0; i < 5; i++) r.Cost.FoldSample(2.0);
         var roamer = Mod("Roamer", new[] { Entry(2, true) }, new[] { r });
         Assert.Empty(Run(new CrossModpackCostDivergenceDetector(), Input(roamer)));
+    }
+
+    // ---- Profiler self-exclusion (the profiler is instrumented like any other mod) ----
+
+    [Fact]
+    public void SpikeContributor_ExcludesTheProfilerItself()
+    {
+        // The profiler runs every tick and so out-spikes everything; without the
+        // self-exclusion it would always rank #1 in its own list.
+        var profiler = Mod(InsightConstants.SelfModInternalName,
+            new[] { Entry(1, true, 9), Entry(1, true, 9), Entry(1, true, 9) }); // 27 spikes
+        var heavy = Mod("Heavy", new[] { Entry(1, true, 4), Entry(1, true, 3), Entry(1, true, 2) }); // 9 spikes
+        var emit = Run(new LifetimeSpikeContributorDetector(), Input(profiler, heavy));
+
+        Assert.DoesNotContain(emit, e => e.Subject.ModId == 0);                      // profiler is index 0
+        Assert.Contains(emit, e => e.Subject.ModId == 1 && e.Pattern == PatternKey.LifetimeSpikeContributor); // Heavy still surfaces
+    }
+
+    [Fact]
+    public void CostlyDespiteLowUsage_ExcludesTheProfilerButStillFlagsRealMods()
+    {
+        // The profiler has zero engagement and high cost by construction, so it would
+        // top the cost-vs-usage ranking; the exclusion drops it while a genuine
+        // costly-yet-unused mod is still surfaced.
+        ModHistory M(string n, double cost, double eng) =>
+            Mod(n, Enumerable.Range(0, 4).Select(_ => Entry(cost, true, 0, eng)).ToList());
+
+        var profiler = M(InsightConstants.SelfModInternalName, cost: 100, eng: 0);
+        var costly = M("Costly", cost: 50, eng: 0);
+        var busyA = M("BusyA", cost: 1, eng: 50);
+        var busyB = M("BusyB", cost: 2, eng: 40);
+        var busyC = M("BusyC", cost: 3, eng: 30);
+
+        var emit = Run(new CostlyDespiteLowUsageDetector(), Input(profiler, costly, busyA, busyB, busyC));
+        Assert.DoesNotContain(emit, e => e.Subject.ModId == 0);                          // profiler (index 0) dropped
+        Assert.Contains(emit, e => e.Subject.ModId == 1 && e.Pattern == PatternKey.CostlyDespiteLowUsage); // Costly (index 1) flagged
     }
 }

@@ -242,7 +242,11 @@ public sealed class ProfilerSystem : ModSystem
                 bool tracksAlloc = PerModAttribution.TracksAllocations;
                 _recorder = new SessionRecorder(
                     db,
-                    profilerVersion: typeof(ProfilerSystem).Assembly.GetName().Version?.ToString() ?? "unknown",
+                    // The mod's build.txt version (Mod.Version), NOT the assembly version —
+                    // the .csproj never stamps AssemblyVersion, so the assembly reads 0.0.0.0,
+                    // which made every session record "0.0.0.0" and left the roadmap-F1 version
+                    // -boundary / regression detection with nothing to detect.
+                    profilerVersion: Mod.Version?.ToString() ?? "unknown",
                     tmlVersion: "1.4.4",
                     mode: mode,
                     tracksAllocations: tracksAlloc,
@@ -447,6 +451,25 @@ public sealed class ProfilerSystem : ModSystem
             if (engine != null)
             {
                 var rows = new List<InsightRow>();
+                // Mod names resolve on the game thread; resolve every contributor's session-local
+                // ModId to its name HERE, so the persisted row is self-contained (a stored ModId
+                // would mis-name the mod on the next launch when load order shifts).
+                string[] insightModNames = HookInterceptor.ProfiledModNames;
+                List<InsightContributorRow> ResolveContribs(Insight rec)
+                {
+                    var list = new List<InsightContributorRow>();
+                    if (rec.Contributors != null)
+                    {
+                        foreach (InsightContributor c in rec.Contributors)
+                        {
+                            int id = c.Subject.ModId;
+                            string nm = (id >= 0 && id < insightModNames.Length) ? insightModNames[id]
+                                      : (id >= 0 ? "mod " + id : "session");
+                            list.Add(new InsightContributorRow { ModName = nm, Value = c.Value, Share = c.Share });
+                        }
+                    }
+                    return list;
+                }
                 void AddRows(IEnumerable<Insight> src)
                 {
                     foreach (Insight rec in src)
@@ -463,6 +486,10 @@ public sealed class ProfilerSystem : ModSystem
                             PValueAdjusted = rec.Evidence.PValueAdjusted,
                             FirstSeenTick = rec.FirstSeenTick,
                             LastConfirmedTick = rec.LastSeenTick,
+                            // Roster context for aggregate patterns (LoadedCount>0); 0/empty otherwise.
+                            LoadedModCount = rec.Magnitude.LoadedCount,
+                            ActiveModCount = rec.Magnitude.LoadedCount > 0 ? rec.Evidence.SampleN : 0,
+                            Contributors = ResolveContribs(rec),
                         });
                     }
                 }

@@ -20,14 +20,17 @@ public sealed class RollupFoldTests
 {
     private static SessionRollupInput Session(double cost, bool active, int spikes = 0,
                                               double engagement = 0, string version = "1.0",
-                                              string fingerprint = "fp-A", DateTime? endedUtc = null)
+                                              string fingerprint = "fp-A", DateTime? endedUtc = null,
+                                              long ticks = 2000)
     {
+        // Default ticks sit above RollupFold.MinSessionTicks (1800), so a session folds into the
+        // cost/alloc/engagement distributions unless a test deliberately passes a thin value.
         var input = new SessionRollupInput
         {
             SessionId = ObjectId.NewObjectId(),
             Fingerprint = fingerprint,
             EndedUtc = endedUtc ?? new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc),
-            TicksObserved = 1000,
+            TicksObserved = ticks,
         };
         input.Mods.Add(new ModSessionContribution
         {
@@ -75,6 +78,54 @@ public sealed class RollupFoldTests
         Assert.Equal(3, row.Cost.Count);
         Assert.Equal(2.0, row.Cost.Mean, 6);  // mean of {1,2,3}
         Assert.Equal(3, row.Ring.Count);
+    }
+
+    [Fact]
+    public void FoldGlobal_ThinSession_SkipsDistributionsButKeepsPresenceAndCounts()
+    {
+        var row = new ModLifetimeRollupRow();
+
+        // One substantial session establishes the cost distribution.
+        SessionRollupInput sub = Session(cost: 5.0, active: true, spikes: 0, ticks: 2000);
+        RollupFold.FoldGlobal(row, sub, sub.Mods[0]);
+
+        // A thin load-window session (below MinSessionTicks) with absurd cost and a real spike.
+        SessionRollupInput thin = Session(cost: 100.0, active: true, spikes: 2,
+                                          ticks: RollupFold.MinSessionTicks - 1);
+        RollupFold.FoldGlobal(row, thin, thin.Mods[0]);
+
+        // The thin session's garbage cost never enters the distribution: the mean stays the
+        // substantial-only mean, and Cost.Count (1) sits below SessionCount (2) by design.
+        Assert.Equal(1, row.Cost.Count);
+        Assert.Equal(5.0, row.Cost.Mean, 6);
+        Assert.Equal(5.0, row.Cost.WeightedMean, 6);
+
+        // Its presence is fully recorded: counted as a session, appended to the ring, and its
+        // spike membership added (event counts are not divided-by-ticks averages).
+        Assert.Equal(2, row.SessionCount);
+        Assert.Equal(2, row.Ring.Count);
+        Assert.Equal(100.0, row.Ring[row.Ring.Count - 1].CostMs, 6); // the thin entry is in the ring
+        Assert.Equal(2, row.TotalSpikeContributions);
+    }
+
+    [Fact]
+    public void FoldGlobal_TickWeighting_LongSessionDominatesLifetimeAverage()
+    {
+        var row = new ModLifetimeRollupRow();
+
+        // A long, cheap session and a short-but-valid, expensive one — both substantial.
+        SessionRollupInput lng = Session(cost: 2.0, active: true, ticks: 20000);
+        SessionRollupInput shrt = Session(cost: 20.0, active: true, ticks: 2000);
+        RollupFold.FoldGlobal(row, lng, lng.Mods[0]);
+        RollupFold.FoldGlobal(row, shrt, shrt.Mods[0]);
+
+        // Equal-weight mean is one-session-one-vote: (2 + 20) / 2 = 11.
+        Assert.Equal(11.0, row.Cost.Mean, 6);
+
+        // Tick-weighted lifetime average: (2·20000 + 20·2000) / 22000 ≈ 3.64, dominated by the
+        // long cheap session and far closer to its 2.0 than the equal-weight 11 is.
+        Assert.Equal(80000d / 22000d, row.Cost.WeightedMean, 6);
+        Assert.True(Math.Abs(row.Cost.WeightedMean - 2.0) < Math.Abs(row.Cost.Mean - 2.0));
     }
 
     [Fact]

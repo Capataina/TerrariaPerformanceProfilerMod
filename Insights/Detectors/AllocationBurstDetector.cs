@@ -74,12 +74,20 @@ public sealed class AllocationBurstDetector : IInsightDetector
                 if (cell < categoryBytes.Count) sum += categoryBytes[cell];
             }
             perModBytes[modId] = sum;
-            sessionTotal += sum;
+            // Exclude the profiler's own allocation from the denominator too, not just from the
+            // emit below: its render/persistence bytes would otherwise inflate sessionTotal and
+            // deflate every other mod's share (self-identification, see InsightConstants).
+            if (modNames[modId] != InsightConstants.SelfModInternalName) sessionTotal += sum;
         }
         if (sessionTotal <= 0d) return;
 
         for (int modId = 0; modId < modNames.Length; modId++)
         {
+            // The profiler is instrumented like any other mod, so its own render /
+            // persistence allocations land here; it would otherwise always rank as a
+            // dominant allocator. Drop it (self-identification, see InsightConstants).
+            if (modNames[modId] == InsightConstants.SelfModInternalName) continue;
+
             double bytes = perModBytes[modId];
             if (bytes < AbsoluteFloorBytesPerTick) continue;
             double share = bytes / sessionTotal;
