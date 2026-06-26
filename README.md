@@ -4,7 +4,7 @@
 
 ### Per-mod CPU, RAM, and *engagement* attribution for your entire modded Terraria session — live, in your browser.
 
-![status](https://img.shields.io/badge/status-v0.27.0%20·%20seven%20live%20tabs%20·%20cross--session%20memory-79c0ff?style=flat-square)
+![status](https://img.shields.io/badge/status-v0.27.1%20·%20seven%20live%20tabs%20·%20cross--session%20memory-79c0ff?style=flat-square)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4-1b7340?style=flat-square)
 ![read-only](https://img.shields.io/badge/instrumentation-read--only-95d4a3?style=flat-square)
@@ -361,13 +361,16 @@ markup — add an eighth tab tomorrow and it is audited with zero harness change
 ## Roadmap
 
 ```
-  NOW  ── v0.27.0 ─────────────────────────────────────────────────────────────────
+  NOW  ── v0.27.1 ─────────────────────────────────────────────────────────────────
          seven live tabs (Observatory + Insights split) · rich chart vocabulary ·
          insights engine (5 families) · the CROSS-SESSION HISTORY LAYER: a two-level
          per-mod rollup keyed on stable identity, a HistoryStore read layer, cross-
          session + cross-modpack detectors (LifetimeData), a session-end insight
          producer, modlist-change detection, and a player-initiated reset control ·
-         off-game L4/L6/L8 testing harness
+         off-game L4/L6/L8 testing harness · v0.27.1 DATA-QUALITY pass: a thin-session
+         gate + tick-weighted lifetime averages (load-window sessions no longer inflate
+         the mean), insights that name their mods + show the loaded/idle roster,
+         profiler self-exclusion, a roster-evolution matrix, and a session/roster banner
 
   NEXT ───────────────────────────────────────────────────────────────────────────
    ◇ ContextBaseline re-key on stable identity        (per-context cost baselines
