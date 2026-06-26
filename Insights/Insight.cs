@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using PerformanceProfiler.Profiling;
 using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Data.Detectors;
@@ -162,6 +163,30 @@ public readonly struct SubjectRef
 }
 
 /// <summary>
+/// One named participant behind an aggregate insight: which subject it is, its raw
+/// value (e.g. ms/tick), and its share of the aggregate. Lets a "3 of 26 mods carry
+/// 71%" record name the three and show each one's slice, instead of emitting a bare
+/// count that reads as wrong when the roster size has shifted. Populated only by
+/// aggregate detectors (CostConcentration, …); single-subject insights leave
+/// <see cref="Insight.Contributors"/> null. Allocated off-thread at ≤1 Hz, never per tick.
+/// </summary>
+public readonly struct InsightContributor
+{
+    public readonly SubjectRef Subject;
+    /// <summary>The contributor's raw value in the aggregate's unit (e.g. ms/tick).</summary>
+    public readonly double Value;
+    /// <summary>The contributor's share of the aggregate, a fraction in [0,1].</summary>
+    public readonly double Share;
+
+    public InsightContributor(SubjectRef subject, double value, double share)
+    {
+        Subject = subject;
+        Value = value;
+        Share = share;
+    }
+}
+
+/// <summary>
 /// The numeric shape an insight's <see cref="Magnitude"/> carries. The five
 /// families need different numbers (a deviation, a rate, a scaling law, a
 /// headroom, a distribution), so the meaningful <see cref="Magnitude"/> fields
@@ -206,6 +231,10 @@ public struct Magnitude
     public double RatioOrDelta;
     public long   AllocBytes;
     public int    Count;
+    /// <summary>For Share / structure patterns over a roster: the total subjects loaded
+    /// (e.g. mods present this session), so a "N of M active" count can also report
+    /// "of K loaded" and name the idle remainder. 0 when the pattern has no roster.</summary>
+    public int    LoadedCount;
 
     // ---- Rate (Family B: drift / leak / warmup) ----
     /// <summary>Change per unit (e.g. heap MB per minute, ms per 1000 ticks).</summary>
@@ -281,6 +310,15 @@ public sealed class Insight
     public long FirstSeenTick;
     public long LastSeenTick;
     public int  ConfirmationCount;
+
+    /// <summary>
+    /// Named participants behind an aggregate insight (e.g. the top-N mods a
+    /// CostConcentration record is about), each with its value and share. Null for
+    /// single-subject insights. Populated by the detector off-thread at ≤1 Hz, consumed
+    /// by the renderer and the /api/insights payload so a count like "3 of 26" names the
+    /// three rather than leaving the reader to guess which mods.
+    /// </summary>
+    public List<InsightContributor>? Contributors;
 
     /// <summary>Cached short-form string for the Player audience; cleared when ranking mutates state.</summary>
     public string? CachedShortPlayer;
