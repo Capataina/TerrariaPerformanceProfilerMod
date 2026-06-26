@@ -285,9 +285,33 @@ function renderInsightKanban() {
   });
 }
 
+// The contributor breakdown for an AGGREGATE card — those whose backing record
+// names its participants (CostConcentration and the like). A split bar of each
+// named mod's share of the WHOLE (so '3 of 26 carry 75%' fills ~75% of the track
+// and the empty remainder reads as the long tail), the per-mod legend, and a thin
+// roster line naming the idle remainder. Returns '' for single-subject cards,
+// which carry no contributors, so the block only ever appears on aggregate cards.
+function kanbanContributors(r) {
+  const cs = Array.isArray(r.contributors) ? r.contributors : [];
+  if (cs.length === 0) return '';
+  const segs = cs.map(c => ({
+    frac: Math.max(0, Math.min(1, c.share || 0)),
+    color: modColor(c.modId),
+    label: truncate(c.modName || ('mod ' + c.modId), 16),
+    value: Math.round((c.share || 0) * 100) + '%',
+  }));
+  let roster = '';
+  if (r.loadedModCount > 0) {
+    const idle = Math.max(0, (r.loadedModCount || 0) - (r.activeModCount || 0));
+    roster = `<div class='kc-roster'>${fmtInt(r.loadedModCount)} loaded · ${fmtInt(idle)} idle</div>`;
+  }
+  return `<div class='kc-contrib'>${splitBar(segs, { thin: true })}${splitLegend(segs)}${roster}</div>`;
+}
+
 // One kanban card. Confidence-tinted left edge + a soft shadow (the card feel).
 // Top: the subject mod chip + the confidence badge. Body: the finding sentence
-// (the hero). Foot: a magnitude strength bar + the data-strength badge.
+// (the hero), then a contributor breakdown on aggregate cards. Foot: a magnitude
+// strength bar + the data-strength badge.
 function kanbanCard(r) {
   const conf = r.confidence || 'Preliminary';
   const edge = confColor(conf);
@@ -301,6 +325,7 @@ function kanbanCard(r) {
       ${badge(conf.toLowerCase(), confTone(conf))}
     </div>
     <div class='kc-text'>${escapeHtml(r.shortText || '')}</div>
+    ${kanbanContributors(r)}
     <div class='kc-foot'>
       <span class='kc-strength'>${cellBar(strength, edge)}</span>
       ${scopeBadge(r.scope)}

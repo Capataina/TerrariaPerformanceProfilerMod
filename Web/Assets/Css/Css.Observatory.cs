@@ -86,5 +86,47 @@ internal static partial class DashboardAssets
 .corr-chord { display: flex; justify-content: center; margin-bottom: 0.5rem; }
 .corr-chord .chart-chord { max-width: 19rem; }
 #obs-corr .dtable td.l, #obs-corr .dtable th.l { max-width: 8rem; }
+
+/* Roster-evolution matrix: union of every mod (rows) × every distinct modlist
+   the player has run (columns, oldest -> newest). A monochrome fill = present,
+   empty = absent, a single accent ring = the version changed from the prior
+   roster. The matrix can be wider than its panel, so its scroll region scrolls
+   on both axes and the mod-name column + header row stay pinned as it scrolls. */
+#obs-roster #roster-scroll { overflow: auto; }
+.rmx {
+  display: grid; gap: 2px; font-family: var(--mono);
+  padding: 0.2rem 0.4rem 0.4rem; min-width: max-content;
+}
+/* Corner is pinned on both axes (it overlaps the sticky row + column). */
+.rmx-corner {
+  position: sticky; left: 0; top: 0; z-index: 3; background: var(--panel);
+  color: var(--dim); font-size: 0.66rem; display: flex; align-items: flex-end;
+  padding: 0.2rem 0.45rem;
+}
+/* Column headers pin to the top: a stack index, the first-seen date, the short fp. */
+.rmx-col {
+  position: sticky; top: 0; z-index: 2; background: var(--panel);
+  display: flex; flex-direction: column; align-items: center; gap: 0.04rem;
+  padding: 0.25rem 0.2rem; text-align: center;
+}
+.rmx-col .rmx-cn { color: var(--muted); font-size: 0.68rem; }
+.rmx-col .rmx-cd { color: var(--text); font-size: 0.66rem; }
+.rmx-col .rmx-cf { color: var(--dim); font-size: 0.58rem; }
+/* Mod name pins to the left. */
+.rmx-name {
+  position: sticky; left: 0; z-index: 1; background: var(--panel);
+  color: var(--muted); font-size: 0.72rem; text-align: right; align-self: center;
+  padding: 0.2rem 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rmx-cell {
+  display: flex; align-items: center; justify-content: center; min-height: 1.6rem;
+  border-radius: 2px; font-size: 0.64rem; color: var(--text-bright);
+  font-variant-numeric: tabular-nums; padding: 0 0.2rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rmx-cell.absent { background: var(--surface); color: var(--dim); }
+/* The one accent: a bright ring + accent text flags the version bump. */
+.rmx-cell.changed { box-shadow: inset 0 0 0 1px var(--accent-line); color: var(--accent); }
+.rmx-key { margin: 0.45rem 0.4rem 0.1rem; }
 ";
 }

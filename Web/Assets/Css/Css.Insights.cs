@@ -83,6 +83,16 @@ internal static partial class DashboardAssets
 .kc-mod { min-width: 0; flex: 0 1 auto; overflow: hidden; }
 .kc-text { font-family: var(--ui); font-size: 0.82rem; color: var(--text); line-height: 1.4; }
 .kc-text::first-letter { text-transform: uppercase; }
+
+/* Aggregate-card contributor breakdown: the named mods' share of the whole. The
+   split-bar segments are the only colour on the card (each a per-mod hue); the
+   legend and roster line stay muted chrome. Tightened from the component defaults
+   so the block reads as a compact footnote under the finding, not a second hero. */
+.kc-contrib { display: flex; flex-direction: column; gap: 0.3rem; }
+.kc-contrib .bar-legend { margin-top: 0; font-size: 0.66rem; gap: 0.1rem 0.55rem; }
+.kc-contrib .bar-legend .sw { width: 0.5rem; height: 0.5rem; }
+.kc-roster { font-family: var(--mono); font-size: 0.62rem; color: var(--dim); letter-spacing: 0.02em; }
+
 .kc-foot { display: flex; align-items: center; gap: 0.5rem; }
 .kc-strength { flex: 1; min-width: 3rem; }
 

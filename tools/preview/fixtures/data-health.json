@@ -1,8 +1,10 @@
 {
   "available": true,
   "worldLoaded": true,
+  "currentModCount": 29,
   "sessionCount": 14,
   "endedSessionCount": 13,
+  "substantialSessionCount": 9,
   "modlistCount": 2,
   "modsTracked": 47,
   "dbFileSizeBytes": 6815744,

@@ -26,6 +26,7 @@ internal static partial class DashboardAssets
           <div id=""obs-scatter""></div>
           <div id=""obs-corr""></div>
         </div>
+        <div id=""obs-roster""></div>
         <div id=""obs-dormant""></div>
       </div>
     </section>

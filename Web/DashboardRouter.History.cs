@@ -122,8 +122,10 @@ internal static partial class DashboardRouter
             {
                 available = true,
                 worldLoaded = currentRoster.Length > 0,
+                currentModCount = currentRoster.Length,
                 sessionCount = v.SessionCount,
                 endedSessionCount = v.EndedSessionCount,
+                substantialSessionCount = v.SubstantialSessionCount,
                 modlistCount = v.ModlistCount,
                 modsTracked = v.ModsTracked,
                 dbFileSizeBytes = v.DbFileSizeBytes,

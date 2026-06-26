@@ -39,7 +39,7 @@ API = ["now", "mods", "hooks", "frames", "segments", "spikes", "stalls", "insigh
        "segment-mod-attribution", "transitions", "activity-strip", "attendance",
        "deaths", "chronicle", "lag-clusters", "gc", "lag-density", "gc-causality",
        "lag-rhythm", "mod-observatory", "dormant", "cross-cutting",
-       "engagement-cost", "mod-interaction", "data-health"]
+       "engagement-cost", "mod-interaction", "data-health", "modlist-history"]
 
 _UNLOCK = ("'.app{height:auto!important}'+"
            "'.content{overflow:visible!important;height:auto!important;max-height:none!important}'+"

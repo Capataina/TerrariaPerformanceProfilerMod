@@ -34,6 +34,29 @@ internal static partial class DashboardRouter
             string subjectName = rec.Subject.ModId >= 0 && rec.Subject.ModId < modNames.Length
                 ? modNames[rec.Subject.ModId]
                 : null!;
+
+            // Aggregate insights name their participants (e.g. the three mods behind a
+            // "3 of 26 carry 75%" record); single-subject insights leave Contributors
+            // null, so this stays an empty array. Each Subject.ModId is an offset into
+            // ProfiledModNames — resolve with the same bounds guard as the subject,
+            // falling back to "mod N" so the client always has a label to colour by.
+            var contributors = new List<object>(rec.Contributors?.Count ?? 0);
+            if (rec.Contributors != null)
+            {
+                foreach (var c in rec.Contributors)
+                {
+                    int cid = c.Subject.ModId;
+                    string cname = cid >= 0 && cid < modNames.Length ? modNames[cid] : "mod " + cid;
+                    contributors.Add(new
+                    {
+                        modId = cid,
+                        modName = cname,
+                        value = c.Value,
+                        share = c.Share,
+                    });
+                }
+            }
+
             return new
             {
                 pattern = rec.Pattern.ToString(),
@@ -50,6 +73,13 @@ internal static partial class DashboardRouter
                 firstSeenTick = rec.FirstSeenTick,
                 lastSeenTick = rec.LastSeenTick,
                 confirmationCount = rec.ConfirmationCount,
+                // Roster context: total mods loaded this session, and how many actually
+                // contributed cost (SampleN, only meaningful once a roster is present),
+                // so an aggregate count can name the idle remainder rather than reading
+                // as wrong on a session where some loaded mods never ran.
+                loadedModCount = rec.Magnitude.LoadedCount,
+                activeModCount = rec.Magnitude.LoadedCount > 0 ? rec.Evidence.SampleN : 0,
+                contributors,
             };
         }
 

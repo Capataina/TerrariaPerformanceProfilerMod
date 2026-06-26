@@ -89,6 +89,13 @@ public sealed class DataHealthView
 {
     public int SessionCount { get; set; }
     public int EndedSessionCount { get; set; }
+
+    /// <summary>Of the ended sessions, how many cleared <see cref="RollupFold.MinSessionTicks"/>
+    /// (~30 s of simulation) and so feed the lifetime averages — the thin remainder are
+    /// world-load windows excluded from the rollup. Lets the player see how trustworthy a
+    /// lifetime number is: how much tracked history is substantial vs too short to count.</summary>
+    public int SubstantialSessionCount { get; set; }
+
     public int ModlistCount { get; set; }
     public int ModsTracked { get; set; }
     public long DbFileSizeBytes { get; set; }

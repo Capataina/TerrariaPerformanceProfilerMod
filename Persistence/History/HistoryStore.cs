@@ -180,13 +180,18 @@ public sealed class HistoryStore
         {
             v.SessionCount = _db.Sessions.Count();
             DateTime? lastEnded = null;
-            int ended = 0;
+            int ended = 0, substantial = 0;
             foreach (SessionRow s in _db.Sessions.Find(x => x.EndedUtc != null))
             {
                 ended++;
                 if (s.EndedUtc != null && (lastEnded == null || s.EndedUtc > lastEnded)) lastEnded = s.EndedUtc;
+                // Same substance gate the lifetime fold uses (RollupFold.MinSessionTicks): a
+                // session under ~30 s of simulation is a world-load window whose per-tick
+                // averages are excluded from the rollup, so it does not count as substantial.
+                if (s.TicksObserved >= RollupFold.MinSessionTicks) substantial++;
             }
             v.EndedSessionCount = ended;
+            v.SubstantialSessionCount = substantial;
             v.LastSessionEndedUtc = lastEnded;
             v.ModlistCount = _db.Modlists.Count();
             v.ModsTracked = _db.ModLifetimeRollups.Count();

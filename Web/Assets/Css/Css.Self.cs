@@ -68,5 +68,16 @@ internal static partial class DashboardAssets
   font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
   color: var(--dim); margin-right: 0.4rem;
 }
+
+/* Roster banner: the live modlist size leads, the signed delta vs last session
+   trails. Count reads at panel-text weight; the delta + 'since last session' sit
+   muted beside it so the badges carry the colour, not the surrounding chrome. */
+.dh-roster { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem; }
+.dh-roster-count { font-family: var(--ui); font-size: 0.92rem; font-weight: 600; color: var(--text); }
+.dh-roster-delta { font-family: var(--ui); font-size: 0.74rem; color: var(--muted); }
+
+/* Thin-session note: how many tracked sessions were too short to feed the lifetime
+   averages — a muted aside under the stat grid, same register as a change line. */
+.dh-thin-note { font-family: var(--ui); font-size: 0.72rem; color: var(--dim); margin-top: 0.45rem; }
 ";
 }

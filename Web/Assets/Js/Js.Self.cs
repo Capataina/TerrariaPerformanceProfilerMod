@@ -172,18 +172,37 @@ function renderDataHealth() {
   const h = lastDataHealth;
   if (!h || !h.available) { el.innerHTML = emptyState('cross-session store unavailable'); return; }
 
+  // Thin-session split: lifetime averages exclude sessions under ~30 s of simulation
+  // (world-load windows, see RollupFold.MinSessionTicks), so the 'sessions tracked' tile
+  // carries an N-of-M substantial sub-line and a muted note quantifies the thin remainder.
+  // Makes a lifetime number's trustworthiness visible: how much history actually counts.
+  const ended = h.endedSessionCount || 0;
+  const substantial = h.substantialSessionCount;
+  const hasSplit = substantial != null && ended >= substantial;
+  const thin = hasSplit ? ended - substantial : null;
+
   let html = statGrid([
-    statTile({ k: 'sessions tracked', v: dash(h.endedSessionCount, fmtInt) }),
+    statTile({ k: 'sessions tracked', v: dash(h.endedSessionCount, fmtInt),
+               sub: hasSplit ? fmtInt(substantial) + ' of ' + fmtInt(ended) + ' substantial' : null }),
     statTile({ k: 'modlists seen', v: dash(h.modlistCount, fmtInt) }),
     statTile({ k: 'mods remembered', v: dash(h.modsTracked, fmtInt) }),
     statTile({ k: 'store size', v: dash(h.dbFileSizeBytes, fmtBytes) }),
   ]);
+  if (thin != null && thin > 0) {
+    html += `<div class='dh-thin-note'>${fmtInt(thin)} session${thin === 1 ? '' : 's'} too short (under ~30s) to count toward lifetime averages</div>`;
+  }
 
-  // Modlist-change signal (player surface for the wave-3 detection). Only when the
-  // current stack genuinely differs from the previous session's.
+  // Roster banner (player surface for the wave-3 modlist-change detection). Only when the
+  // current stack genuinely differs from the previous session's: leads with the live modlist
+  // size, then the signed delta vs last session, then the named adds/removes — 'how big is my
+  // stack now and what moved since last time' in one banner.
   if (h.modlistHadPrior && h.modlistChanged) {
     const added = (h.modsAdded || []), removed = (h.modsRemoved || []);
-    let body = `modlist changed since your last session ` + badge('+' + added.length, 'good') + ' ' + badge('-' + removed.length, 'bad');
+    const count = h.currentModCount || 0;
+    const head = (count > 0 ? `<span class='dh-roster-count'>${fmtInt(count)} mods</span>` : '') +
+      `<span class='dh-roster-delta'>` + badge('+' + added.length, 'good') + ' ' + badge('-' + removed.length, 'bad') +
+      ` since last session</span>`;
+    let body = `<div class='dh-roster'>` + head + `</div>`;
     if (added.length) body += `<div class='dh-change-line'><span class='dh-change-k'>added</span> ${added.map(escapeHtml).join(', ')}</div>`;
     if (removed.length) body += `<div class='dh-change-line'><span class='dh-change-k'>removed</span> ${removed.map(escapeHtml).join(', ')}</div>`;
     html += `<div class='dh-change'>` + callout(body) + `</div>`;

@@ -22,6 +22,7 @@ let lastModObservatory = null;
 let lastDormant = null;
 let lastEngagementCost = null;
 let lastModInteraction = null;
+let lastModlistHistory = null;
 
 let selectedObservatoryModId = -1;
 
@@ -53,16 +54,18 @@ const ROSTER_CATS = [
 async function pollObservatory() {
   if (activeTab !== 'observatory') return;
   try {
-    const [mo, dr, ec, mi] = await Promise.all([
+    const [mo, dr, ec, mi, mh] = await Promise.all([
       fetch('/api/mod-observatory', { cache: 'no-store' }).then(r => r.json()),
       fetch('/api/dormant',         { cache: 'no-store' }).then(r => r.json()),
       fetch('/api/engagement-cost', { cache: 'no-store' }).then(r => r.json()),
       fetch('/api/mod-interaction', { cache: 'no-store' }).then(r => r.json()),
+      fetch('/api/modlist-history', { cache: 'no-store' }).then(r => r.json()),
     ]);
     lastModObservatory = mo;
     lastDormant = dr;
     lastEngagementCost = ec;
     lastModInteraction = mi;
+    lastModlistHistory = mh;
     renderObservatory();
   } catch (e) { /* swallow — next tick will retry */ }
 }
@@ -75,6 +78,7 @@ function renderObservatory() {
   renderObservatoryDetail();
   renderEngagementScatter();
   renderModCorrelation();
+  renderRosterMatrix();
   renderDormantSurface();
 }
 
@@ -484,6 +488,88 @@ function renderModCorrelation() {
 
   setHTML(body, `<div class='corr-chord'>${chordSvg}</div>` +
     dtable(`<tr><th class='dim'>#</th><th class='l'>mod A</th><th class='l'>mod B</th><th>r</th></tr>`, rows));
+}
+
+// ----- roster evolution matrix ---------------------------------------
+// Every distinct modlist the player has run is one column (oldest -> newest); the
+// union of every mod ever seen is the rows. A cell carries the version the mod ran
+// at in that roster: a monochrome fill = present, an empty cell = absent, and a
+// single accent = the version changed from the prior roster the mod appeared in.
+// The presence blocks read adds/removes at a glance; the accent reads version
+// bumps. Pure measurement of what was loaded — no verdict on any roster or mod.
+function renderRosterMatrix() {
+  const root = document.getElementById('obs-roster');
+  if (!root) return;
+
+  let scroll = root.querySelector('#roster-scroll');
+  if (!scroll) {
+    root.innerHTML = panel({
+      title: 'roster evolution', sub: '—',
+      body: `<div class='ins-caption'>every distinct modlist you have run, oldest to newest — a filled cell is the version that roster ran, an accent marks a version that changed from the prior roster, an empty cell means the mod was not in that roster</div>` +
+        scrollRegion('roster-scroll', '', { maxH: '30rem' }),
+      pad: 'flush',
+    });
+    scroll = root.querySelector('#roster-scroll');
+  }
+  const subEl = root.querySelector('.panel-sub');
+  const mh = lastModlistHistory;
+
+  if (!mh || !mh.available || !mh.modlists || mh.modlists.length === 0) {
+    if (subEl) subEl.textContent = '—';
+    renderIfChanged('obsRoster', 'empty', () => setHTML(scroll, emptyState('no roster history persisted yet (needs ≥1 ended session)')));
+    return;
+  }
+
+  const lists = mh.modlists, mods = mh.mods || [], versions = mh.versions || [];
+  if (subEl) subEl.textContent = `${fmtInt(mods.length)} mods · ${fmtInt(lists.length)} rosters`;
+
+  // Rebuild only when the persisted matrix actually changes (the 3s poll
+  // otherwise churns the whole grid every tick).
+  const sig = lists.map(l => l.fingerprint + ':' + l.sessionCount).join(',') + '|' +
+    mods.map((m, i) => m.name + ':' + (versions[i] || []).join('/')).join(',');
+  if (_renderSig['obsRoster'] === sig) return;
+  _renderSig['obsRoster'] = sig;
+
+  // Column headers carry the timeline cue without colour: a stack index, the
+  // first-seen date, and the short fingerprint; the title= holds the full weight.
+  const head = lists.map((l, c) => {
+    const d = l.firstSeenUtc ? new Date(l.firstSeenUtc) : null;
+    const date = d && !isNaN(d) ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—';
+    const tip = `roster ${c + 1} · ${l.shortFp || ''} · ${fmtInt(l.modCount)} mods · ${fmtInt(l.sessionCount)} sessions · first seen ${date}`;
+    return `<div class='rmx-col' title='${escapeHtml(tip)}'>` +
+      `<span class='rmx-cn'>stack ${c + 1}</span>` +
+      `<span class='rmx-cd'>${escapeHtml(date)}</span>` +
+      `<span class='rmx-cf'>${escapeHtml(l.shortFp || '')}</span></div>`;
+  }).join('');
+
+  const PRESENT = heatFill(0.55);
+  const body = mods.map((m, r) => {
+    const vrow = versions[r] || [];
+    let prev = '';   // last non-empty version walking left -> right (held across gaps)
+    const cells = lists.map((l, c) => {
+      const v = vrow[c] || '';
+      if (!v) return `<div class='rmx-cell absent' title='${escapeHtml(m.name + ' · not in stack ' + (c + 1))}'></div>`;
+      const changed = prev !== '' && prev !== v;
+      const tip = changed
+        ? m.name + ' · stack ' + (c + 1) + ' · v' + prev + ' → v' + v
+        : m.name + ' · stack ' + (c + 1) + ' · v' + v;
+      prev = v;
+      return `<div class='rmx-cell present${changed ? ' changed' : ''}' style='background:${PRESENT}' title='${escapeHtml(tip)}'>${escapeHtml(v)}</div>`;
+    }).join('');
+    const nameTip = m.name + ' · in ' + fmtInt(m.presentCount) + ' of ' + fmtInt(lists.length) + ' rosters';
+    return `<div class='rmx-name' title='${escapeHtml(nameTip)}'>${escapeHtml(m.name)}</div>${cells}`;
+  }).join('');
+
+  const cols = `minmax(7rem, 12rem) repeat(${lists.length}, minmax(3.4rem, 1fr))`;
+  const key = legend([
+    { color: PRESENT, label: 'present (version shown)' },
+    { color: 'var(--accent)', label: 'version changed' },
+    { color: 'var(--surface)', label: 'absent' },
+  ], { inline: true });
+
+  setHTML(scroll, `<div class='rmx' style='grid-template-columns:${cols}'>` +
+    `<div class='rmx-corner'>mod</div>${head}${body}</div>` +
+    `<div class='rmx-key'>${key}</div>`);
 }
 
 // ----- dormant content (reference table) -----------------------------
