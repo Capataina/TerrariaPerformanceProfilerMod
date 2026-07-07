@@ -376,6 +376,14 @@ function renderModStream() {
   const n = arr.length;
   const series = arr.map((s, i) => ({ label: s.name, values: s.values, color: streamRamp(i, n) }));
   const samples = Math.max(...arr.map(s => s.values.length));
+  // A stream needs a direction to flow in: with a single sample the area
+  // chart degenerates into full-width flat slabs (audit S1 — the grey-bands
+  // screenshot). Hold the warming state until two samples exist.
+  if (samples < 2) {
+    root.innerHTML = emptyState('building the per-mod cost stream… (first samples land ~5s apart)');
+    if (sub) sub.textContent = `top ${n} mods · 1 sample — warming`;
+    return;
+  }
   root.innerHTML = streamArea({ series, w: 1200, h: 150, line: true, markers: true });
   const more = ranked.length > n ? ` of ${ranked.length}` : '';
   if (sub) sub.textContent = `top ${n}${more} mods · last ${samples} sample${samples === 1 ? '' : 's'} (~5s each)`;

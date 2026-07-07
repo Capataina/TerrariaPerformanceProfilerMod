@@ -7,7 +7,7 @@ internal static partial class DashboardAssets
     private const string HtmlClosing = @"</main>
 
   <footer class=""footstrip"">
-    <span id=""foot-cadence"">polling /api · 500 ms · 1-6 to switch tabs</span>
+    <span id=""foot-cadence"">polling /api · 500 ms · 1-7 to switch tabs</span>
     <span id=""foot-clock"">—</span>
     <span class=""foot-spacer""></span>
     <span id=""foot-mode"">—</span>

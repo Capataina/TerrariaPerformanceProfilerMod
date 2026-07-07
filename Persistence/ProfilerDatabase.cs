@@ -326,6 +326,23 @@ public sealed class ProfilerDatabase : IDisposable
         try
         {
             _writer.Dispose();
+
+            // Shutdown-race guard (H2, 2026-07-07): _writer.Dispose() joins the
+            // worker thread with a bounded timeout. If that join TIMED OUT (a
+            // slow final drain/checkpoint), the worker may still be inside
+            // ApplyBatch — disposing the LiteDB underneath it is exactly the
+            // "ObjectDisposedException: Cannot access a closed file" from the
+            // 19:03 client.log. Never close the store under a live writer:
+            // leaking the handle until process exit is the abort-clean choice;
+            // corrupting-or-throwing under a racing thread is not.
+            if (_writer.WorkerAlive)
+            {
+                _log("ProfilerDatabase: writer thread still alive after join timeout — " +
+                     "skipping LiteDB dispose to avoid closing the file under an in-flight batch", null);
+                _disposed = true;
+                return;
+            }
+
             RotateBackups();
             _db.Dispose();
             _journal.TruncateOnCleanShutdown();

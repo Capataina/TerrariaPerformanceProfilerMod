@@ -153,7 +153,10 @@ function renderMemory() {
   // Legend — top 8 + rest, clickable (legend() lg rows; we add data-mod so the
   // delegated handler picks them up like the strip + table).
   const top = rows.slice(0, 8);
-  const items = top.map(r => ({ color: modColor(r.m.id), label: truncate(r.m.name, 18), value: fmtBytes(r.v) }));
+  // 26 chars fits the longest real internal names (audit M3: 18 truncated the
+  // profiler's own 19-char name to 'PerformanceProfil…' in its OWN legend);
+  // anything longer still ellipsises but keeps the distinguishing tail longer.
+  const items = top.map(r => ({ color: modColor(r.m.id), label: truncate(r.m.name, 26), value: fmtBytes(r.v) }));
   if (rows.length > top.length) {
     const restSum = rows.slice(8).reduce((s, r) => s + r.v, 0);
     items.push({ color: 'var(--dim)', label: '+' + (rows.length - top.length) + ' more', value: fmtBytes(restSum) });
@@ -236,7 +239,11 @@ function renderMemory() {
         + `</span></td>`
       + `<td class='l mem-col-fp'>${segs ? splitBar(segs, { thin: true }) : dash(null)}</td>`
       + `<td class='muted'>${fmtInt(m.hookCount)}</td>`
-      + `<td class='muted'>${dash(mem.tracksAllocations ? m.allocBytes : null, fmtBytes)}</td>`
+      // X5 null-vs-zero: while allocation tracking is ON, a missing figure is
+      // a measured zero (the payload omits no-alloc mods), so it must render
+      // '0 B' like its siblings; '—' is reserved for tracking OFF (not
+      // instrumented). Mixed 0-and-dash in one column read as broken data.
+      + `<td class='muted'>${dash(mem.tracksAllocations ? (m.allocBytes || 0) : null, fmtBytes)}</td>`
       + `</tr>`;
   }
   html += dtable(headRow, bodyRows);

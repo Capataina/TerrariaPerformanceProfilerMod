@@ -31,7 +31,10 @@ internal static partial class DashboardAssets
 /* ============================================================== TOP BAR */
 .topbar {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  /* Four tracks for the four children (brand · live · topstats · controls).
+     The old three-track template dropped the reset button onto an implicit
+     second row (audit X8/H1) — a column count bug, not a width issue. */
+  grid-template-columns: auto auto 1fr auto;
   gap: 1.4rem;
   align-items: center;
   padding: 0.7rem 1.2rem;

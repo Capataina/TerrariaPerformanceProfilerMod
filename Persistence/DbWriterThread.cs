@@ -54,6 +54,11 @@ public sealed class DbWriterThread : IDisposable
     private long _droppedWarmCount;
     private int _approxQueueDepth;
 
+    // Set when ApplyBatch threw ObjectDisposedException (the store closed
+    // underneath the worker — H2). DrainAndShutdown must not touch the DB
+    // after this; the tail is journaled instead and replays on next startup.
+    private bool _storeClosed;
+
     public long DroppedWarmCount => Volatile.Read(ref _droppedWarmCount);
 
     /// <summary>
@@ -63,6 +68,14 @@ public sealed class DbWriterThread : IDisposable
     /// Diagnostic / test-fixture use only.
     /// </summary>
     public int ApproxQueueDepth => Volatile.Read(ref _approxQueueDepth);
+
+    /// <summary>
+    /// True while the worker thread runs. Read by
+    /// <see cref="ProfilerDatabase.Dispose"/> after the join: if the join
+    /// timed out, the database must NOT be closed underneath the still-running
+    /// worker (the H2 shutdown race).
+    /// </summary>
+    public bool WorkerAlive => _worker.IsAlive;
 
     public DbWriterThread(ProfilerDatabase db, EventJournal journal, Action<string, Exception?>? log = null)
     {
@@ -153,6 +166,17 @@ public sealed class DbWriterThread : IDisposable
                     _db.ApplyBatch(batch);
                     _pendingSinceLastCheckpoint += batch.Count;
                 }
+                catch (ObjectDisposedException ex)
+                {
+                    // The store closed underneath us (H2 shutdown race). This
+                    // is terminal, not transient: every further batch would
+                    // throw the same way, so stop cleanly instead of hammering
+                    // a closed file once per second. The journaled ops replay
+                    // on next startup — nothing in this batch is lost.
+                    _log("ProfilerDbWriter: store closed mid-batch; stopping (journaled ops will replay)", ex);
+                    _storeClosed = true;
+                    break;
+                }
                 catch (Exception ex)
                 {
                     _log("ProfilerDbWriter: batch apply failed", ex);
@@ -200,13 +224,19 @@ public sealed class DbWriterThread : IDisposable
         {
             try
             {
+                // Journal the tail unconditionally (durable truth — it replays
+                // on next startup); only touch the DB if it is still open.
                 _journal.AppendBatch(batch);
                 _journal.Flush();
-                _db.ApplyBatch(batch);
+                if (!_storeClosed)
+                {
+                    _db.ApplyBatch(batch);
+                }
             }
             catch (Exception ex) { _log("ProfilerDbWriter: drain apply failed", ex); }
         }
 
+        if (_storeClosed) return;
         try { _db.Checkpoint(); }
         catch (Exception ex) { _log("ProfilerDbWriter: final checkpoint failed", ex); }
     }

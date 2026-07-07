@@ -315,7 +315,13 @@ function renderObservatoryDetail() {
     ['invasions', r.invasions, u.invasionsFought],
     ['bosses', r.bosses, u.bossesFought],
   ].map(([k, ros, used]) => {
-    const usedCell = used == null ? `<td class='dim'>—</td>` : `<td>${fmtInt(used)}</td>`;
+    // X5 null-vs-zero convention: '—' means NO USAGE COUNTER EXISTS for the
+    // category (not instrumented), a real 0 means instrumented-and-unused.
+    // The tooltip carries the distinction so a mixed column reads as designed
+    // rather than as broken data.
+    const usedCell = used == null
+      ? `<td class='dim' title='no usage counter exists for this category yet'>—</td>`
+      : `<td>${fmtInt(used)}</td>`;
     return `<tr><td class='l'>${k}</td><td>${fmtInt(ros)}</td>${usedCell}</tr>`;
   }).join('');
 

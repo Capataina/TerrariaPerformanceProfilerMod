@@ -137,6 +137,29 @@ internal static partial class DashboardAssets
   min-width: 0; z-index: 2;
   color: var(--muted);
 }
+/* Ongoing-segment edge (audit T4): an open segment honestly spans start->now;
+   the faded right edge + 'live' tag make full-width read as ONGOING rather
+   than clipped at the panel bound. */
+.tl-segment.open {
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+  -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 88%, transparent 100%);
+}
+.tl-segment .tl-open-tag {
+  margin-left: 0.35em; color: var(--muted);
+  font-size: 0.85em; letter-spacing: 0.03em;
+}
+
+/* Degenerate-window fallback (audit T3): when the session is too young for a
+   time domain, chips flow left-to-right as a plain list — static position,
+   natural wrap, same chrome. */
+.tl-transitions .tx-track-flow {
+  display: flex; flex-wrap: wrap; gap: 0.4rem;
+  align-items: center; min-height: 3.6rem;
+}
+.tl-transitions .tx-chip.tx-flow {
+  position: static; transform: none;
+}
 /* Transition chips carry no colour encoding (see Js.Timeline transitionKindWord):
    the word, arrow and kind all read in neutral chrome so the perf-ramp green
    keeps its single meaning. */

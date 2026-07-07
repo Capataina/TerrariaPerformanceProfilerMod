@@ -213,15 +213,28 @@ function renderTimelineHeatstrip() {
   // marks and anchors the ramp to its min..max ms/t, so the strip never reads as
   // bare red dots with no key or a colour ramp with no reference.
   const minFrame = buckets.reduce((m, b) => Math.min(m, b.avgFrameMs || 0), maxFrame);
-  const legend =
-    `<div class='hs-legend'>` +
-      `<span class='hs-ramp'>` +
+  // Audit T2: a young session has one bucket, so min == max and the ramp
+  // printed the same number twice ('26.6 ▉ 26.6 ms/t'); collapse to a single
+  // anchor until a real range exists. The spike/stall keys only render when
+  // some bucket actually carries that mark — a legend for marks that appear
+  // nowhere reads as broken series.
+  const singleAnchor = (maxFrame - minFrame) < 0.5;
+  const ramp = singleAnchor
+    ? `<span class='hs-ramp'>` +
+        `<span class='hs-ramp-bar'></span>` +
+        `<span class='hs-ramp-label'>~${fmtMs(maxFrame)} ms/t all minutes</span>` +
+      `</span>`
+    : `<span class='hs-ramp'>` +
         `<span class='hs-ramp-label'>${fmtMs(minFrame)}</span>` +
         `<span class='hs-ramp-bar'></span>` +
         `<span class='hs-ramp-label'>${fmtMs(maxFrame)} ms/t</span>` +
-      `</span>` +
-      `<span class='hs-key'><span class='bar-mark spike'></span>spike min</span>` +
-      `<span class='hs-key'><span class='bar-mark stall'></span>stall min</span>` +
+      `</span>`;
+  const anySpike = buckets.some(b => b.spikeCount > 0 && b.stallCount === 0);
+  const anyStall = buckets.some(b => b.stallCount > 0);
+  const legend =
+    `<div class='hs-legend'>` + ramp +
+      (anySpike ? `<span class='hs-key'><span class='bar-mark spike'></span>spike min</span>` : '') +
+      (anyStall ? `<span class='hs-key'><span class='bar-mark stall'></span>stall min</span>` : '') +
     `</div>`;
   root.innerHTML = `<div class='hs-strip'>${strip}</div>${legend}`;
 }
@@ -272,6 +285,27 @@ function renderTimelineTransitions() {
   const ordered = list.slice().sort((a, b) => a.unixMs - b.unixMs);
   const hidden = Math.max(0, ordered.length - TL_TX_CAP);
   const shown = hidden > 0 ? ordered.slice(ordered.length - TL_TX_CAP) : ordered;
+
+  // Degenerate-window guard (audit T3): with a single transition and only an
+  // open segment the time window collapses (endMs ~= startMs), pctOf goes
+  // NaN and the inline left/transform styles break — the chip lands wherever
+  // the browser drops it and clips mid-word at the panel edge. A sub-2s
+  // window has no time-domain story to tell; render a plain left-flowing
+  // chip list instead of pretending to place it in time.
+  if (!(win.endMs > win.startMs + 2000)) {
+    const flow = shown.map(t => {
+      const word = transitionKindWord(t.type);
+      const arrow = (t.from || t.to)
+        ? `${escapeHtml(t.from || '?')} → ${escapeHtml(t.to || '?')}`
+        : escapeHtml(t.type || word);
+      const tip = `${word}: ${t.from || '?'} → ${t.to || '?'} (tick ${t.tickIndex})`;
+      return `<span class='chip tx-chip tx-flow' title='${escapeHtml(tip)}'>
+        <span class='tx-kind'>${escapeHtml(word)}</span> ${arrow}
+      </span>`;
+    }).join('');
+    root.innerHTML = `<div class='tx-track tx-track-flow'>${flow}</div>`;
+    return;
+  }
 
   const chips = shown.map((t, i) => {
     const leftPct = Math.max(0, Math.min(100, pctOf(t.unixMs, win)));
@@ -404,10 +438,14 @@ function renderTimelineSwimlanes() {
         const sign = delta >= 0 ? '+' : '';
         badge = `<span class='badge'>${sign}${(delta*100).toFixed(0)}%</span>`;
       }
-      const tip = `${s.name} — ${fmtDuration(s.durationMs)} · ${fmtMs(s.avgFrameMs)} ms/t`;
-      return `<div class='tl-segment ${outlier} ${selected}' data-family='${s.family}' data-key='${escapeHtml(k)}'
+      // Audit T4 resolution: an open segment honestly spans start -> now, so a
+      // full-width bar is CORRECT for a biome held all session — the bug was
+      // that it READ as clipped. The 'open' class fades the right edge so an
+      // ongoing segment looks ongoing instead of cut off at the panel edge.
+      const tip = `${s.name} — ${fmtDuration(s.durationMs)}${s._open ? ' (ongoing)' : ''} · ${fmtMs(s.avgFrameMs)} ms/t`;
+      return `<div class='tl-segment ${outlier} ${selected}${s._open ? ' open' : ''}' data-family='${s.family}' data-key='${escapeHtml(k)}'
         style='left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;--seg-fill:${fill}' title='${escapeHtml(tip)}'>
-        <span class='lbl'>${escapeHtml(s.name)}</span>
+        <span class='lbl'>${escapeHtml(s.name)}${s._open ? `<span class='tl-open-tag'>· live</span>` : ''}</span>
         ${waterfall}
         ${badge}
       </div>`;
