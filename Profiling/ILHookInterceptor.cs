@@ -267,6 +267,14 @@ public static class ILHookInterceptor
         _trimmedContexts = 0;
         try
         {
+            // B4 diagnostic: settle the heap, then measure what the ILContext
+            // dispose below actually reclaims, so the install-RAM residual is
+            // QUANTIFIED rather than assumed. This is the heap-composition data
+            // the deferred perf-pass §2.8 gate required before any further trim.
+            // One extra load-time Gen2 (~50-150 ms once), never per-tick.
+            GC.Collect(generation: 2, mode: GCCollectionMode.Forced, blocking: true);
+            long heapBeforeTrim = GC.GetTotalMemory(forceFullCollection: false);
+
             FieldInfo? stateField = typeof(ILHook).GetField("state", BindingFlags.NonPublic | BindingFlags.Instance);
             FieldInfo? hookField = typeof(ILHook).GetField("hook", BindingFlags.NonPublic | BindingFlags.Instance);
             if (stateField == null || hookField == null)
@@ -343,9 +351,17 @@ public static class ILHookInterceptor
                 }
             }
 
+            // Measure the reclaim: both samples are post-Gen2, so the delta is
+            // exactly what nulling the ILContext references let the GC free.
+            GC.Collect(generation: 2, mode: GCCollectionMode.Forced, blocking: true);
+            long reclaimedBytes = heapBeforeTrim - GC.GetTotalMemory(forceFullCollection: false);
+            double reclaimedKbPerHook = _installedHooks.Count > 0 ? reclaimedBytes / 1024d / _installedHooks.Count : 0d;
             self.Logger.Info(
-                $"Scaffolding trim: disposed {_trimmedContexts} retained ILContext bodies across {_installedHooks.Count} hooks " +
-                $"(SourceCloneIl kept for re-chain safety).");
+                $"Scaffolding trim: disposed {_trimmedContexts} retained ILContext bodies across {_installedHooks.Count} hooks; " +
+                $"reclaimed {reclaimedBytes / (1024d * 1024d):F1} MB (~{reclaimedKbPerHook:F1} KB/hook). " +
+                $"SourceCloneIl is KEPT for re-chain safety — the residual install delta is that per-hook clone plus MonoMod's " +
+                $"per-hook detour state, safely reducible only with re-chain verification (Invariant 4: never trim internals we " +
+                $"cannot prove are unused), so it is deliberately not trimmed blind. Residual reduction is a runtime-gated follow-up.");
         }
         catch (Exception ex)
         {
