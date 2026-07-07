@@ -38,6 +38,14 @@ public sealed class MetricCollector
     // jitter without feeling laggy.
     private const double PerModSmoothing = 0.06d;
 
+    // Slow EMA for the per-hook ~30 s average. alpha = 2/(N+1) for an N = 1800-tick
+    // (~30 s @ 60 Hz) horizon ≈ 0.00111, so it tracks the same window the old
+    // per-hook windowed mean did, without the 1800-sample-per-hook history ring
+    // that made that mean cost ~896 MB at 62k hooks (see the _perHookAverageMs
+    // field note). Only the per-HOOK average moved to an EMA; the per-mod average
+    // stays an exact windowed mean (its history ring is small: modCount*cats*1800).
+    private const double PerHookAverageSmoothing = 2d / (1800d + 1d);
+
     // Stopwatch-ticks → milliseconds. Stopwatch.Frequency is fixed at process
     // boot on every platform tModLoader runs on, so this is a process-lifetime
     // constant; caching the reciprocal trades a per-tick division for a multiply
@@ -55,9 +63,16 @@ public sealed class MetricCollector
     private readonly double[] _perModRollingMs;
     private readonly double[] _perHookRawMs;
     private readonly double[] _perHookSmoothedMs;
+    // Per-hook rolling average via a slow EMA, NOT a windowed mean. The windowed
+    // mean needed a _perHookHistoryMs ring of HookCount * historyCapacity doubles
+    // = 62,203 * 1800 * 8 B ≈ 896 MB allocated at world-entry (plus another
+    // ~896 MB for the bytes twin) — the design silently assumed the ~10k-hook
+    // bench and exploded on a 62k-hook stack, a prime "ran out of RAM" cause.
+    // A ~30 s-time-constant EMA reproduces the same observable (a stable per-hook
+    // average that ignores per-tick jitter) at O(HookCount) memory instead of
+    // O(HookCount * 1800), and folds in the same pass as the fast smoothing so it
+    // also removes two full 62k-element array walks per tick (a B3 win too).
     private readonly double[] _perHookAverageMs;
-    private readonly double[] _perHookHistoryMs;
-    private readonly double[] _perHookRollingMs;
 
     // Parallel byte arrays for allocation tracking. Allocated only when
     // HookBackend.AllocationTracking is true at construction; null otherwise
@@ -70,9 +85,10 @@ public sealed class MetricCollector
     private readonly double[]? _perModRollingBytes;
     private readonly double[]? _perHookRawBytes;
     private readonly double[]? _perHookSmoothedBytes;
+    // Per-hook allocation average: the EMA twin of _perHookAverageMs (see there).
+    // Removing its history/rolling rings drops the SECOND ~896 MB world-entry
+    // allocation of the pair.
     private readonly double[]? _perHookAverageBytes;
-    private readonly double[]? _perHookHistoryBytes;
-    private readonly double[]? _perHookRollingBytes;
     private readonly bool _tracksAllocations;
     private readonly int _historyCapacity;
     private int _sampleSlot;
@@ -147,8 +163,6 @@ public sealed class MetricCollector
         _perHookRawMs = new double[PerModAttribution.HookCount];
         _perHookSmoothedMs = new double[PerModAttribution.HookCount];
         _perHookAverageMs = new double[PerModAttribution.HookCount];
-        _perHookHistoryMs = new double[PerModAttribution.HookCount * historyCapacity];
-        _perHookRollingMs = new double[PerModAttribution.HookCount];
 
         // Only allocate the second-backend buffer if we're actually running both.
         if (PerModAttribution.BackendCount > 1)
@@ -170,8 +184,6 @@ public sealed class MetricCollector
             _perHookRawBytes = new double[PerModAttribution.HookCount];
             _perHookSmoothedBytes = new double[PerModAttribution.HookCount];
             _perHookAverageBytes = new double[PerModAttribution.HookCount];
-            _perHookHistoryBytes = new double[PerModAttribution.HookCount * historyCapacity];
-            _perHookRollingBytes = new double[PerModAttribution.HookCount];
         }
 
         // Raw history ring + detector. Allocation columns now light up when
@@ -261,7 +273,8 @@ public sealed class MetricCollector
     /// </summary>
     public IReadOnlyList<double> PerHookMs => _perHookSmoothedMs;
 
-    /// <summary>Rolling 30-second per-hook average in milliseconds, indexed by hookId.</summary>
+    /// <summary>Per-hook ~30-second average in milliseconds (EMA-smoothed, not a
+    /// windowed mean — see <c>PerHookAverageSmoothing</c>), indexed by hookId.</summary>
     public IReadOnlyList<double> PerHookAverageMs => _perHookAverageMs;
 
     /// <summary>
@@ -276,7 +289,8 @@ public sealed class MetricCollector
     /// <summary>Smoothed per-hook allocation bytes per tick. Null if tracking is off.</summary>
     public IReadOnlyList<double>? PerHookBytes => _perHookSmoothedBytes;
 
-    /// <summary>Rolling 30-second per-hook allocation average, in bytes. Null if tracking is off.</summary>
+    /// <summary>Per-hook ~30-second allocation average, in bytes (EMA-smoothed, not
+    /// a windowed mean). Null if tracking is off.</summary>
     public IReadOnlyList<double>? PerHookAverageBytes => _perHookAverageBytes;
 
     /// <summary>True when this collector retains allocation columns alongside CPU.</summary>
@@ -448,10 +462,16 @@ public sealed class MetricCollector
         }
 
         PerModAttribution.HarvestHooksInto(_perHookRawMs, backendId: 0);
-        UpdateRollingAverage(_perHookRawMs, _perHookHistoryMs, _perHookRollingMs, _perHookAverageMs, _sampleSlot);
+        // Fast (display) + slow (~30 s average) EMAs folded in one walk. Replaces
+        // the windowed-mean UpdateRollingAverage that required the ~896 MB per-hook
+        // history ring: same observable, O(HookCount) memory, one 62k walk instead
+        // of three (harvest already walked once; this replaces the rolling-average
+        // walk and merges the smoothing walk).
         for (int i = 0; i < _perHookSmoothedMs.Length; i++)
         {
-            _perHookSmoothedMs[i] += PerModSmoothing * (_perHookRawMs[i] - _perHookSmoothedMs[i]);
+            double raw = _perHookRawMs[i];
+            _perHookSmoothedMs[i] += PerModSmoothing * (raw - _perHookSmoothedMs[i]);
+            _perHookAverageMs[i] += PerHookAverageSmoothing * (raw - _perHookAverageMs[i]);
         }
 
         // Allocation tracking: parallel harvest + smoothing for bytes. Same shape
@@ -466,10 +486,13 @@ public sealed class MetricCollector
             }
 
             PerModAttribution.HarvestHookAllocationsInto(_perHookRawBytes!, backendId: 0);
-            UpdateRollingAverage(_perHookRawBytes!, _perHookHistoryBytes!, _perHookRollingBytes!, _perHookAverageBytes!, _sampleSlot);
+            // Same EMA fold as the per-hook ms path — drops the second ~896 MB
+            // history ring (the bytes twin).
             for (int i = 0; i < _perHookSmoothedBytes!.Length; i++)
             {
-                _perHookSmoothedBytes[i] += PerModSmoothing * (_perHookRawBytes![i] - _perHookSmoothedBytes[i]);
+                double raw = _perHookRawBytes![i];
+                _perHookSmoothedBytes[i] += PerModSmoothing * (raw - _perHookSmoothedBytes[i]);
+                _perHookAverageBytes![i] += PerHookAverageSmoothing * (raw - _perHookAverageBytes[i]);
             }
         }
 
