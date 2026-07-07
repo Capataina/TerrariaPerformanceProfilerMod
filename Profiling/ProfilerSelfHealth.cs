@@ -303,10 +303,26 @@ public sealed class ProfilerSelfHealth
                 ? (double)InstallDeltaBytes / ProcessWorkingSetBytes
                 : 0d;
 
-            // Severity now keyed on per-hook cost (modlist-size-invariant).
-            // The fraction-of-process number remains as an informational
-            // secondary on the Self tab; it's no longer the budget signal.
-            Severity = ClassifySeverity(BytesPerHook);
+            // Memory-guard trend push (S04): ride the existing sample cadence,
+            // throttled to the configured interval. The ring + verdict maths
+            // live in Data.Stats.MemoryTrend (pure); the trend spans the
+            // PROCESS lifetime, not one world — exactly what makes reload
+            // stacking visible as a staircase.
+            if (MemoryGuardEnabled &&
+                (DateTime.UtcNow - _lastTrendPushUtc).TotalSeconds >= MemorySampleSeconds)
+            {
+                _lastTrendPushUtc = DateTime.UtcNow;
+                _memoryTrend.Push(Time.UnixMsNow(), ProcessWorkingSetBytes, ProcessManagedHeapBytes);
+                RecordMemoryTrend(_memoryTrend.Snapshot());
+            }
+
+            // Severity now keyed on per-hook cost (modlist-size-invariant),
+            // ESCALATED by the memory-trend growth axis (H3, 2026-07-07): the
+            // install-delta axis judges a snapshot and was structurally blind
+            // to the 4.2 → 10.4 GB session walk the live capture recorded.
+            // Whichever axis is worse wins; the Self gauge subtitle names it.
+            SelfHealthSeverity installAxis = ClassifySeverity(BytesPerHook);
+            Severity = (SelfHealthSeverity)Math.Max((byte)installAxis, (byte)GrowthSeverity);
             _lastSampleUtc = DateTime.UtcNow;
         }
         catch
@@ -324,5 +340,46 @@ public sealed class ProfilerSelfHealth
         if (ratio >= SevereRatio) return SelfHealthSeverity.Severe;
         if (ratio >= ConcerningRatio) return SelfHealthSeverity.Concerning;
         return SelfHealthSeverity.Healthy;
+    }
+
+    // ---- Memory-trend growth axis (S04 guard, closes H3) --------------------
+
+    private readonly Data.Stats.MemoryTrend _memoryTrend = new Data.Stats.MemoryTrend();
+    private DateTime _lastTrendPushUtc = DateTime.MinValue;
+
+    /// <summary>The process-lifetime trend ring; the Memory tab's strip reads it.</summary>
+    public Data.Stats.MemoryTrend MemoryTrendRing => _memoryTrend;
+
+    /// <summary>S23 gate: MemoryGuard config toggle. Off ⇒ no pushes, phase stays Warming.</summary>
+    public bool MemoryGuardEnabled { get; set; } = true;
+
+    /// <summary>S23: seconds between trend pushes (MemorySampleSeconds slider).</summary>
+    public int MemorySampleSeconds { get; set; } = 5;
+
+    /// <summary>Latest 10-minute growth slope from the trend sampler, MB/min.</summary>
+    public double GrowthMbPerMin10 { get; private set; }
+
+    /// <summary>Latest trend phase (warming/flat/growing/climbing/reclaimed).</summary>
+    public Data.Stats.MemoryTrendPhase MemoryPhase { get; private set; }
+
+    /// <summary>The growth axis' own severity contribution, folded into <see cref="Severity"/> on the next Refresh.</summary>
+    public SelfHealthSeverity GrowthSeverity { get; private set; }
+
+    /// <summary>
+    /// Fed by the memory-guard sampler on its slow cadence. Sustained growth
+    /// escalates severity: Growing ⇒ Concerning, Climbing ⇒ Severe. The
+    /// warming gate lives in <see cref="Data.Stats.MemoryTrend"/> — a phase of
+    /// Warming always reads Healthy here.
+    /// </summary>
+    public void RecordMemoryTrend(in Data.Stats.MemoryTrendSnapshot trend)
+    {
+        GrowthMbPerMin10 = trend.GrowthMbPerMin10;
+        MemoryPhase = trend.Phase;
+        GrowthSeverity = trend.Phase switch
+        {
+            Data.Stats.MemoryTrendPhase.Climbing => SelfHealthSeverity.Severe,
+            Data.Stats.MemoryTrendPhase.Growing => SelfHealthSeverity.Concerning,
+            _ => SelfHealthSeverity.Healthy,
+        };
     }
 }

@@ -88,6 +88,8 @@ public sealed class ProfilerDatabase : IDisposable
     public ILiteCollection<LoadoutSnapshotRow>      LoadoutSnapshots      => _db.GetCollection<LoadoutSnapshotRow>("loadoutSnapshots");
     public ILiteCollection<BuffEventRow>            BuffEvents            => _db.GetCollection<BuffEventRow>("buffEvents");
     public ILiteCollection<SegmentRow>              Segments              => _db.GetCollection<SegmentRow>("segments");
+    /// <summary>Per-install measurements (S04 memory guard): one row per hook-install, keyed by process, for reload-stack detection.</summary>
+    public ILiteCollection<InstallArmRow>           InstallArms           => _db.GetCollection<InstallArmRow>("installArms");
     // Wave 6: cross-session per-context per-mod cost baselines, keyed by fingerprint.
     // An additive collection (LiteDB creates it on first use), so it needs no schema
     // migration — old DBs simply have none until a session writes one.

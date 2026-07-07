@@ -36,6 +36,58 @@ internal static partial class DashboardRouter
             harvestMsEma = snap.HarvestMsEma,
             probeCallsPerTick = snap.ProbeCallsPerTickEma,
             probeCallsDrawPerTick = snap.ProbeCallsDrawPerTickEma,
+            memoryGuard = BuildMemoryGuard(),
         }, JsonOpts);
+    }
+
+    /// <summary>
+    /// The S04 memory-guard block: trend verdict + series + per-install arm
+    /// history. Reads the process-singleton SelfHealth directly (same
+    /// precedent as the routers' HookInterceptor static reads — the guard is
+    /// process-level, world-independent) and the InstallArms collection via
+    /// the open database. Null when the profiler hasn't armed yet.
+    /// </summary>
+    private static object? BuildMemoryGuard()
+    {
+        Profiling.ProfilerSelfHealth health = Profiling.ProfilerSystem.SelfHealth;
+
+        var trend = health.MemoryTrendRing.Snapshot();
+        var (unixMs, wsMb, managedMb) = health.MemoryTrendRing.CopySeries(maxPoints: 240);
+
+        // Arm history for THIS process — the reload-stack surface.
+        var arms = new System.Collections.Generic.List<object>();
+        try
+        {
+            var db = PerformanceProfiler.Database;
+            if (db != null)
+            {
+                using var proc = System.Diagnostics.Process.GetCurrentProcess();
+                string processKey = $"{proc.Id}:{proc.StartTime.ToUniversalTime().Ticks}";
+                foreach (var arm in db.InstallArms.Find(x => x.ProcessKey == processKey))
+                {
+                    arms.Add(new
+                    {
+                        armIndex = arm.ArmIndex,
+                        installDeltaMb = arm.InstallDeltaBytes / (1024d * 1024d),
+                        bytesPerHookKb = arm.BytesPerHook / 1024d,
+                        hookCount = arm.HookCount,
+                    });
+                }
+            }
+        }
+        catch { /* degraded: no arm history, trend still serves */ }
+
+        return new
+        {
+            enabled = health.MemoryGuardEnabled,
+            phase = trend.Phase.ToString(),
+            growthMbPerMin10 = trend.GrowthMbPerMin10,
+            currentWorkingSetMb = trend.CurrentWorkingSetMb,
+            sessionStartWorkingSetMb = trend.SessionStartWorkingSetMb,
+            peakWorkingSetMb = trend.PeakWorkingSetMb,
+            sampleCount = trend.SampleCount,
+            series = new { unixMs, wsMb, managedMb },
+            armHistory = arms,
+        };
     }
 }

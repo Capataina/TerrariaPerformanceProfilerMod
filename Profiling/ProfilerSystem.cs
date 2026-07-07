@@ -59,6 +59,9 @@ public sealed class ProfilerSystem : ModSystem
     {
         _insightsCadenceTicks = cfg.DetectorCadenceTicks is >= 30 and <= 600 ? cfg.DetectorCadenceTicks : 60;
         Collector?.ConfigureDetectorSensitivity(cfg.SpikeSensitivity, cfg.StallSensitivity);
+        // Memory guard (S04): runtime-safe — the sampler reads these on its own cadence.
+        SelfHealth.MemoryGuardEnabled = cfg.MemoryGuard;
+        SelfHealth.MemorySampleSeconds = cfg.MemorySampleSeconds is >= 2 and <= 60 ? cfg.MemorySampleSeconds : 5;
     }
 
     /// <summary>
@@ -187,6 +190,54 @@ public sealed class ProfilerSystem : ModSystem
             $"across {SelfHealth.InstalledHookCount} hooks " +
             $"({SelfHealth.BytesPerHook / 1024:F1} KB/hook).");
 
+        // S04 memory guard: persist this install's measurements. tML's Reload
+        // Mods keeps the PROCESS while swapping assembly-load contexts, so
+        // rows sharing this ProcessKey across reloads expose install residue
+        // as a delta staircase at constant hook count (the 1.82 → 2.46 GB /
+        // 30 → 40.5 KB-per-hook signature from the 2026-07-07 live session).
+        // Direct insert: load-time, single row, same-thread as the DB open —
+        // the writer thread exists to decouple the GAME loop, which is not
+        // running yet (LegacyJsonImporter precedent).
+        try
+        {
+            var db = PerformanceProfiler.Database;
+            if (db != null)
+            {
+                using var proc = System.Diagnostics.Process.GetCurrentProcess();
+                string processKey = $"{proc.Id}:{proc.StartTime.ToUniversalTime().Ticks}";
+                int armIndex = db.InstallArms.Count(x => x.ProcessKey == processKey) + 1;
+                db.InstallArms.Insert(new InstallArmRow
+                {
+                    ProcessKey = processKey,
+                    ArmIndex = armIndex,
+                    ArmedUtc = DateTime.UtcNow,
+                    InstallDeltaBytes = SelfHealth.InstallDeltaBytes,
+                    BytesPerHook = SelfHealth.BytesPerHook,
+                    HookCount = SelfHealth.InstalledHookCount,
+                    ProfilerVersion = Mod.Version?.ToString() ?? "unknown",
+                });
+                if (armIndex > 1)
+                {
+                    var first = db.InstallArms.FindOne(x => x.ProcessKey == processKey && x.ArmIndex == 1);
+                    if (first != null && first.HookCount == SelfHealth.InstalledHookCount &&
+                        SelfHealth.InstallDeltaBytes > first.InstallDeltaBytes * 1.2)
+                    {
+                        // Agent surface for the reload-stack finding; the Self tab
+                        // carries the player surface via /api/self armHistory.
+                        Mod.Logger.Warn(
+                            $"Reload-stack signature: install #{armIndex} in this game process grew the profiler's " +
+                            $"install footprint {first.InstallDeltaBytes / (1024 * 1024)} → {SelfHealth.InstallDeltaBytes / (1024 * 1024)} MB " +
+                            $"at the same {SelfHealth.InstalledHookCount} hooks — prior install residue is pinned; " +
+                            $"a full game restart reclaims it.");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Mod.Logger.Warn($"Install-arm persistence skipped ({ex.GetType().Name}: {ex.Message}).");
+        }
+
         // Context registry is built after every mod's ModBiomes have been
         // registered (PostSetupContent runs after ModContent.Load). The
         // SubworldLibrary probe binds its reflection surface here too; both
@@ -252,7 +303,6 @@ public sealed class ProfilerSystem : ModSystem
         // per-tick check reads.
         ProfilerConfig? cfg = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>();
         int historyCapacity = cfg?.FrameHistoryTicks is > 0 and int ticks ? ticks : HistoryCapacity;
-        _insightsCadenceTicks = cfg?.DetectorCadenceTicks is >= 30 and <= 600 and int cad ? cad : 60;
 
         // Inject the process-singleton self-health so install-delta measurements
         // captured at PostSetupContent survive across world loads. The
@@ -260,7 +310,7 @@ public sealed class ProfilerSystem : ModSystem
         Collector = new MetricCollector(historyCapacity, SelfHealth);
         if (cfg != null)
         {
-            Collector.ConfigureDetectorSensitivity(cfg.SpikeSensitivity, cfg.StallSensitivity);
+            ApplyRuntimeConfig(cfg);
         }
 
         // Persistence is an agent surface, never a gameplay dependency. Any

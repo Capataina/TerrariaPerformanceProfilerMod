@@ -70,13 +70,38 @@ function renderSelf() {
   // The managed share is the panel's headline answer ('managed heap vs total
   // working set'), so it leads as a hero stat tile; the two raw byte figures
   // read as its supporting detail below, not as three equal rows.
+  // S04 memory guard: the trend verdict + working-set sparkline + per-install
+  // arm history (the reload-stack surface — the 1.82→2.46 GB staircase from
+  // the 2026-07-07 session becomes a visible table instead of log archaeology).
+  const g = s.memoryGuard;
+  let guardHtml = '';
+  if (g && g.enabled) {
+    const phaseCls = g.phase === 'Climbing' ? 'bad' : g.phase === 'Growing' ? 'warn' : 'good';
+    const growth = g.phase === 'Warming'
+      ? ('warming · ' + g.sampleCount + ' samples')
+      : (g.phase.toLowerCase() + (Math.abs(g.growthMbPerMin10) >= 0.5 ? ' · ' + (g.growthMbPerMin10 > 0 ? '+' : '') + g.growthMbPerMin10.toFixed(1) + ' MB/min' : ''));
+    const spark = (g.series && g.series.wsMb && g.series.wsMb.length > 1)
+      ? `<div class='self-trend-spark'>${sparkline(g.series.wsMb, { color: phaseCls === 'good' ? 'var(--good)' : phaseCls === 'warn' ? 'var(--amber)' : 'var(--danger)', strokeW: 1 })}</div>`
+      : '';
+    let armsHtml = '';
+    if (g.armHistory && g.armHistory.length > 1) {
+      armsHtml = `<div class='self-arms'>` + g.armHistory.map(a =>
+        statLine('install #' + a.armIndex, a.installDeltaMb.toFixed(0) + ' MB · ' + a.bytesPerHookKb.toFixed(1) + ' KB/hook')
+      ).join('') + statLine('reload note', 'deltas that staircase at equal hooks = pinned residue; a game restart reclaims it') + `</div>`;
+    }
+    guardHtml = statLine('memory trend', growth, phaseCls) + spark + armsHtml;
+  } else if (g && !g.enabled) {
+    guardHtml = statLine('memory trend', 'disabled in config');
+  }
+
   document.getElementById('self-process').innerHTML =
     `<div class='self-share-hero'>` +
     statTile({ k: 'managed share', v: dash(s.managedFractionOfWorkingSet, v => (v * 100).toFixed(0) + '%'),
                big: true, sub: 'of total working set' }) +
     `</div>` +
     statLine('working set', dash(s.processWorkingSetMb, v => v.toFixed(0) + ' MB')) +
-    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB'));
+    statLine('managed heap', dash(s.processManagedHeapMb, v => v.toFixed(0) + ' MB')) +
+    guardHtml;
   const ws = s.processWorkingSetMb || 1, managed = s.processManagedHeapMb || 0, native = Math.max(0, ws - managed);
   // managed = near-white accent fill; native = a clear mid-grey (--muted), not
   // the near-panel --surface-2 that vanishes against the dark panel and reads as

@@ -74,6 +74,7 @@
     <Compile Include="..\Data\Stats\KpiSnapshot.cs" Link="Source\KpiSnapshot.cs" />
     <Compile Include="..\Data\Stats\KpiCalculator.cs" Link="Source\KpiCalculator.cs" />
     <Compile Include="..\Data\Stats\RealtimeSpeed.cs" Link="Source\RealtimeSpeed.cs" />
+    <Compile Include="..\Data\Stats\MemoryTrend.cs" Link="Source\MemoryTrend.cs" />
     <Compile Include="..\Data\Aggregators\HeatmapFold.cs" Link="Source\HeatmapFold.cs" />
     <Compile Include="..\Insights\Detectors\SustainedSlownessCore.cs" Link="Source\Insights\Detectors\SustainedSlownessCore.cs" />
     <Compile Include="..\Insights\Detectors\DrawBoundModCore.cs" Link="Source\Insights\Detectors\DrawBoundModCore.cs" />
