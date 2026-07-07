@@ -44,16 +44,18 @@ function renderKpiStrip() {
   // avg fps is UPDATE cadence (is game time running at full speed?);
   // render fps is DRAW cadence (how many frames the eyes get). With
   // frameskip on and the game running behind they diverge: updates hold
-  // 60 while draws are dropped. When render sits well below avg, the tag
-  // says so instead of calling a frame-dropping session 'smooth'.
+  // 60 while draws are dropped. Tag priority: slow-mo (measured sustained
+  // sub-real-time speed — the real problem) > skipping (frameskip dropping
+  // draws) > the plain fps bands.
   const fpsClass = k.avgFps >= 55 ? 'good' : k.avgFps >= 30 ? 'warn' : 'bad';
-  const skipping = k.renderFps > 0 && k.renderFps < k.avgFps - 10;
-  const fpsTag = skipping ? 'skipping'
+  const slowmo = k.realtimeSpeed > 0 && k.realtimeSpeed < 0.9;
+  const skipping = !slowmo && k.renderFps > 0 && k.renderFps < k.avgFps - 10;
+  const fpsTag = slowmo ? 'slow-mo' : skipping ? 'skipping'
     : k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth';
   setKpi('fps', {
     value: dash(k.avgFps, v => v.toFixed(0)),
     valueClass: fpsClass,
-    tag: fpsTag, tagClass: skipping ? 'warn' : fpsClass,
+    tag: fpsTag, tagClass: slowmo ? 'bad' : skipping ? 'warn' : fpsClass,
     subs: [
       { k: 'median', v: msFmt(k.medianFrameMs) },
       { k: 'best',   v: msFmt(k.bestFrameMs) },
@@ -95,9 +97,16 @@ function renderKpiStrip() {
     sparkClass: spClass,
   });
 
-  // ---------- stalls (session-cumulative) ----------
+  // ---------- stalls (session-cumulative, real in-app causes only) ----------
+  // The headline counts freezes / GC / UI-blocking; alt-tab suspends and
+  // world-loads are wall time in which the game was not running, reported
+  // separately as 'paused' so a 2-minute alt-tab never reads as the
+  // session's biggest stall (X3, 2026-07-07 honesty pass).
   const stClass = k.stallCount > 0 ? (k.stallCount > 5 ? 'bad' : 'orange') : 'good';
   const stTag = k.stallCount === 0 ? 'clean' : k.stallCount >= 5 ? 'rough' : 'sporadic';
+  const pausedSub = k.pausedMs > 0
+    ? { k: 'paused (excl.)', v: fmtDuration(k.pausedMs) }
+    : { k: dbMode ? 'window' : 'in 30s', v: dbMode ? 'last session' : 'see chart' };
   setKpi('stalls', {
     value: String(k.stallCount),
     valueClass: stClass,
@@ -105,7 +114,7 @@ function renderKpiStrip() {
     subs: [
       { k: 'biggest', v: msFmt(k.worstStallMs) },
       { k: 'average', v: msFmt(k.avgStallMs) },
-      { k: dbMode ? 'window' : 'in 30s',  v: dbMode ? 'last session' : 'see chart' },
+      pausedSub,
     ],
     sparkVals: null,
     sparkClass: stClass,

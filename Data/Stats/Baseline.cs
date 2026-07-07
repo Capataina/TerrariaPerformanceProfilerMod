@@ -227,7 +227,11 @@ public sealed class Baseline
     /// <para>
     /// Two histograms tracked here:
     /// <list type="bullet">
-    ///   <item><description><c>_frameHist</c>: tracks <c>frame.FrameTimeMs</c> for the most recent <see cref="_ringCapacity"/> frames.</description></item>
+    ///   <item><description><c>_frameHist</c>: tracks <c>frame.RealFrameTimeMs</c> — the honest whole-loop
+    ///   period — for the most recent <see cref="_ringCapacity"/> frames. Repointed from the
+    ///   update-window <c>FrameTimeMs</c> in the 2026-07-07 honesty pass: "3× your normal frame"
+    ///   must mean the player's real normal (the everything-relative decision), and the spike
+    ///   threshold derives from this median.</description></item>
     ///   <item><description><c>_periodHist</c>: tracks UnixMs deltas between consecutive frames.</description></item>
     /// </list>
     /// Each tick: +1 the new bucket, -1 the bucket of the frame being evicted
@@ -237,7 +241,7 @@ public sealed class Baseline
     private void OnFramePushed(in TickFrame newFrame)
     {
         // ---- Frame histogram --------------------------------------------
-        int newFrameBucket = BucketFor(newFrame.FrameTimeMs);
+        int newFrameBucket = BucketFor(newFrame.RealFrameTimeMs);
         if (_frameCount >= _ringCapacity)
         {
             // Ring is full — evict the bucket of the frame about to be overwritten.
@@ -364,7 +368,9 @@ public sealed class Baseline
         {
             for (int i = 0; i < n; i++)
             {
-                double dev = history[i].FrameTimeMs - median;
+                // Real cadence, matching the frame histogram — MAD and median
+                // must be deviations of the same series (2026-07-07 honesty pass).
+                double dev = history[i].RealFrameTimeMs - median;
                 if (dev < 0d) dev = -dev;
                 hist[BucketFor(dev)]++;
                 samples++;

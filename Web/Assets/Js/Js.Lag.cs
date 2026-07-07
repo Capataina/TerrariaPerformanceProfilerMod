@@ -111,9 +111,11 @@ function lagTopModCell(modId, modName, share, withBar) {
 }
 
 // ---------------------------------------------------------------- KPI strip
-// Four KPI tiles (kept): events / session lag ms / worst event p95 ms /
-// load factor x — derived exactly as before from clusters + density, now
-// rendered as a statGrid of statTile.
+// Six tiles. GAME SPEED + SLOW TIME lead (X2, 2026-07-07 honesty pass): the
+// event tiles count VARIANCE (spikes, stalls), and a game running uniformly
+// at 2× budget produces zero events while sitting at 50% speed — the level
+// signal has to headline or the whole tab reads all-clear during the exact
+// state it exists to expose. The four original tiles keep their derivations.
 function renderLagKpiStrip() {
   const root = document.getElementById('lag-kpi');
   if (!root) return;
@@ -135,12 +137,21 @@ function renderLagKpiStrip() {
     if (n > 0) loadFactor = sum / n;
   }
 
+  const k = (lastNow && lastNow.kpi) || {};
+  const speed = k.realtimeSpeed || 0;
+  const speedKnown = speed > 0;
+  const speedPct = speedKnown ? Math.round(speed * 100) + '%' : '—';
+  const slowTime = k.timeBelowThresholdMs > 0 ? fmtDuration(k.timeBelowThresholdMs) : (speedKnown ? 'none' : '—');
+  const deficit = k.deficitMsPerSecond > 0 ? ' · losing ' + fmtMs(k.deficitMsPerSecond) + ' ms/s' : '';
+
   root.innerHTML = statGrid([
-    statTile({ k: 'events', v: fmtInt(events) }),
+    statTile({ k: 'game speed', v: speedPct + (speedKnown && speed < 0.9 ? ' · SLOW-MO' : '') }),
+    statTile({ k: 'time below 90%', v: slowTime + deficit }),
+    statTile({ k: 'variance events', v: fmtInt(events) }),
     statTile({ k: 'session lag', v: fmtMs(sessionLagMs) + ' ms' }),
     statTile({ k: 'worst event p95', v: fmtMs(worstMs) + ' ms' }),
     statTile({ k: 'load factor', v: loadFactor > 0 ? loadFactor.toFixed(2) + '×' : '—' }),
-  ], { cols: 'repeat(4, 1fr)' });
+  ], { cols: 'repeat(6, 1fr)' });
 }
 
 // ---------------------------------------------------------------- Heatmap

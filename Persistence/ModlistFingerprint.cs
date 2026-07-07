@@ -16,37 +16,48 @@ using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Persistence;
 
 /// <summary>
-/// Stable identity of the active mod list. The hash collapses
-/// <c>(id, name, version)</c> tuples in load order into a short hex digest
-/// — the same modlist always produces the same fingerprint, two different
-/// modlists almost never collide.
+/// Stable identity of the active mod list — a short hex digest over the
+/// <b>sorted set of mod internal names, excluding the profiler itself</b>
+/// (v2, 2026-07-07; the maths and identity rationale live in
+/// <see cref="FingerprintCore"/>, which is Terraria-free and unit-tested).
 ///
-/// Algorithm version is recorded alongside the digest (<c>algName</c>) so a
-/// future change can be detected and migrated; this is the same algorithm
-/// the legacy <c>SessionLogWriter.ModFingerprint</c> used, lifted out so
-/// the new persistence path can compute it without depending on the old
-/// writer.
+/// <para>
+/// v1 hashed <c>(loadIndex, name, version)</c> tuples, which made load order
+/// and every mod auto-update part of the identity — 11 dev sessions produced
+/// 10 "modlists seen" on the live store and lifetime cross-modpack baselines
+/// never accumulated (audit finding X7). The algorithm name below is bumped
+/// so stored v1 fingerprints are recognisably foreign; the one-time roster
+/// fracture on upgrade is expected, and the rebuild-rollup reset scope covers
+/// the rollup side.
+/// </para>
+///
+/// <para>
+/// Mod versions are still captured — as session metadata via
+/// <see cref="ProfiledModVersions"/> — for future update-regression
+/// comparisons (atlas S10); they are just no longer identity.
+/// </para>
 /// </summary>
 internal static class ModlistFingerprint
 {
-    public const string AlgName = "sha256-of-sorted-id-name-version-v1";
+    public const string AlgName = "sha256-of-sorted-names-selfless-v2";
 
     public static string Compute()
+        => FingerprintCore.Compute(HookInterceptor.ProfiledModNames);
+
+    /// <summary>
+    /// The (internalName, version) pairs of the profiled mods, for session
+    /// metadata. Order matches the interceptor's load order; consumers that
+    /// need set semantics sort for themselves.
+    /// </summary>
+    public static (string Name, string Version)[] ProfiledModVersions()
     {
-        StringBuilder builder = new StringBuilder();
         string[] names = HookInterceptor.ProfiledModNames;
         string[] versions = HookInterceptor.ProfiledModVersions;
+        var pairs = new (string, string)[names.Length];
         for (int i = 0; i < names.Length; i++)
         {
-            builder.Append(i).Append(':').Append(names[i]).Append('@');
-            builder.Append(i < versions.Length ? versions[i] : "unknown").Append(';');
+            pairs[i] = (names[i], i < versions.Length ? versions[i] : "unknown");
         }
-        return Hash(builder.ToString());
-    }
-
-    private static string Hash(string text)
-    {
-        byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(text));
-        return Convert.ToHexString(bytes, 0, 8).ToLowerInvariant();
+        return pairs;
     }
 }

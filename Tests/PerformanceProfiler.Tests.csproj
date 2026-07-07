@@ -64,6 +64,18 @@
     <Compile Include="..\Profiling\TickFrame.cs" Link="Source\TickFrame.cs" />
     <Compile Include="..\Data\Stats\Baseline.cs" Link="Source\Baseline.cs" />
     <Compile Include="..\Data\Detectors\StallDetector.cs" Link="Source\StallDetector.cs" />
+    <!-- 2026-07-07 honesty pass + e2e Ring 1 (the scenario engine in
+         Tests/Simulation/ drives the REAL detector/stat classes): the spike
+         detector + its per-tick ring, the decomposed KPI fold, the realtime-
+         speed maths, the pure heatmap fold, and the sustained-slowness core.
+         All verified Terraria-free per the rule above. -->
+    <Compile Include="..\Data\Detectors\SpikeDetector.cs" Link="Source\SpikeDetector.cs" />
+    <Compile Include="..\Data\Aggregators\PerTickAttributionRing.cs" Link="Source\PerTickAttributionRing.cs" />
+    <Compile Include="..\Data\Stats\KpiSnapshot.cs" Link="Source\KpiSnapshot.cs" />
+    <Compile Include="..\Data\Stats\KpiCalculator.cs" Link="Source\KpiCalculator.cs" />
+    <Compile Include="..\Data\Stats\RealtimeSpeed.cs" Link="Source\RealtimeSpeed.cs" />
+    <Compile Include="..\Data\Aggregators\HeatmapFold.cs" Link="Source\HeatmapFold.cs" />
+    <Compile Include="..\Insights\Detectors\SustainedSlownessCore.cs" Link="Source\Insights\Detectors\SustainedSlownessCore.cs" />
     <Compile Include="..\Profiling\Events\BiomeBitset.cs" Link="Source\Events\BiomeBitset.cs" />
     <Compile Include="..\Profiling\Events\WeatherFlags.cs" Link="Source\Events\WeatherFlags.cs" />
     <Compile Include="..\Profiling\Events\InvasionId.cs" Link="Source\Events\InvasionId.cs" />

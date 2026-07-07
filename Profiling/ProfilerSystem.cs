@@ -744,7 +744,9 @@ public sealed class ProfilerSystem : ModSystem
         {
             long tickIndex = (long)Main.GameUpdateCount;
             tagger.Snapshot(tickIndex);
-            double frameMs = collector.History[collector.History.Count - 1].FrameTimeMs;
+            // Real cadence: per-context cost accumulation ("Forest costs X ms/t")
+            // is a player-facing number (2026-07-07 honesty pass).
+            double frameMs = collector.History[collector.History.Count - 1].RealFrameTimeMs;
             events.Accumulate(in tagger.Current, frameMs);
 
             // v0.9.x data pipeline — drive every PerTick stream's capture
@@ -758,7 +760,7 @@ public sealed class ProfilerSystem : ModSystem
                 var latestFrame = collector.History[collector.History.Count - 1];
                 var pipelineCtx = new Data.TickContext(
                     tickIndex, Time.UnixMsNow(),
-                    latestFrame.FrameTimeMs, latestFrame.GcTimeMs,
+                    latestFrame.RealFrameTimeMs, latestFrame.GcTimeMs,
                     latestFrame.NpcCount, latestFrame.ProjectileCount, latestFrame.DustCount,
                     in tagger.Current);
                 for (int i = 0; i < pipelineCbs.Length; i++)

@@ -22,7 +22,7 @@ namespace PerformanceProfiler.Data.Stats;
 /// <see cref="Compute"/> on every <c>/api/now</c> request.
 /// </para>
 /// </summary>
-public static class KpiCalculator
+public static partial class KpiCalculator
 {
     /// <summary>Perceptual threshold for "this hitched" — used by the LAG SPIKES KPI count.</summary>
     public const double LagSpikeMsThreshold = 50d;
@@ -32,20 +32,32 @@ public static class KpiCalculator
     // the KPI endpoint was the dominant allocator before this cache.
     [System.ThreadStatic] private static double[]? _medianScratch;
 
+    // The MetricCollector-facing Compute(...) overload lives in
+    // KpiCalculator.Live.cs — the collector cannot link into the runtime-free
+    // test project, and this file is linked so the scenario engine can drive
+    // ComputeCore directly (e2e Ring 1).
+
     /// <summary>
-    /// Snapshot the live KPIs from the collector's rolling history. Returns
-    /// <see cref="KpiSnapshot.IsEmpty"/> = true when the session has not
-    /// produced any frames yet so callers can render dashes uniformly.
+    /// The pure KPI fold, decomposed from the collector so the semantics are
+    /// unit-testable against synthetic sessions (2026-07-07 honesty pass; the
+    /// e2e scenario engine drives this directly — MetricCollector itself
+    /// cannot link into the runtime-free test project).
     /// </summary>
-    public static KpiSnapshot Compute(MetricCollector? collector)
+    public static KpiSnapshot ComputeCore(
+        RingBuffer<TickFrame> hist,
+        System.Collections.Generic.IReadOnlyList<Detectors.StallEvent> stalls,
+        int spikeCount,
+        double renderFps,
+        double realtimeSpeed,
+        double timeBelowThresholdMs,
+        double deficitMsPerSecond)
     {
-        if (collector == null || collector.History.Count == 0)
+        int n = hist.Count;
+        if (n == 0)
         {
             return new KpiSnapshot { IsEmpty = true };
         }
 
-        var hist = collector.History;
-        int n = hist.Count;
         double sumMs = 0d;
         double maxMs = 0d;
         double minMs = double.MaxValue;
@@ -64,22 +76,34 @@ public static class KpiCalculator
         double avgMs = sumMs / n;
         if (minMs == double.MaxValue) minMs = 0d;
 
-        // Stall stats — cheap summary across the session ring.
+        // Stall stats — cause-aware (X3, 2026-07-07): ProcessSuspended and
+        // WorldLoad gaps are wall time in which the game was not running
+        // (alt-tab, OS sleep, loading), so they are EXCLUDED from the stall
+        // headline and reported separately as pausedMs — a 122s alt-tab must
+        // never read as the session's "biggest stall". Real in-app causes
+        // (freeze / GC / UI-blocking / long frame / unknown) keep the headline.
         double worstStall = 0d;
-        double avgStall = 0d;
-        if (collector.Stalls.Count > 0)
+        double stallSum = 0d;
+        int realStallCount = 0;
+        double pausedMs = 0d;
+        int pauseCount = 0;
+        for (int i = 0; i < stalls.Count; i++)
         {
-            double stallSum = 0d;
-            int stallN = 0;
-            for (int i = 0; i < collector.Stalls.Count; i++)
+            var ev = stalls[i];
+            bool isPause = ev.Cause == Detectors.StallCause.ProcessSuspended
+                        || ev.Cause == Detectors.StallCause.WorldLoad;
+            if (isPause)
             {
-                double d = collector.Stalls[i].TickPeriodMs;
-                if (d > worstStall) worstStall = d;
-                stallSum += d;
-                stallN++;
+                pausedMs += ev.TickPeriodMs;
+                pauseCount++;
+                continue;
             }
-            avgStall = stallN > 0 ? stallSum / stallN : 0d;
+            double d = ev.TickPeriodMs;
+            if (d > worstStall) worstStall = d;
+            stallSum += d;
+            realStallCount++;
         }
+        double avgStall = realStallCount > 0 ? stallSum / realStallCount : 0d;
 
         // Median via copy + sort, using a ThreadStatic scratch buffer to
         // avoid per-poll allocation. n is bounded at 1800 (rolling
@@ -101,17 +125,22 @@ public static class KpiCalculator
         return new KpiSnapshot
         {
             AvgFps = avgFps,
-            RenderFps = collector.RenderFps,
+            RenderFps = renderFps,
+            RealtimeSpeed = realtimeSpeed,
+            TimeBelowThresholdMs = timeBelowThresholdMs,
+            DeficitMsPerSecond = deficitMsPerSecond,
             WorstFrameMs = maxMs,
             MedianFrameMs = median,
             LagSpikeCount = lagCount,
-            StallCount = collector.Stalls.Count,
-            SpikeCount = collector.Spikes.Count,
+            StallCount = realStallCount,
+            SpikeCount = spikeCount,
             SampleN = n,
             BestFrameMs = minMs,
             TotalLagMs = totalLagMs,
             WorstStallMs = worstStall,
             AvgStallMs = avgStall,
+            PausedMs = pausedMs,
+            PauseCount = pauseCount,
             IsEmpty = false,
         };
     }

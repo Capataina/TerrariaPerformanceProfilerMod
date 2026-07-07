@@ -111,6 +111,10 @@ public sealed class InsightsEngine
             // Wave 5 family detectors: D (headroom), E (structure), C (distribution),
             // B (behaviour over time, against the TemporalBaseline).
             new FrameHeadroomDetector(),
+            // The level detector paired with FrameHeadroom (2026-07-07 honesty
+            // pass, X2): fires during sustained slow-motion, exactly when the
+            // headroom gate keeps FrameHeadroom silent.
+            new SustainedSlownessDetector(),
             new CostConcentrationDetector(),
             new FrameJitterDetector(),
             new HeapLeakDetector(),

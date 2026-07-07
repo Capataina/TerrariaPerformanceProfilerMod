@@ -90,7 +90,10 @@ public sealed class FrameTimeCollector : IDataCollector<FrameTimeSnapshot>
         return new FrameTimeSnapshot(
             worldLoaded: true,
             tickIndex: latest.TickIndex,
-            frameMs: latest.FrameTimeMs,
+            // Real cadence — this frameMs feeds the topbar FRAME chip and any
+            // instantaneous readout; player-facing numbers read the honest
+            // whole-loop period (2026-07-07 honesty pass).
+            frameMs: latest.RealFrameTimeMs,
             gcMs: latest.GcTimeMs,
             npcCount: latest.NpcCount,
             projCount: latest.ProjectileCount,

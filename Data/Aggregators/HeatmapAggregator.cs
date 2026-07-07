@@ -15,22 +15,10 @@ using PerformanceProfiler.Profiling.Events;
 using PerformanceProfiler.Persistence.Records;
 namespace PerformanceProfiler.Data.Aggregators;
 
-/// <summary>One minute of session frame-time data, plus the worst single frame in that minute.</summary>
-public readonly struct HeatmapBucket
-{
-    public readonly long StartUnixMs;
-    public readonly int Ticks;
-    public readonly double AvgMs;
-    public readonly double WorstMs;
-
-    public HeatmapBucket(long startUnixMs, int ticks, double avgMs, double worstMs)
-    {
-        StartUnixMs = startUnixMs;
-        Ticks = ticks;
-        AvgMs = avgMs;
-        WorstMs = worstMs;
-    }
-}
+// HeatmapBucket + the pure per-minute fold moved to HeatmapFold.cs
+// (Terraria-free, unit-testable — the house pure-core pattern) in the
+// 2026-07-07 honesty pass. This file keeps the Terraria-coupled snapshot,
+// DB-branch, and boss-overlay plumbing.
 
 /// <summary>A boss-segment span used for the heatmap's red-halo overlay.</summary>
 public readonly struct HeatmapBossOverlay
@@ -193,39 +181,9 @@ public sealed class HeatmapAggregator : IDataAggregator<HeatmapSnapshot>
         }
     }
 
+    // The in-memory fallback fold lives in HeatmapFold (pure, RealFrameTimeMs-
+    // based); the DB branch above is already honest — the warm rows it reads
+    // are fed by TickDownsampler, repointed to RealFrameTimeMs in 0.28.0.
     private static List<HeatmapBucket> BucketFromMemory(MetricCollector c)
-    {
-        var result = new List<HeatmapBucket>();
-        long bucketStart = -1L;
-        int curTicks = 0;
-        double curTotalMs = 0d;
-        double curWorstMs = 0d;
-        for (int i = 0; i < c.History.Count; i++)
-        {
-            var tf = c.History[i];
-            long approxUnix = Time.UnixMsNow() - (c.History.Count - 1 - i) * 1000 / 60;
-            long bs = (approxUnix / BucketMs) * BucketMs;
-            if (bs != bucketStart)
-            {
-                if (bucketStart >= 0L)
-                {
-                    double avg = curTicks > 0 ? curTotalMs / curTicks : 0d;
-                    result.Add(new HeatmapBucket(bucketStart, curTicks, avg, curWorstMs));
-                }
-                bucketStart = bs;
-                curTicks = 0;
-                curTotalMs = 0d;
-                curWorstMs = 0d;
-            }
-            curTicks++;
-            curTotalMs += tf.FrameTimeMs;
-            if (tf.FrameTimeMs > curWorstMs) curWorstMs = tf.FrameTimeMs;
-        }
-        if (bucketStart >= 0L)
-        {
-            double avg = curTicks > 0 ? curTotalMs / curTicks : 0d;
-            result.Add(new HeatmapBucket(bucketStart, curTicks, avg, curWorstMs));
-        }
-        return result;
-    }
+        => HeatmapFold.Fold(c.History, Time.UnixMsNow(), BucketMs);
 }

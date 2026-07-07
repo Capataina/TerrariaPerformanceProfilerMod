@@ -129,6 +129,18 @@ public sealed class MetricCollector
     private long _prevDrawTimestamp = -1L;
     private double _drawPeriodEmaMs;
 
+    // Sustained-slowness state (X2, 2026-07-07 honesty pass). The real-frame
+    // period EMA feeds RealtimeSpeed (level detection — the thing the
+    // variance-based spike/stall detectors structurally cannot see); the
+    // update-window EMA feeds the reworked FrameHeadroom insight (compute
+    // budget — a deliberate FrameTimeMs use, gated on full speed). Folds are
+    // pure statics in Data.Stats.RealtimeSpeed; suspend/world-load ticks never
+    // reach them (the guarded realFrameMs falls back to compute time).
+    private double _realFramePeriodEmaMs;
+    private double _updateWindowEmaMs;
+    private double _consecutiveSlowMs;
+    private double _timeBelowThresholdMs;
+
     // Real inter-frame period (ms) for the frame currently being closed. Set in
     // BeginTick, read in EndTick. See TickFrame.RealFrameTimeMs.
     private double _realFramePeriodMs;
@@ -438,6 +450,31 @@ public sealed class MetricCollector
     public double RenderFps => _drawPeriodEmaMs > 0d ? 1000d / _drawPeriodEmaMs : 0d;
 
     /// <summary>
+    /// Real-time speed fraction (0..1] from the suspend-guarded real-frame
+    /// period EMA: 1.0 = the game delivers its full 60 UPS; 0.5 = visible
+    /// slow-motion at half speed. See <see cref="Data.Stats.RealtimeSpeed"/>.
+    /// </summary>
+    public double RealtimeSpeedNow => RealtimeSpeed.SpeedFrom(_realFramePeriodEmaMs);
+
+    /// <summary>Milliseconds spent continuously below the slow threshold; resets on recovery.</summary>
+    public double ConsecutiveSlowMs => _consecutiveSlowMs;
+
+    /// <summary>Session-cumulative wall milliseconds spent below the slow threshold.</summary>
+    public double TimeBelowThresholdMs => _timeBelowThresholdMs;
+
+    /// <summary>Game-time milliseconds lost per wall second at the current pace (0 at full speed).</summary>
+    public double DeficitMsPerSecond => RealtimeSpeed.DeficitMsPerSecond(_realFramePeriodEmaMs);
+
+    /// <summary>
+    /// EMA of the update-window compute time. A DELIBERATE FrameTimeMs
+    /// consumer (see the honesty-completion plan's rule): this is the compute
+    /// budget the FrameHeadroom insight reasons about, meaningful only while
+    /// the game holds full speed — its detector gates on
+    /// <see cref="RealtimeSpeedNow"/> ≥ 0.98 for exactly that reason.
+    /// </summary>
+    public double UpdateWindowEmaMs => _updateWindowEmaMs;
+
+    /// <summary>
     /// Records one rendered frame. Called once per draw from
     /// <see cref="ProfilerSystem.PostDrawInterface"/> (main thread, same as the
     /// tick path). Folds the inter-draw period into the render-fps EMA.
@@ -522,6 +559,21 @@ public sealed class MetricCollector
         };
 
         _history.Push(in frame);
+
+        // Sustained-slowness folds (X2). realFrameMs is already suspend-guarded
+        // above, so alt-tab gaps never read as "slow". One fold + one compare
+        // per tick, zero alloc.
+        _realFramePeriodEmaMs = RealtimeSpeed.Fold(_realFramePeriodEmaMs, realFrameMs);
+        _updateWindowEmaMs = RealtimeSpeed.Fold(_updateWindowEmaMs, updateWindowMs);
+        if (RealtimeSpeed.SpeedFrom(_realFramePeriodEmaMs) < RealtimeSpeed.SlowThreshold)
+        {
+            _consecutiveSlowMs += realFrameMs;
+            _timeBelowThresholdMs += realFrameMs;
+        }
+        else
+        {
+            _consecutiveSlowMs = 0d;
+        }
 
         // Harvest this tick's per-mod cost from backend 0 (the primary backend
         // -- delegate in Delegate/Parallel mode, ILHook in ILHook-only mode --

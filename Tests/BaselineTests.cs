@@ -80,12 +80,12 @@ public class BaselineTests
         RingBuffer<TickFrame> hist = new RingBuffer<TickFrame>(1800);
         for (int i = 0; i < 990; i++)
         {
-            TickFrame f = new TickFrame { FrameTimeMs = 8.0, TimestampUnixMs = i * 8 };
+            TickFrame f = new TickFrame { FrameTimeMs = 8.0, RealFrameTimeMs = 8.0, TimestampUnixMs = i * 8 };
             hist.Push(in f);
         }
         for (int i = 0; i < 10; i++)
         {
-            TickFrame f = new TickFrame { FrameTimeMs = 200.0, TimestampUnixMs = 8000 + i * 200 };
+            TickFrame f = new TickFrame { FrameTimeMs = 200.0, RealFrameTimeMs = 200.0, TimestampUnixMs = 8000 + i * 200 };
             hist.Push(in f);
         }
 
@@ -113,7 +113,7 @@ public class BaselineTests
         RingBuffer<TickFrame> hist = new RingBuffer<TickFrame>(1800);
         for (int i = 0; i < 200; i++)
         {
-            TickFrame f = new TickFrame { FrameTimeMs = 16.0, TimestampUnixMs = i * 16 };
+            TickFrame f = new TickFrame { FrameTimeMs = 16.0, RealFrameTimeMs = 16.0, TimestampUnixMs = i * 16 };
             hist.Push(in f);
             b.Recompute(hist, tracksAllocations: true, allocBytesThisTick: 10_000);
         }
@@ -146,7 +146,7 @@ public class BaselineTests
         long ts = 0;
         for (int i = 0; i < count; i++)
         {
-            TickFrame f = new TickFrame { FrameTimeMs = frameMs, TimestampUnixMs = ts };
+            TickFrame f = new TickFrame { FrameTimeMs = frameMs, RealFrameTimeMs = frameMs, TimestampUnixMs = ts };
             hist.Push(in f);
             ts += (long)periodMs;
         }

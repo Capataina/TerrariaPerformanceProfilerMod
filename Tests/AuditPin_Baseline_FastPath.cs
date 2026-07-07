@@ -32,6 +32,7 @@ public sealed class AuditPin_Baseline_FastPath
         TimestampUnixMs = unixMs,
         TickIndex = unixMs,
         FrameTimeMs = frameMs,
+        RealFrameTimeMs = frameMs,
         GcTimeMs = 0d,
         NpcCount = 0,
         ProjectileCount = 0,

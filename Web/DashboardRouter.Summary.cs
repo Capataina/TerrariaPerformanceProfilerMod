@@ -69,9 +69,13 @@ internal static partial class DashboardRouter
                     kpi = new
                     {
                         avgFps,
-                        // Archived sessions carry no draw-beat data; 0 renders
-                        // as a dash in the KPI card rather than a fake number.
+                        // Archived sessions carry no draw-beat / speed / pause
+                        // data; 0 renders as a dash in the KPI cards rather
+                        // than a fake number.
                         renderFps = 0d,
+                        realtimeSpeed = 0d,
+                        timeBelowThresholdMs = 0d,
+                        deficitMsPerSecond = 0d,
                         worstFrameMs = a.MaxFrameMs,
                         bestFrameMs = 0d,
                         medianFrameMs = a.MedianFrameMs,
@@ -80,6 +84,8 @@ internal static partial class DashboardRouter
                         stallCount = a.StallCount,
                         worstStallMs = 0d,
                         avgStallMs = 0d,
+                        pausedMs = 0d,
+                        pauseCount = 0,
                         spikeCount = a.SpikeCount,
                         sampleN = a.TicksObserved,
                     },
@@ -160,6 +166,9 @@ internal static partial class DashboardRouter
             {
                 avgFps = kpi.AvgFps,
                 renderFps = kpi.RenderFps,
+                realtimeSpeed = kpi.RealtimeSpeed,
+                timeBelowThresholdMs = kpi.TimeBelowThresholdMs,
+                deficitMsPerSecond = kpi.DeficitMsPerSecond,
                 worstFrameMs = kpi.WorstFrameMs,
                 bestFrameMs = kpi.BestFrameMs,
                 medianFrameMs = kpi.MedianFrameMs,
@@ -168,6 +177,8 @@ internal static partial class DashboardRouter
                 stallCount = kpi.StallCount,
                 worstStallMs = kpi.WorstStallMs,
                 avgStallMs = kpi.AvgStallMs,
+                pausedMs = kpi.PausedMs,
+                pauseCount = kpi.PauseCount,
                 spikeCount = kpi.SpikeCount,
                 sampleN = kpi.SampleN,
             },

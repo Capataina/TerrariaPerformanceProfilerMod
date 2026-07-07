@@ -82,6 +82,7 @@ public static class InsightRenderer
             PatternKey.ContextConditionalCost => RenderContextConditionalCost(rec, density),
             PatternKey.ContextCorrelatedSpike => RenderContextCorrelatedSpike(rec, density),
             PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
+            PatternKey.SustainedSlowness => RenderSustainedSlowness(rec, density),
             PatternKey.CostConcentration => RenderCostConcentration(rec, density),
             PatternKey.FrameJitter => RenderFrameJitter(rec, density),
             PatternKey.HeapLeak => RenderHeapLeak(rec, density),
@@ -239,6 +240,11 @@ public static class InsightRenderer
 
     private static string RenderFrameHeadroom(Insight rec, Density density)
     {
+        // 2026-07-07 honesty rework (X1): the number is UPDATE-PHASE compute
+        // against the 60 fps budget, emitted only while the measured real-time
+        // speed proves the game holds 60 — so "running at full speed" is a
+        // measured claim, and the copy names what the number does not cover
+        // (draw-phase cost, unattributed until the loop-anatomy slot lands).
         double remaining = rec.Magnitude.Remaining;
         string ceiling = Ms(rec.Magnitude.Ceiling);
         string median = Ms(rec.Magnitude.ObservedMs);
@@ -247,11 +253,53 @@ public static class InsightRenderer
 
         if (density == Density.Short)
             return over
-                ? $"your median frame is {mag} ms over the 60 fps budget."
-                : $"you sustain 60 fps with {mag} ms of frame budget free.";
+                ? $"update work is {mag} ms over the {ceiling} ms budget even at full speed."
+                : $"running at full speed; update work leaves {mag} ms of the {ceiling} ms budget free.";
         return over
-            ? $"your median frame is {median} ms against the {ceiling} ms 60 fps budget — {mag} ms over. Frames are exceeding the budget on a typical tick."
-            : $"your median frame is {median} ms against the {ceiling} ms 60 fps budget — {mag} ms of headroom remains on a typical tick.";
+            ? $"the game holds full speed, but update-phase work averages {median} ms against the {ceiling} ms 60 fps budget — {mag} ms over; draw-phase slack is absorbing it (draw cost is not yet attributed)."
+            : $"the game is running at full speed; update-phase work averages {median} ms of the {ceiling} ms 60 fps budget, leaving {mag} ms of compute headroom (draw-phase cost not counted).";
+    }
+
+    private static string RenderSustainedSlowness(Insight rec, Density density)
+    {
+        // Magnitude contract (see SustainedSlownessDetector): Remaining = the
+        // measured speed fraction, ObservedMs = continuous ms below threshold,
+        // RecoveryMs = session-cumulative slow ms. Descriptive: names the
+        // costliest mods WHILE slowed, never a cause (the draw phase is
+        // unattributed until loop-anatomy lands — claiming cause would
+        // overreach the evidence).
+        int speedPct = (int)System.Math.Round(rec.Magnitude.Remaining * 100d);
+        string forDuration = Duration(rec.Magnitude.ObservedMs);
+        string sessionSlow = Duration(rec.Magnitude.RecoveryMs);
+
+        if (density == Density.Short)
+            return $"the game has been running at {speedPct}% of real-time speed for {forDuration}.";
+
+        string contributors = "";
+        if (rec.Contributors != null && rec.Contributors.Count > 0)
+        {
+            var names = new System.Text.StringBuilder();
+            for (int i = 0; i < rec.Contributors.Count; i++)
+            {
+                if (i > 0) names.Append(", ");
+                names.Append(ModName(rec.Contributors[i].Subject.ModId));
+                names.Append(" (").Append(Ms(rec.Contributors[i].Value)).Append(" ms/t)");
+            }
+            contributors = $" The costliest mods while slowed: {names}.";
+        }
+        return $"game time is advancing at {speedPct}% of real-time speed and has been for {forDuration} " +
+               $"({sessionSlow} below 90% this session). Frames are uniformly long rather than spiky, " +
+               $"which is why the spike and stall counters can look quiet.{contributors}";
+    }
+
+    /// <summary>Compact human duration for insight copy: "38s", "4m 12s".</summary>
+    private static string Duration(double ms)
+    {
+        if (ms < 1000d) return $"{ms:F0} ms";
+        long totalSeconds = (long)(ms / 1000d);
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return minutes > 0 ? $"{minutes}m {seconds}s" : $"{seconds}s";
     }
 
     private static string RenderCostConcentration(Insight rec, Density density)

@@ -53,6 +53,10 @@ public enum PatternKey : byte
     CostlyDespiteLowUsage    = 23,
     // Cross-modpack: a mod's behaviour compared across the stacks it has been in.
     CrossModpackCostDivergence = 24,
+    // 2026-07-07 honesty pass: the level-detector counterpart to the variance
+    // detectors — sustained sub-real-time speed (uniform slow-motion), the
+    // state spike/stall events structurally cannot represent.
+    SustainedSlowness          = 25,
 }
 
 /// <summary>

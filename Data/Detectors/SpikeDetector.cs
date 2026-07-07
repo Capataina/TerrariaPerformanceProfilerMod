@@ -167,7 +167,13 @@ public sealed class SpikeDetector
             return;
         }
 
-        double frameMs = frame.FrameTimeMs;
+        // Real cadence: a spike is a frame the PLAYER felt run long, not a
+        // compute-window excursion the draw phase may have absorbed. The
+        // baseline median is real-cadence too (same series, 2026-07-07
+        // honesty pass), so the relative trigger stays self-consistent.
+        // Per-mod attribution below is unchanged — it reads the tick's
+        // compute breakdown regardless of what tripped the trigger.
+        double frameMs = frame.RealFrameTimeMs;
         double median = baseline.FrameMsMedian;
         double mad = baseline.FrameMsMad;
 

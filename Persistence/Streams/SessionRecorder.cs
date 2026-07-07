@@ -123,6 +123,16 @@ public sealed class SessionRecorder
         _modlistFingerprint = modlistFingerprint;
         _tracksAllocations = tracksAllocations;
 
+        // Versions are session METADATA, not identity (fingerprint v2): the
+        // digest ignores them so auto-updates don't fracture baselines, and
+        // this list is what future update-regression comparisons read.
+        var versionPairs = ModlistFingerprint.ProfiledModVersions();
+        var modVersions = new List<string>(versionPairs.Length);
+        for (int i = 0; i < versionPairs.Length; i++)
+        {
+            modVersions.Add(versionPairs[i].Name + "@" + versionPairs[i].Version);
+        }
+
         var row = new SessionRow
         {
             Id = _sessionId,
@@ -136,6 +146,7 @@ public sealed class SessionRecorder
             TracksAllocations = tracksAllocations,
             EndReason = "clean",
             Incomplete = true,
+            ModVersions = modVersions,
         };
         _db.Writer.Enqueue(DbWriteOp.SessionStart(row));
     }

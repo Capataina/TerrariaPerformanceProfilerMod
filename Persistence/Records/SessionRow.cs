@@ -46,4 +46,14 @@ public sealed class SessionRow
 
     /// <summary>True while in progress; flipped false at session end.</summary>
     public bool Incomplete { get; set; } = true;
+
+    /// <summary>
+    /// The profiled mods as <c>InternalName@Version</c> strings, load order.
+    /// Metadata, NOT identity (fingerprint v2, 2026-07-07): versions moved out
+    /// of <see cref="ModlistFingerprint"/> so auto-updates stop fracturing
+    /// lifetime baselines — and live here instead, the substrate for the
+    /// update-regression comparisons (atlas S10: "Calamity 2.0.3 → 2.0.4
+    /// changed its cost by X"). Null on pre-v2 rows.
+    /// </summary>
+    public System.Collections.Generic.List<string>? ModVersions { get; set; }
 }

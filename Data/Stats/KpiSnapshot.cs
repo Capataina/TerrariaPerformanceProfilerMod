@@ -36,6 +36,21 @@ public struct KpiSnapshot
     /// <summary>Rendered frames per second (draw cadence). Diverges below <see cref="AvgFps"/> when frameskip is dropping draws to keep updates real-time. 0 when no draw beat has been observed (e.g. sessions read from the DB).</summary>
     public double RenderFps;
 
+    /// <summary>Real-time speed fraction (0..1]: 1.0 = full 60 UPS, 0.5 = half-speed slow-motion. 0 when unknown (archived sessions).</summary>
+    public double RealtimeSpeed;
+
+    /// <summary>Session-cumulative wall ms spent below the slow threshold (90% speed).</summary>
+    public double TimeBelowThresholdMs;
+
+    /// <summary>Game-time ms lost per wall second at the current pace; 0 at full speed.</summary>
+    public double DeficitMsPerSecond;
+
+    /// <summary>Wall ms of ProcessSuspended + WorldLoad gaps, EXCLUDED from the stall headline numbers (X3: an alt-tab is not a stall).</summary>
+    public double PausedMs;
+
+    /// <summary>Count of suspend/world-load gaps excluded from the stall headline.</summary>
+    public int PauseCount;
+
     /// <summary>Worst single-frame duration in ms inside the rolling window.</summary>
     public double WorstFrameMs;
 
