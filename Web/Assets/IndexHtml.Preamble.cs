@@ -24,7 +24,7 @@ internal static partial class DashboardAssets
     <div class=""brand"">
       <span class=""brand-mark""></span>
       <span class=""brand-name"">Performance Profiler</span>
-      <span class=""brand-version"" id=""brand-version"">v0.30.1</span>
+      <span class=""brand-version"" id=""brand-version"">v0.31.0</span>
     </div>
     <div class=""live"">
       <span class=""live-dot"" id=""live-dot""></span>

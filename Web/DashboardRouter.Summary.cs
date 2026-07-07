@@ -143,6 +143,10 @@ internal static partial class DashboardRouter
             worldLoaded = true,
             source = "live",
             unixMs = Time.UnixMsNow(),
+            // S23: the player's poll cadence; the JS re-arms its timers when
+            // this differs from the running rate (config OnChanged applies
+            // without a page reload).
+            pollMs = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>()?.PollMs ?? 500,
             tickIndex = latest.TickIndex,
             frameMs = latest.RealFrameTimeMs,
             avg30sMs = session30sAvg,

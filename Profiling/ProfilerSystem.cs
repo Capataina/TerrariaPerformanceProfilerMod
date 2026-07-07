@@ -38,8 +38,28 @@ namespace PerformanceProfiler.Profiling;
 /// </summary>
 public sealed class ProfilerSystem : ModSystem
 {
-    /// <summary>Rolling-history length: 30 seconds at Terraria's 60 ticks per second.</summary>
+    /// <summary>Rolling-history length fallback: 30 seconds at Terraria's 60 ticks per second. The live value comes from ProfilerConfig.FrameHistoryTicks at world-arm.</summary>
     private const int HistoryCapacity = 30 * 60;
+
+    /// <summary>
+    /// Insights-evaluation stride in ticks, cached from
+    /// <see cref="ProfilerConfig.DetectorCadenceTicks"/> at world-arm and on
+    /// OnChanged — the per-tick modulo check reads this field, never the
+    /// config instance (S23 read discipline).
+    /// </summary>
+    private int _insightsCadenceTicks = 60;
+
+    /// <summary>
+    /// Push the runtime-safe config values to the live systems. Called from
+    /// <see cref="ProfilerConfig.OnChanged"/> (any thread tML calls it on —
+    /// the touched members are an int field write and detector property
+    /// writes, all tolerant of a mid-tick apply) and from world-arm.
+    /// </summary>
+    internal void ApplyRuntimeConfig(ProfilerConfig cfg)
+    {
+        _insightsCadenceTicks = cfg.DetectorCadenceTicks is >= 30 and <= 600 ? cfg.DetectorCadenceTicks : 60;
+        Collector?.ConfigureDetectorSensitivity(cfg.SpikeSensitivity, cfg.StallSensitivity);
+    }
 
     /// <summary>
     /// The per-tick measuring engine, live only while a world is loaded.
@@ -225,10 +245,23 @@ public sealed class ProfilerSystem : ModSystem
     /// <summary>Run the deferred OnWorldLoad construction. Called from the first PostUpdateEverything.</summary>
     private void RunDeferredWorldLoadInit()
     {
+        // World-arm config snapshot (atlas S23): read once here, never on the
+        // hot path. FrameHistoryTicks resizes the rolling window (RAM scales
+        // with hooks × window); detector sensitivities apply immediately and
+        // again on any OnChanged; the insights stride caches into a field the
+        // per-tick check reads.
+        ProfilerConfig? cfg = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>();
+        int historyCapacity = cfg?.FrameHistoryTicks is > 0 and int ticks ? ticks : HistoryCapacity;
+        _insightsCadenceTicks = cfg?.DetectorCadenceTicks is >= 30 and <= 600 and int cad ? cad : 60;
+
         // Inject the process-singleton self-health so install-delta measurements
         // captured at PostSetupContent survive across world loads. The
         // collector handles per-tick refresh; install-time state stays put.
-        Collector = new MetricCollector(HistoryCapacity, SelfHealth);
+        Collector = new MetricCollector(historyCapacity, SelfHealth);
+        if (cfg != null)
+        {
+            Collector.ConfigureDetectorSensitivity(cfg.SpikeSensitivity, cfg.StallSensitivity);
+        }
 
         // Persistence is an agent surface, never a gameplay dependency. Any
         // failure here degrades to "no session in DB for this world" without
@@ -316,7 +349,10 @@ public sealed class ProfilerSystem : ModSystem
             ProfilerDatabase? histDb = PerformanceProfiler.Database;
             string[] roster = HookInterceptor.ProfiledModNames;
             string fp = ModlistFingerprint.Compute();
-            if (histDb != null && roster.Length > 0)
+            // S23 gate: CrossSessionInsights off ⇒ the lifetime feed stays
+            // empty this session; live (this-session) insights are unaffected.
+            bool crossEnabled = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>()?.CrossSessionInsights ?? true;
+            if (histDb != null && roster.Length > 0 && crossEnabled)
             {
                 System.Threading.Tasks.Task.Run(() =>
                 {
@@ -692,7 +728,7 @@ public sealed class ProfilerSystem : ModSystem
         // accessors; running off-thread is safe (no per-tick mutation
         // race because we don't touch the collector's mutable buffers,
         // only the IReadOnlyList views).
-        if (collector.History.Count > 0 && (collector.History.Count % 60) == 0
+        if (collector.History.Count > 0 && (collector.History.Count % _insightsCadenceTicks) == 0
             && System.Threading.Interlocked.CompareExchange(ref _insightsEvalInflight, 1, 0) == 0)
         {
             long latestTick = collector.History[collector.History.Count - 1].TickIndex;

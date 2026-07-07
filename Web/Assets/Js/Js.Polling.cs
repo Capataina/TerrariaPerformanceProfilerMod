@@ -156,13 +156,35 @@ function updateOverlays() {
   document.getElementById('empty').classList.toggle('hidden', !!loaded);
 }
 
-setInterval(pollNow, POLL_NOW_MS);
-setInterval(pollDetail, POLL_DETAIL_MS);
-setInterval(pollHooks, POLL_HOOKS_MS);
-setInterval(pollSelf, POLL_SELF_MS);
-setInterval(pollMemory, POLL_SELF_MS);
-setInterval(pollHeatmap, 3000);
+// ---- poll scheduling (S23: PollMs config) ----------------------------
+// The base cadence comes from ProfilerConfig.PollMs via /api/now's pollMs
+// field; the heavier endpoints scale proportionally off the base (same
+// ratios the old fixed constants encoded). When the player changes the
+// slider, the next pollNow notices and re-arms every timer — no reload.
+let _pollBaseMs = POLL_NOW_MS;
+let _pollTimers = [];
+function armPolls(baseMs) {
+  _pollTimers.forEach(clearInterval);
+  const scale = baseMs / POLL_NOW_MS; // ratios preserved vs the tuned defaults
+  _pollTimers = [
+    setInterval(pollNow, baseMs),
+    setInterval(pollDetail, Math.round(POLL_DETAIL_MS * scale)),
+    setInterval(pollHooks, Math.round(POLL_HOOKS_MS * scale)),
+    setInterval(pollSelf, Math.round(POLL_SELF_MS * scale)),
+    setInterval(pollMemory, Math.round(POLL_SELF_MS * scale)),
+    setInterval(pollHeatmap, Math.round(3000 * scale)),
+  ];
+  _pollBaseMs = baseMs;
+  const foot = document.getElementById('foot-cadence');
+  if (foot) foot.textContent = `polling /api · ${baseMs} ms · 1-7 to switch tabs`;
+}
+function maybeRearmPolls() {
+  const want = lastNow && lastNow.pollMs > 0 ? lastNow.pollMs : _pollBaseMs;
+  if (want !== _pollBaseMs) armPolls(want);
+}
+armPolls(POLL_NOW_MS);
 setInterval(updateConnection, 1000);
+setInterval(maybeRearmPolls, 2000);
 pollNow(); pollDetail(); pollSelf(); pollHeatmap(); pollMemory();
 ";
 }

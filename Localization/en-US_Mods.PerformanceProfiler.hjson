@@ -1,2 +1,135 @@
 Keybinds.OpenDashboard.DisplayName: Open Browser Dashboard
-Configs.ProfilerConfig.DisplayName: Profiler Config
+
+Configs: {
+	ProfilerConfig: {
+		DisplayName: Profiler Config
+
+		Headers: {
+			MeasurementCpu: CPU-heavy measurement
+			MeasurementRam: RAM-heavy measurement
+			Dashboard: Dashboard
+			Detectors: Detectors
+		}
+
+		PerHookAttribution: {
+			Label: Per-hook attribution (ILHook)
+			Tooltip:
+				'''
+				The deepest attribution: an IL timing detour on every mod hook
+				(~40 KB RAM per hook — about 2.4 GB on a 62,000-hook kitchen-sink
+				stack). OFF falls back to the lighter delegate-level backend:
+				per-mod totals survive, the per-hook drill-down (Observatory hook
+				tables, hot-hook insights) goes dark.
+				'''
+		}
+		AllocationTracking: {
+			Label: Allocation tracking
+			Tooltip:
+				'''
+				Per-mod allocation deltas on every probe. Feeds the Memory tab's
+				alloc/s column, GC-causality view, and the allocation-burst /
+				GC-culprit insights. OFF removes those surfaces and the alloc
+				share of probe cost.
+				'''
+		}
+		PhaseSplitAttribution: {
+			Label: Update/draw phase split
+			Tooltip:
+				'''
+				Splits each mod's cost into update-phase vs draw-phase lanes
+				(one extra array write per probe, ~0.5 MB per 62k hooks). OFF
+				folds everything into one lane: the split bars and draw-bound
+				insights go dark. Takes effect at the next world load.
+				'''
+		}
+		DetectorCadenceTicks: {
+			Label: Insight evaluation cadence (ticks)
+			Tooltip:
+				'''
+				How often the insights engine evaluates. 60 = once per second.
+				Higher values cost less CPU and react slower; the findings
+				themselves are unchanged.
+				'''
+		}
+
+		FrameHistoryTicks: {
+			Label: Frame history window (ticks)
+			Tooltip:
+				'''
+				The rolling window every live chart and detector reads.
+				1800 ticks = 30 s. RAM scales with it; shorter windows also
+				shorten what the frame chart and baselines can see. Takes
+				effect at the next world load.
+				'''
+		}
+		MemoryGuard: {
+			Label: Memory trend guard
+			Tooltip:
+				'''
+				Samples working set + managed heap on a slow cadence, drives the
+				Self/Memory trend strips, growth verdicts, and the reload-stack
+				detection. OFF removes those surfaces; nothing else changes.
+				'''
+		}
+		MemorySampleSeconds: {
+			Label: Memory sample interval (seconds)
+			Tooltip: One OS working-set read per interval, off the game thread.
+		}
+
+		DashboardServer: {
+			Label: Dashboard server
+			Tooltip:
+				'''
+				The local browser dashboard (F9), served on 127.0.0.1 only.
+				OFF disables the HTTP server entirely; measurement and
+				persistence keep running.
+				'''
+		}
+		PollMs: {
+			Label: Dashboard poll rate (ms)
+			Tooltip:
+				'''
+				How often the dashboard polls the mod. 500 ms is the tuned
+				default; higher values reduce the profiler's own serving cost
+				on weak machines at the price of a slower-updating dashboard.
+				'''
+		}
+		AutoExportHtmlReport: {
+			Label: Auto-export HTML session report
+			Tooltip:
+				'''
+				Writes a self-contained, shareable HTML report of the session
+				to the profiler's data folder at every session end. The same
+				report is always available manually from the dashboard.
+				'''
+		}
+
+		SpikeSensitivity: {
+			Label: Spike sensitivity
+			Tooltip:
+				'''
+				1.0 = tuned default (a spike is a frame at least 2x your own
+				session median). Higher = more sensitive (flags smaller
+				excursions); lower = only the big ones. Purely a detection
+				threshold; the measured numbers are unchanged.
+				'''
+		}
+		StallSensitivity: {
+			Label: Stall sensitivity
+			Tooltip:
+				'''
+				1.0 = tuned default (a stall is a tick gap at least 3x your
+				baseline tick period). Same semantics as spike sensitivity.
+				'''
+		}
+		CrossSessionInsights: {
+			Label: Cross-session insights
+			Tooltip:
+				'''
+				Lifetime findings computed from your stored session history
+				("across your last N sessions..."). OFF leaves the lifetime
+				columns empty; this-session insights are unaffected.
+				'''
+		}
+	}
+}

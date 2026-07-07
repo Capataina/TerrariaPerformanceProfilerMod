@@ -60,6 +60,18 @@ public class PerformanceProfiler : Mod
     public override void Load()
     {
         LoggerOrNull = Logger;
+
+        // Load-time config gates (atlas S23, all [ReloadRequired]): backend
+        // choice and allocation tracking must be decided before the hook
+        // interceptor installs at PostSetupContent. Defaults are the heaviest
+        // configuration; the config lets a player turn specific costs DOWN.
+        ProfilerConfig? cfg = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>();
+        if (cfg != null)
+        {
+            HookBackend.Mode = cfg.PerHookAttribution ? HookBackendMode.ILHook : HookBackendMode.Delegate;
+            HookBackend.AllocationTracking = cfg.AllocationTracking;
+        }
+
         Logger.Info($"Performance Profiler loaded (backend: {HookBackend.Mode}).");
 
         // v0.9.x data pipeline — register every IDataStream once at mod
@@ -100,6 +112,12 @@ public class PerformanceProfiler : Mod
         // TcpListener-based, no admin needed, binds 127.0.0.1:27277 (or the
         // next free port up to 27287). F9 in-game opens the default browser
         // to the chosen URL.
+        if (cfg != null && !cfg.DashboardServer)
+        {
+            Dashboard = null;
+            Logger.Info("Dashboard server disabled in config; F9 keybind will report it.");
+            return;
+        }
         try
         {
             Dashboard = new DashboardHttpServer(

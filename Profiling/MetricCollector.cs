@@ -440,6 +440,25 @@ public sealed class MetricCollector
     public void BeginTick() => BeginTick(_history.Count);
 
     /// <summary>
+    /// Apply the player's detector-sensitivity settings (ProfilerConfig,
+    /// atlas S23). Sensitivity is a divisor on the tuned threshold multiplier:
+    /// 1.0 keeps the default ("spike = 2× your median frame"), 2.0 halves the
+    /// threshold (more sensitive), 0.5 doubles it. Runtime-safe — thresholds
+    /// are read per-tick, so a change applies on the next frame.
+    /// </summary>
+    public void ConfigureDetectorSensitivity(double spikeSensitivity, double stallSensitivity)
+    {
+        if (spikeSensitivity > 0d)
+        {
+            _spikeDetector.ThresholdMultiplier = SpikeDetector.DefaultThresholdMultiplier / spikeSensitivity;
+        }
+        if (stallSensitivity > 0d)
+        {
+            _stallDetector.ThresholdMultiplier = StallDetector.DefaultThresholdMultiplier / stallSensitivity;
+        }
+    }
+
+    /// <summary>
     /// Rendered frames per second, derived from the EMA of the period between
     /// draw beats (<see cref="OnDrawFrame"/>). This is the cadence the player's
     /// eyes actually receive — distinct from <c>AvgFps</c> (update cadence):
