@@ -216,20 +216,22 @@ server when you launch tModLoader with it enabled.
 ```
 
 Every component is a **swappable subsystem** (Hook Interceptor, Metric Collector, Ring Buffer,
-Context Tagger, Encounter Detector, UI Renderer, Persistent Store, Insights Engine). The
-profiling **modes** expose that same modularity to you — instrumentation layers are cleanly
-removable, not entangled:
+Context Tagger, Encounter Detector, UI Renderer, Persistent Store, Insights Engine).
 
-<div align="center">
+**What runs today.** The profiler currently installs its **full instrumentation** on every run —
+per-mod CPU by category, per-hook timing, and per-mod allocation attribution. There is no
+"lighter mode" to pick: this is a development build whose entire point is that the *heaviest*
+measurement path works and stays honest, so that is what ships. The overhead is a budget, not an
+aspiration — the per-tick hot path is zero-allocation, and the profiler measures and surfaces its
+**own** real cost (frame period, per-tick harvest, instrumented-call count, install RAM) on the
+Self tab, so the number is verifiable rather than trusted.
 
-| Mode | Overhead budget | What it measures |
-|---|---|---|
-| **Off** | 0% | nothing — the mod declines to instrument |
-| **Lite** | < 1% | the default; per-mod cost, frame time, segments |
-| **Standard** | 2–4% | adds richer attribution + finer sampling |
-| **Deep** | 5–10% | adds per-hook call histograms and the heaviest detail |
-
-</div>
+**Where configurability is heading.** Rather than a fixed Lite / Standard / Deep ladder, the
+planned config is **per-feature, impact-graded toggles** — each measurement gets its own slider
+from *off* to *full*, grouped by what it costs (a "heavy RAM" section, a "heavy CPU" section) — so
+you tune exactly which instrumentation you pay for instead of picking a coarse tier. That is a
+pre-1.0 surface; today the honest answer is "it runs everything, and it tells you what everything
+costs".
 
 ---
 
@@ -299,9 +301,12 @@ These are inviolable. They are *why* the mod is safe to run on a modlist you car
    world state, or any other mod's state. The worst tolerable failure is the profiler declining
    to load. Zero save-corruption risk, zero compatibility war with content mods.
 
-2. **Overhead is a budget, not an aspiration.** Lite < 1%, Standard 2–4%, Deep 5–10%. The
-   per-tick hot path is **zero-allocation** — pre-allocated structs, no boxing, no per-call
-   timing objects. An unmeasured hot-path change is an incomplete change.
+2. **Overhead is a budget, not an aspiration.** The per-tick hot path is **zero-allocation** —
+   pre-allocated structs, no boxing, no per-call timing objects — and the profiler measures and
+   surfaces its own cost (frame period, per-tick harvest, instrumented-call count, install RAM)
+   on the Self tab, so the budget is verifiable rather than claimed. An unmeasured hot-path
+   change is an incomplete change. (Per-feature overhead tiers are a planned config surface, not
+   a shipped mode selector — see "What runs today" above.)
 
 3. **The honesty contract.** The profiler is **descriptive, never prescriptive**. No mod is
    "core" or "removable". Every insight cites the measurement that produced it and badges its
@@ -331,7 +336,7 @@ the claim is verifiable, not trusted.
 
 | Resource | Cost | Notes |
 |---|---|---|
-| **CPU** | < 1% in Lite mode | measured 0.12 ms/tick on a real 18-mod install (~0.7% of a 16.6 ms frame) |
+| **CPU** | scales with modlist size | ~0.12 ms/tick on an 18-mod install (~0.7% of a 16.6 ms frame); materially higher on a very large (60k+ hook) stack, where per-tick instrumentation becomes the dominant cost — all of it measured and surfaced on the Self tab, never hidden |
 | **RAM** | ~50–60 KB per installed hook | the dominant cost — MonoMod/Cecil per-hook detour scaffolding |
 | **Disk** | a few KB / minute of play | rolling full-resolution window + downsampled older aggregates |
 | **Network** | **zero** | loopback only — nothing ever leaves your machine |

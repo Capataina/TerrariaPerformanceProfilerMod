@@ -34,7 +34,7 @@ The five Project Invariants in `CLAUDE.md` apply to every recommendation. No ite
 
 ### Install RAM (currently ~382 MB delta)
 
-- **§2.8 Cecil `ILContext` dispose after install** — gated on heap-snapshot diagnostic; predicted 50-150 MB saving if Cecil dominance confirmed
+- **§2.8 Cecil `ILContext` dispose after install** — ✅ **SHIPPED** (`ILHookInterceptor.TrimRetainedScaffolding`, on by default). Disposes every settled hook's `LastContext`/`CurrentContext` and nulls them. NOT sufficient on its own: on a 62k-hook stack the install delta is still ~1.9 GB / ~31 KB per hook post-trim. The residual is the per-hook `SourceCloneIl` (kept for re-chain safety) plus MonoMod's per-hook detour state, which cannot be trimmed blind without risking downstream mods' hook chains (Invariant 4). The heap-reclaim diagnostic the gate required now ships too (2026-07-07, B4) — the trim logs its actual MB reclaimed, so the residual is measured, not assumed. Further reduction is a runtime-gated follow-up.
 - **§2.9 `BeginInstallAsync` worker thread** — 10-18 s `Mod.Load` blocking dropped to 1-2 s by running install on a background thread
 
 ### Insights
@@ -166,6 +166,16 @@ LiteDB's compound-index planner can range-scan on the second field once the firs
 ---
 
 ### 2.8 Cecil ILContext dispose after install
+
+> ✅ **EXECUTED (partial) — 2026-07-07.** The ILContext dispose shipped as
+> `ILHookInterceptor.TrimRetainedScaffolding` (disposes every settled hook's
+> `LastContext`/`CurrentContext`). It was NOT the whole story the "suspected Cecil
+> dominance" note below predicted: post-trim, a 62k-hook stack still sits at ~1.9 GB
+> / ~31 KB per hook. The residual is `SourceCloneIl` (kept for re-chain safety) +
+> MonoMod per-hook state, not the disposed ILContext. The B4 heap-reclaim
+> diagnostic (same date) now measures what the trim frees, closing the "diagnostic
+> FIRST" gate; dropping `SourceCloneIl` remains deferred as an Invariant-4 risk
+> (breaks downstream re-chaining). The original design note is kept below as record.
 
 **Surface.** `ILHookInterceptor.InstallTimingHook` constructs `new ILHook(target, manipulator, applyByDefault: true)`. The manipulator is invoked once with an `ILContext` that wraps a `Mono.Cecil.Cil.MethodBody`. After the apply, MonoMod retains the `ILContext` for re-application when other mods install IL hooks on the same method.
 
