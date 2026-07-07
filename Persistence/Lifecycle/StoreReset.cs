@@ -83,6 +83,39 @@ public static class StoreReset
         return report;
     }
 
+    /// <summary>
+    /// Rebuilds the derived lifetime rollup from raw session history. Clears ONLY the two
+    /// rollup collections (ModLifetimeRollups + ModModlistRollups), then re-folds every ended
+    /// session with the CURRENT fold logic. This corrects a store whose lifetime means were
+    /// contaminated by an older fold — e.g. the pre-v0.27.1 thin-session pollution the data-
+    /// quality patch fixed only for NEW folds — WITHOUT deleting any session, spike, stall, or
+    /// event row. The rollup is fully derivable from the sessions, so this is always safe and
+    /// non-destructive; it is the missing "fix the numbers without wiping my history" path.
+    /// </summary>
+    public static ResetReport RebuildRollup(ProfilerDatabase db, Action<string, Exception?>? log = null)
+    {
+        var report = new ResetReport { Scope = "rebuild-rollup" };
+        try
+        {
+            db.ModLifetimeRollups.DeleteAll();
+            db.ModModlistRollups.DeleteAll();
+            report.CollectionsCleared = 2;
+            // Re-fold with today's RollupFold (the thin-session gate + tick-weighting), so the
+            // rebuilt lifetime means are clean even though the raw sessions are the same rows.
+            int folded = History.RollupBackfill.Run(db, log);
+            report.SessionsCleared = 0; // nothing DELETED — sessions are re-folded, not removed
+            report.Ok = true;
+            log?.Invoke($"Rollup rebuild: re-folded {folded} ended sessions into a fresh lifetime rollup (raw history untouched).", null);
+        }
+        catch (Exception ex)
+        {
+            report.Ok = false;
+            report.Error = ex.Message;
+            log?.Invoke("Rollup rebuild failed", ex);
+        }
+        return report;
+    }
+
     /// <summary>Forgets the current modlist's playthrough while preserving per-mod lifetime
     /// history (the spine). Deletes the stack's sessions + event rows + per-stack rollup /
     /// baseline / modlist-metadata rows; leaves ModLifetimeRollups intact.</summary>

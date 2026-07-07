@@ -40,9 +40,14 @@ internal static partial class DashboardRouter
             case "modlist":
                 report = StoreReset.ForgetModlist(db, ModlistFingerprint.Compute(), Log);
                 break;
+            case "rebuild-rollup":
+                // Non-destructive: recompute the lifetime rollup from raw sessions with the
+                // current (fixed) fold. Corrects contaminated cross-session means without a wipe.
+                report = StoreReset.RebuildRollup(db, Log);
+                break;
             default:
                 return JsonSerializer.Serialize(
-                    new { ok = false, error = "unknown scope; use scope=everything or scope=modlist" }, JsonOpts);
+                    new { ok = false, error = "unknown scope; use scope=everything, scope=modlist, or scope=rebuild-rollup" }, JsonOpts);
         }
 
         return JsonSerializer.Serialize(new

@@ -77,6 +77,10 @@ internal static partial class DashboardAssets
       <h2 id=""reset-title"">reset the profiler database</h2>
       <p class=""reset-sub"">this clears stored profiling history only. it never touches your world, your saves, or any other mod. pick what to forget:</p>
       <div class=""reset-opts"">
+        <button class=""reset-opt"" data-scope=""rebuild-rollup"">
+          <span class=""reset-opt-t"">rebuild lifetime numbers</span>
+          <span class=""reset-opt-d"">recomputes cross-session averages from your existing sessions with the current logic — fixes stale or wrong lifetime numbers without deleting anything. safe to run any time.</span>
+        </button>
         <button class=""reset-opt"" data-scope=""modlist"">
           <span class=""reset-opt-t"">forget this modlist</span>
           <span class=""reset-opt-d"">drops this stack's sessions and per-stack stats; keeps each mod's lifetime history across your other modlists</span>

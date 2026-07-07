@@ -30,6 +30,8 @@ internal static partial class DashboardAssets
         if (j && j.ok) {
           status.textContent = scope === 'everything'
             ? 'store reset — everything cleared.'
+            : scope === 'rebuild-rollup'
+            ? 'lifetime rollup rebuilt from your session history — numbers corrected, nothing deleted.'
             : 'forgot this modlist (' + (j.sessionsCleared || 0) + ' sessions); lifetime history kept.';
           setTimeout(close, 1700);   // the next poll repaints the cleared store
         } else {
