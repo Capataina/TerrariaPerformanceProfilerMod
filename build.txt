@@ -1,5 +1,5 @@
 displayName = Performance Profiler
 author = Capataina
-version = 0.33.0
+version = 0.34.0
 buildIgnore = .git\*, .gitignore, *.md, design\*, context\*, bin\*, obj\*, .vs\*, .DS_Store, Tests\*, .claude\*, tools\*, .od-skills\*
 dllReferences = LiteDB

@@ -629,6 +629,26 @@ public sealed class ProfilerSystem : ModSystem
                 {
                     SessionSummaryLogger.Write(capturedLogger, capturedDb, sessionId, capturedInsights);
                 }
+
+                // S17 auto-export: the writer drained above, so the archive row
+                // is queryable here. Config-gated, default off; the manual
+                // button/command remain regardless.
+                if (capturedDb != null &&
+                    Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>()?.AutoExportHtmlReport == true)
+                {
+                    try
+                    {
+                        string? reportPath = Persistence.Report.ReportExporter.ExportSession(capturedDb, sessionId);
+                        if (reportPath != null)
+                        {
+                            PerformanceProfiler.LoggerOrNull?.Info($"Session report auto-exported: {reportPath}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        PerformanceProfiler.LoggerOrNull?.Warn($"Session report auto-export failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
                 // Persist the per-context baselines for this stack (prior + this
                 // session). Independently guarded: a failure here must not abort the
                 // recorder-end work above (Invariant 4).

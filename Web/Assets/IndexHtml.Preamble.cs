@@ -24,7 +24,7 @@ internal static partial class DashboardAssets
     <div class=""brand"">
       <span class=""brand-mark""></span>
       <span class=""brand-name"">Performance Profiler</span>
-      <span class=""brand-version"" id=""brand-version"">v0.33.0</span>
+      <span class=""brand-version"" id=""brand-version"">v0.34.0</span>
     </div>
     <div class=""live"">
       <span class=""live-dot"" id=""live-dot""></span>
@@ -37,9 +37,13 @@ internal static partial class DashboardAssets
       <div class=""topstat"" data-explain=""tick-gc""><span class=""k"">gc</span><span class=""v"" id=""ts-gc"">—</span></div>
       <div class=""topstat"" data-explain=""backend""><span class=""k"">backend</span><span class=""v"" id=""ts-backend"">—</span></div>
     </div>
-    <!-- Discreet reset control (DB rework wave 3). Opens a confirm dialog; the only
-         path that deletes the player's profiler data, and always their choice. -->
-    <button class=""topbar-reset"" id=""reset-btn"" title=""reset the profiler database"" aria-label=""reset the profiler database"">reset db</button>
+    <!-- Topbar controls (the grid's fourth track): the report exporter (S17)
+         and the discreet reset control (DB rework wave 3 — the only path that
+         deletes the player's profiler data, always their choice). -->
+    <div class=""topbar-controls"">
+      <button class=""topbar-reset"" id=""export-report-btn"" title=""write the shareable HTML report for the last completed session"" aria-label=""export session report"">export report</button>
+      <button class=""topbar-reset"" id=""reset-btn"" title=""reset the profiler database"" aria-label=""reset the profiler database"">reset db</button>
+    </div>
   </header>
 
   <!-- ===== Tab strip ====================================================== -->

@@ -86,6 +86,7 @@ internal static partial class DashboardRouter
             "/api/data-health"              => HttpResponse.Json(BuildDataHealth()),
             "/api/modlist-history"          => HttpResponse.Json(BuildModlistHistory()),
             "/api/reset"                    => HttpResponse.Json(BuildReset(req)),
+            "/api/export-report"            => HttpResponse.Json(BuildExportReport()),
 
             _                    => HttpResponse.NotFound,
         };

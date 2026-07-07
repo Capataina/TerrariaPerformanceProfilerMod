@@ -43,6 +43,34 @@ function renderFooter() {
     : 'idle';
 }
 
+// ====== Export report (S17) ==========================================
+// One fetch; feedback lives on the button itself (text swap + the path in
+// the tooltip) — no dialog for a non-destructive action.
+(function wireExportReport() {
+  const btn = document.getElementById('export-report-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const original = btn.textContent;
+    btn.textContent = 'writing…';
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/export-report');
+      const j = await r.json();
+      if (j.ok) {
+        btn.textContent = 'report written ✓';
+        btn.title = j.path + ' (session ended ' + j.sessionEndedUtc + ' UTC)';
+      } else {
+        btn.textContent = 'no report';
+        btn.title = j.error || 'export failed';
+      }
+    } catch (e) {
+      btn.textContent = 'export failed';
+      btn.title = String(e);
+    }
+    setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 4000);
+  });
+})();
+
 // ====== Master render dispatcher =====================================
 function renderAll() {
   switch (activeTab) {

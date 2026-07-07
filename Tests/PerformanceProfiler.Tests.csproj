@@ -143,6 +143,8 @@
     <!-- Wave 3 lifecycle: modlist-change diff (pure) + the reset logic (over the public
          collections), unit-tested against a synthetic store. -->
     <Compile Include="..\Persistence\Lifecycle\*.cs" Link="Source\Lifecycle\%(Filename)%(Extension)" />
+    <Compile Include="..\Persistence\Report\SessionReport.cs" Link="Source\Report\SessionReport.cs" />
+    <Compile Include="..\Persistence\Report\HtmlReportWriter.cs" Link="Source\Report\HtmlReportWriter.cs" />
     <!-- Files that reference Terraria types must be excluded from the
          test compile: ProfilerPaths reads Main.SavePath, LegacyJsonImporter
          imports legacy JSON via game-runtime calls, ProfilerCompactCommand

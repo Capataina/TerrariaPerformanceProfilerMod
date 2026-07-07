@@ -10,8 +10,11 @@ internal static partial class DashboardAssets
     // as heavier without shouting.
     private const string CssReset = @"
 /* =================================================== RESET CONTROL */
+/* The controls wrapper holds the export-report + reset buttons in the
+   topbar grid's fourth track (H1 fix gave the grid its fourth column). */
+.topbar-controls { display: flex; gap: 0.5rem; align-items: center; }
 .topbar-reset {
-  margin-left: auto; align-self: center;
+  align-self: center;
   font-family: var(--ui); font-size: 0.7rem; font-weight: 600;
   letter-spacing: 0.04em; text-transform: lowercase;
   color: var(--dim); background: transparent;
