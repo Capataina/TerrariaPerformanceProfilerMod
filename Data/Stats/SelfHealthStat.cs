@@ -30,9 +30,18 @@ public readonly struct SelfHealthSnapshot
     public readonly SelfHealthSeverity Severity;
     public readonly HookBackendMode BackendMode;
 
+    /// <summary>EMA of the profiler's own per-tick harvest cost (ms) — the central
+    /// bookkeeping FrameTimeMs cannot see. See <see cref="ProfilerSelfHealth.HarvestMsEma"/>.</summary>
+    public readonly double HarvestMsEma;
+
+    /// <summary>EMA of instrumented method calls per tick — the observer-effect
+    /// magnitude proxy. See <see cref="ProfilerSelfHealth.ProbeCallsPerTickEma"/>.</summary>
+    public readonly double ProbeCallsPerTickEma;
+
     public SelfHealthSnapshot(bool installed, long installDelta, long bph, int hookCount,
         long workingSet, long managedHeap, double managedFrac,
-        SelfHealthSeverity severity, HookBackendMode backend)
+        SelfHealthSeverity severity, HookBackendMode backend,
+        double harvestMsEma, double probeCallsPerTickEma)
     {
         Installed = installed;
         InstallDeltaBytes = installDelta;
@@ -43,11 +52,13 @@ public readonly struct SelfHealthSnapshot
         ManagedFractionOfWorkingSet = managedFrac;
         Severity = severity;
         BackendMode = backend;
+        HarvestMsEma = harvestMsEma;
+        ProbeCallsPerTickEma = probeCallsPerTickEma;
     }
 
     public static readonly SelfHealthSnapshot Empty
         = new SelfHealthSnapshot(false, 0L, 0L, 0, 0L, 0L, 0d,
-            SelfHealthSeverity.Healthy, HookBackendMode.Delegate);
+            SelfHealthSeverity.Healthy, HookBackendMode.Delegate, 0d, 0d);
 
     public static SelfHealthSnapshot From(ProfilerSelfHealth h)
         => new SelfHealthSnapshot(
@@ -59,7 +70,9 @@ public readonly struct SelfHealthSnapshot
             managedHeap: h.ProcessManagedHeapBytes,
             managedFrac: h.ManagedFractionOfWorkingSet,
             severity: h.Severity,
-            backend: HookBackend.Mode);
+            backend: HookBackend.Mode,
+            harvestMsEma: h.HarvestMsEma,
+            probeCallsPerTickEma: h.ProbeCallsPerTickEma);
 }
 
 /// <summary>

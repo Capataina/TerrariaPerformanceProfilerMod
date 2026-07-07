@@ -68,6 +68,23 @@ public static class ProbeStack
     [ThreadStatic] private static Frame[]? _stack;
     [ThreadStatic] private static int _depth;
 
+    // Approximate count of instrumented method entries since the last harvest.
+    // Incremented once per Enter/EnterCpuAlloc; read + reset once per tick by the
+    // collector to feed ProfilerSelfHealth.ProbeCallsPerTickEma. This is the
+    // honest observability answer to A3 (the probe DISPATCH cost is uncounted by
+    // construction — Enter starts its clock after its own cost, Leave stops
+    // before the attribution write, so the ~34 ns/call falls between the measured
+    // windows and cannot be timed): the COUNT of calls is the proxy for that
+    // uncounted cost, and it scales exactly with entity/projectile density.
+    //
+    // A plain (non-atomic) increment: the overwhelming majority of hooks fire on
+    // the game update thread; draw-thread hooks are a minority; and this is a
+    // magnitude gauge, not an exact tally, so a lost increment under rare
+    // cross-thread contention is acceptable and far cheaper than an Interlocked
+    // on the hot path. Allocation-free — Invariant 2 governs allocation, and an
+    // increment allocates nothing.
+    private static long _callCount;
+
     // Initial capacity: comfortably above the deepest nesting we observe in practice
     // (typically <8). Resize doubles when needed -- amortised O(1) and only at warmup.
     private const int InitialCapacity = 32;
@@ -100,6 +117,20 @@ public static class ProbeStack
         s[_depth].HookId = hookId;
         s[_depth].StartTicks = Stopwatch.GetTimestamp();
         _depth++;
+        _callCount++;
+    }
+
+    /// <summary>
+    /// Reads and resets the instrumented-call counter. Called once per tick by
+    /// <see cref="MetricCollector.EndTick"/> so the count reflects one frame's
+    /// worth of Enter calls (update-phase plus the draw-phase hooks that fired in
+    /// the preceding inter-tick gap).
+    /// </summary>
+    public static long TakeCallCount()
+    {
+        long c = _callCount;
+        _callCount = 0L;
+        return c;
     }
 
     /// <summary>
@@ -160,6 +191,7 @@ public static class ProbeStack
         s[_depth].StartTicks = Stopwatch.GetTimestamp();
         s[_depth].StartAllocBytes = allocBytesAtEnter;
         _depth++;
+        _callCount++;
     }
 
     /// <summary>

@@ -159,6 +159,45 @@ public sealed class ProfilerSelfHealth
     /// <summary>Budget severity bucket derived from <see cref="BytesPerHook"/>. See <see cref="ClassifySeverity"/>.</summary>
     public SelfHealthSeverity Severity { get; private set; }
 
+    // ---- Per-tick self-overhead (A2 + A3) -----------------------------------
+    // The CPU cost the profiler adds to every frame that FrameTimeMs (the
+    // update-window metric) structurally cannot see: EndTick captures its end
+    // timestamp BEFORE running its own ~6-array harvest, so the profiler's
+    // central per-tick bookkeeping never counted toward its own frame number.
+    // Fed each tick by MetricCollector.RecordTickOverhead.
+
+    private const double SelfOverheadSmoothing = 0.06d; // ~1 s settle @ 60 Hz, matches PerModSmoothing
+
+    /// <summary>
+    /// EMA of the profiler's own per-tick harvest cost, in milliseconds: the time
+    /// <see cref="MetricCollector.EndTick"/> spends AFTER its end-timestamp
+    /// snapshot — walking the per-mod and per-hook arrays, smoothing, recomputing
+    /// the baseline, and running the spike/stall passes. This work runs outside
+    /// the <c>FrameTimeMs</c> window, so surfacing it here is the only way the
+    /// profiler's own central cost becomes visible to itself (A2).
+    /// </summary>
+    public double HarvestMsEma { get; private set; }
+
+    /// <summary>
+    /// EMA of the number of instrumented method calls (ProbeStack entries) per
+    /// tick — a proxy for observer-effect magnitude (A3). The profiler pays two
+    /// Stopwatch reads plus an attribution write on each, and that dispatch cost
+    /// falls between the timed windows so it cannot be measured directly; the
+    /// COUNT is the honest stand-in and scales with entity/projectile density.
+    /// </summary>
+    public double ProbeCallsPerTickEma { get; private set; }
+
+    /// <summary>
+    /// Folds this tick's measured harvest cost and probe-call count into the
+    /// self-overhead EMAs. Called once per tick from
+    /// <see cref="MetricCollector.EndTick"/>; two multiply-adds, no allocation.
+    /// </summary>
+    public void RecordTickOverhead(double harvestMs, long probeCalls)
+    {
+        HarvestMsEma += SelfOverheadSmoothing * (harvestMs - HarvestMsEma);
+        ProbeCallsPerTickEma += SelfOverheadSmoothing * (probeCalls - ProbeCallsPerTickEma);
+    }
+
     /// <summary>True once <see cref="MarkInstallEnd"/> has run; refresh() is a no-op before that.</summary>
     public bool IsInstalled { get; private set; }
 

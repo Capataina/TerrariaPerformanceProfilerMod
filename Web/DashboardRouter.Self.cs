@@ -29,6 +29,12 @@ internal static partial class DashboardRouter
             managedFractionOfWorkingSet = snap.ManagedFractionOfWorkingSet,
             severity = snap.Severity.ToString(),
             backend = snap.BackendMode.ToString(),
+            // Per-tick self-overhead (A2 + A3): the profiler's own CPU cost that
+            // its FrameTimeMs metric structurally cannot see. harvestMsEma is the
+            // exact central bookkeeping cost; probeCallsPerTick is the count of
+            // instrumented calls per tick (observer-effect magnitude).
+            harvestMsEma = snap.HarvestMsEma,
+            probeCallsPerTick = snap.ProbeCallsPerTickEma,
         }, JsonOpts);
     }
 }

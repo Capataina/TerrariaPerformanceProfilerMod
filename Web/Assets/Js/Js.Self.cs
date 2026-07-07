@@ -88,10 +88,17 @@ function renderSelf() {
     { color: 'var(--accent)', label: 'managed' }, { color: 'var(--muted)', label: 'native' },
   ]);
 
-  // ---- backend ----
+  // ---- backend + per-tick self-overhead ----
+  // harvest/tick is the profiler's own central bookkeeping cost, measured OUTSIDE
+  // the frame window it reports (so it was previously invisible even to itself);
+  // probe calls/tick is the count of instrumented method entries — the
+  // observer-effect magnitude that scales with entity density. Together they are
+  // the honest 'what the profiler costs the CPU each tick' the frame number hid.
   document.getElementById('self-backend').innerHTML =
     statLine('backend', s.backend) +
-    statLine('installed', s.installed ? 'yes' : 'pending', s.installed ? 'good' : 'warn');
+    statLine('installed', s.installed ? 'yes' : 'pending', s.installed ? 'good' : 'warn') +
+    statLine('harvest / tick', dash(s.harvestMsEma, v => v.toFixed(3) + ' ms')) +
+    statLine('probe calls / tick', dash(s.probeCallsPerTick, v => fmtInt(Math.round(v))));
 
   renderHookDistribution();
 }

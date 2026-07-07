@@ -527,6 +527,16 @@ public sealed class MetricCollector
             _sampleSlot = 0;
         }
 
+        // Self-overhead (A2 + A3): everything since endTimestamp — the frame
+        // build, the per-mod + per-hook harvest and smoothing, the baseline
+        // recompute, the spike/stall passes, the self-health refresh — is the
+        // profiler's own central per-tick cost, and it all ran AFTER the frame's
+        // end timestamp was taken, so FrameTimeMs never saw it. Measure it here
+        // and fold it (plus the frame's instrumented-call count) into self-health
+        // so the profiler's true cost is visible on the Self tab, not hidden.
+        double harvestMs = (Stopwatch.GetTimestamp() - endTimestamp) * TicksToMs;
+        _selfHealth.RecordTickOverhead(harvestMs, ProbeStack.TakeCallCount());
+
         _tickStartTimestamp = -1L;
     }
 
