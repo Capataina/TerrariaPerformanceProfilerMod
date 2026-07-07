@@ -38,10 +38,14 @@ public readonly struct SelfHealthSnapshot
     /// magnitude proxy. See <see cref="ProfilerSelfHealth.ProbeCallsPerTickEma"/>.</summary>
     public readonly double ProbeCallsPerTickEma;
 
+    /// <summary>Draw-phase share of the probe calls (S01). See
+    /// <see cref="ProfilerSelfHealth.ProbeCallsDrawPerTickEma"/>.</summary>
+    public readonly double ProbeCallsDrawPerTickEma;
+
     public SelfHealthSnapshot(bool installed, long installDelta, long bph, int hookCount,
         long workingSet, long managedHeap, double managedFrac,
         SelfHealthSeverity severity, HookBackendMode backend,
-        double harvestMsEma, double probeCallsPerTickEma)
+        double harvestMsEma, double probeCallsPerTickEma, double probeCallsDrawPerTickEma)
     {
         Installed = installed;
         InstallDeltaBytes = installDelta;
@@ -54,11 +58,12 @@ public readonly struct SelfHealthSnapshot
         BackendMode = backend;
         HarvestMsEma = harvestMsEma;
         ProbeCallsPerTickEma = probeCallsPerTickEma;
+        ProbeCallsDrawPerTickEma = probeCallsDrawPerTickEma;
     }
 
     public static readonly SelfHealthSnapshot Empty
         = new SelfHealthSnapshot(false, 0L, 0L, 0, 0L, 0L, 0d,
-            SelfHealthSeverity.Healthy, HookBackendMode.Delegate, 0d, 0d);
+            SelfHealthSeverity.Healthy, HookBackendMode.Delegate, 0d, 0d, 0d);
 
     public static SelfHealthSnapshot From(ProfilerSelfHealth h)
         => new SelfHealthSnapshot(
@@ -72,7 +77,8 @@ public readonly struct SelfHealthSnapshot
             severity: h.Severity,
             backend: HookBackend.Mode,
             harvestMsEma: h.HarvestMsEma,
-            probeCallsPerTickEma: h.ProbeCallsPerTickEma);
+            probeCallsPerTickEma: h.ProbeCallsPerTickEma,
+            probeCallsDrawPerTickEma: h.ProbeCallsDrawPerTickEma);
 }
 
 /// <summary>

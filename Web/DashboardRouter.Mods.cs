@@ -68,6 +68,7 @@ internal static partial class DashboardRouter
         string[] modNames = HookInterceptor.ProfiledModNames;
         IReadOnlyList<double> smoothed = cpuSnap.SmoothedMsByCategory;
         IReadOnlyList<double> averaged = cpuSnap.AverageMsByCategory!;
+        IReadOnlyList<double>? drawMs = cpuSnap.DrawMsByCategory; // S01: null when phase lanes off
         IReadOnlyList<double>? smoothedBytes = allocSnap.SmoothedBytesByCategory;
         IReadOnlyList<double>? avgBytes = allocSnap.AverageBytesByCategory;
         bool tracksAlloc = allocSnap.TracksAllocations && smoothedBytes != null;
@@ -75,7 +76,7 @@ internal static partial class DashboardRouter
         var mods = new List<object>(modNames.Length);
         for (int i = 0; i < modNames.Length; i++)
         {
-            double cpu = 0d, avgCpu = 0d, alloc = 0d, avgAlloc = 0d;
+            double cpu = 0d, avgCpu = 0d, alloc = 0d, avgAlloc = 0d, draw = 0d;
             double[] cats = new double[categoryCount];
             double[]? catBytes = tracksAlloc ? new double[categoryCount] : null;
             int baseIdx = i * categoryCount;
@@ -84,6 +85,7 @@ internal static partial class DashboardRouter
                 cats[cat] = smoothed[baseIdx + cat];
                 cpu += smoothed[baseIdx + cat];
                 avgCpu += averaged[baseIdx + cat];
+                if (drawMs != null) draw += drawMs[baseIdx + cat];
                 if (tracksAlloc)
                 {
                     catBytes![cat] = smoothedBytes![baseIdx + cat];
@@ -97,6 +99,10 @@ internal static partial class DashboardRouter
                 name = modNames[i],
                 cpuMs = cpu,
                 avgCpuMs = avgCpu,
+                // S01 loop anatomy: cpuMs is the TOTAL; drawMs the share
+                // credited outside the update window; update = cpuMs − drawMs.
+                // 0 when phase lanes are off (phaseSplit tells the JS which).
+                drawMs = draw,
                 categories = cats,
                 allocBytes = alloc,
                 avgAllocBytes = avgAlloc,
@@ -108,6 +114,7 @@ internal static partial class DashboardRouter
         {
             worldLoaded = true,
             tracksAllocations = tracksAlloc,
+            phaseSplit = drawMs != null,
             categories = PerModAttribution.CategoryNames,
             mods,
         }, JsonOpts);

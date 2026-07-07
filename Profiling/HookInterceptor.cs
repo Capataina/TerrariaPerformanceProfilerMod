@@ -328,8 +328,11 @@ public static class HookInterceptor
             // Size attribution for the chosen number of backends (1 in single-mode,
             // 2 in Parallel) and optionally allocate the byte arrays for allocation
             // tracking. Must run before any RegisterHook call so backend slots
-            // exist when detours start writing.
-            PerModAttribution.Configure(profiled.Count, HookBackend.BackendCount, HookBackend.AllocationTracking);
+            // exist when detours start writing. Phase lanes (S01) sized from
+            // config: off ⇒ the draw mirrors never allocate and Add's lane
+            // branch stays dead.
+            bool phaseLanes = Terraria.ModLoader.ModContent.GetInstance<ProfilerConfig>()?.PhaseSplitAttribution ?? true;
+            PerModAttribution.Configure(profiled.Count, HookBackend.BackendCount, HookBackend.AllocationTracking, phaseLanes);
 
             int detours = 0;
             if (HookBackend.DelegateActive)

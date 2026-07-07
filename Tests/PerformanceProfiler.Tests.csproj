@@ -76,6 +76,7 @@
     <Compile Include="..\Data\Stats\RealtimeSpeed.cs" Link="Source\RealtimeSpeed.cs" />
     <Compile Include="..\Data\Aggregators\HeatmapFold.cs" Link="Source\HeatmapFold.cs" />
     <Compile Include="..\Insights\Detectors\SustainedSlownessCore.cs" Link="Source\Insights\Detectors\SustainedSlownessCore.cs" />
+    <Compile Include="..\Insights\Detectors\DrawBoundModCore.cs" Link="Source\Insights\Detectors\DrawBoundModCore.cs" />
     <Compile Include="..\Profiling\Events\BiomeBitset.cs" Link="Source\Events\BiomeBitset.cs" />
     <Compile Include="..\Profiling\Events\WeatherFlags.cs" Link="Source\Events\WeatherFlags.cs" />
     <Compile Include="..\Profiling\Events\InvasionId.cs" Link="Source\Events\InvasionId.cs" />

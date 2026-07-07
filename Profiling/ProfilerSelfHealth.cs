@@ -188,14 +188,23 @@ public sealed class ProfilerSelfHealth
     public double ProbeCallsPerTickEma { get; private set; }
 
     /// <summary>
-    /// Folds this tick's measured harvest cost and probe-call count into the
-    /// self-overhead EMAs. Called once per tick from
-    /// <see cref="MetricCollector.EndTick"/>; two multiply-adds, no allocation.
+    /// EMA of the DRAW-PHASE share of <see cref="ProbeCallsPerTickEma"/> (S01):
+    /// probes that entered outside the update window. The live capture that
+    /// motivated the phase split read 24,227 probe calls/tick while the game
+    /// was PAUSED — all draw traffic, previously indistinguishable.
     /// </summary>
-    public void RecordTickOverhead(double harvestMs, long probeCalls)
+    public double ProbeCallsDrawPerTickEma { get; private set; }
+
+    /// <summary>
+    /// Folds this tick's measured harvest cost and probe-call counts into the
+    /// self-overhead EMAs. Called once per tick from
+    /// <see cref="MetricCollector.EndTick"/>; three multiply-adds, no allocation.
+    /// </summary>
+    public void RecordTickOverhead(double harvestMs, long probeCalls, long probeCallsDraw = 0L)
     {
         HarvestMsEma += SelfOverheadSmoothing * (harvestMs - HarvestMsEma);
         ProbeCallsPerTickEma += SelfOverheadSmoothing * (probeCalls - ProbeCallsPerTickEma);
+        ProbeCallsDrawPerTickEma += SelfOverheadSmoothing * (probeCallsDraw - ProbeCallsDrawPerTickEma);
     }
 
     /// <summary>True once <see cref="MarkInstallEnd"/> has run; refresh() is a no-op before that.</summary>

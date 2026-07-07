@@ -115,6 +115,9 @@ public sealed class InsightsEngine
             // pass, X2): fires during sustained slow-motion, exactly when the
             // headroom gate keeps FrameHeadroom silent.
             new SustainedSlownessDetector(),
+            // Loop-anatomy (S01): names the mods whose cost sits in the draw
+            // phase — silent when the phase lanes are off in config.
+            new DrawBoundModDetector(),
             new CostConcentrationDetector(),
             new FrameJitterDetector(),
             new HeapLeakDetector(),

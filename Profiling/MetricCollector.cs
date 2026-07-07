@@ -141,6 +141,13 @@ public sealed class MetricCollector
     private double _consecutiveSlowMs;
     private double _timeBelowThresholdMs;
 
+    // Loop-anatomy draw lane (S01): raw harvest buffer + smoothed fold for the
+    // per-mod/category cost credited OUTSIDE the update window (draw + present
+    // + off-tick). The primary _perModSmoothedMs stays the total; update-phase
+    // cost = total − draw. Sized with the other per-mod buffers in the ctor.
+    private readonly double[] _perModDrawRawMs;
+    private readonly double[] _perModDrawSmoothedMs;
+
     // Real inter-frame period (ms) for the frame currently being closed. Set in
     // BeginTick, read in EndTick. See TickFrame.RealFrameTimeMs.
     private double _realFramePeriodMs;
@@ -201,6 +208,11 @@ public sealed class MetricCollector
         _perHookRawMs = new double[PerModAttribution.HookCount];
         _perHookSmoothedMs = new double[PerModAttribution.HookCount];
         _perHookAverageMs = new double[PerModAttribution.HookCount];
+        // S01 draw lane — mod×category only (~1.6 KB at 29 mods); the per-hook
+        // draw drill-down stays in PerModAttribution's mirror until a consumer
+        // needs it smoothed.
+        _perModDrawRawMs = new double[cells];
+        _perModDrawSmoothedMs = new double[cells];
 
         // Only allocate the second-backend buffer if we're actually running both.
         if (PerModAttribution.BackendCount > 1)
@@ -236,6 +248,14 @@ public sealed class MetricCollector
             modCount: PerModAttribution.ModCount,
             tracksAllocations: _tracksAllocations);
     }
+
+    /// <summary>
+    /// Smoothed DRAW-PHASE CPU ms per mod/category (S01), same
+    /// [modId * CategoryCount + categoryId] layout as
+    /// <see cref="PerModCategoryMs"/> (which carries the TOTAL — update cost is
+    /// total − draw). All zeros when PhaseSplitAttribution is off.
+    /// </summary>
+    public IReadOnlyList<double> PerModCategoryDrawMs => _perModDrawSmoothedMs;
 
     /// <summary>
     /// Smoothed total CPU ms (sum across mods/categories) for the primary
@@ -407,6 +427,10 @@ public sealed class MetricCollector
         _prevBeginTimestamp = now;
         _tickStartTimestamp = now;
         _gcPauseMsAtTickStart = GcPauseMilliseconds();
+
+        // Loop-anatomy phase flag (S01): the update window is open from here
+        // until EndTick completes; probes crediting outside it are draw-phase.
+        PerModAttribution.CurrentPhaseIsUpdate = true;
 
         // Stall detection runs HERE. At this point the per-mod accumulator
         // still holds any hook samples that fired between the previous
@@ -613,6 +637,22 @@ public sealed class MetricCollector
             _perModSmoothedMs[i] = v < DenormalFloor ? 0d : v;
         }
 
+        // Loop-anatomy draw lane (S01): the primary arrays above carry the
+        // TOTAL; the draw mirror carries the share credited outside the update
+        // window. Folded with the same smoothing + denormal flush so
+        // drawShare = smoothedDraw / smoothedTotal is a like-for-like ratio.
+        // Zero-filled (and this fold settles to zeros) when the phase lanes
+        // are disabled in config.
+        if (PerModAttribution.PhaseLanesEnabled)
+        {
+            PerModAttribution.HarvestDrawInto(_perModDrawRawMs, backendId: 0);
+            for (int i = 0; i < _perModDrawSmoothedMs.Length; i++)
+            {
+                double v = _perModDrawSmoothedMs[i] + PerModSmoothing * (_perModDrawRawMs[i] - _perModDrawSmoothedMs[i]);
+                _perModDrawSmoothedMs[i] = v < DenormalFloor ? 0d : v;
+            }
+        }
+
         PerModAttribution.HarvestHooksInto(_perHookRawMs, backendId: 0);
         // Fast (display) + slow (~30 s average) EMAs folded in one walk. Replaces
         // the windowed-mean UpdateRollingAverage that required the ~896 MB per-hook
@@ -715,7 +755,11 @@ public sealed class MetricCollector
         // and fold it (plus the frame's instrumented-call count) into self-health
         // so the profiler's true cost is visible on the Self tab, not hidden.
         double harvestMs = (Stopwatch.GetTimestamp() - endTimestamp) * TicksToMs;
-        _selfHealth.RecordTickOverhead(harvestMs, ProbeStack.TakeCallCount());
+        _selfHealth.RecordTickOverhead(harvestMs, ProbeStack.TakeCallCount(), ProbeStack.TakeDrawCallCount());
+
+        // Update window closed: everything until the next BeginTick (draw,
+        // present, off-tick work) credits the draw lane (S01).
+        PerModAttribution.CurrentPhaseIsUpdate = false;
 
         _tickStartTimestamp = -1L;
     }

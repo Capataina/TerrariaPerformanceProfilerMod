@@ -78,6 +78,32 @@ public static class PerModAttribution
     private static long[][] _bytesByBackend = Array.Empty<long[]>();
     private static long[][] _hookBytesByBackend = Array.Empty<long[]>();
 
+    // ---- Loop-anatomy phase lanes (atlas S01, 2026-07-07) -------------------
+    // Draw-phase mirrors of the tick accumulators. A probe that STARTED outside
+    // the update window (draw + present + off-tick — everything between EndTick
+    // and the next BeginTick) credits these instead of the primary arrays, so
+    // per-mod cost splits into update-ms vs draw-ms. Update-phase writes keep
+    // hitting the original arrays untouched — with the lanes disabled the
+    // behaviour is bit-identical to pre-S01.
+    // Cost: mirrors are modCount×CategoryCount longs (~1.6 KB at 29 mods) plus
+    // hookCount longs (~0.5 MB at 62k hooks) per backend; one static bool read
+    // + branch per Add. Invariant 2: measured in the phase-lane diagnostics test.
+    private static long[][] _drawTicksByBackend = Array.Empty<long[]>();
+    private static long[][] _hookDrawTicksByBackend = Array.Empty<long[]>();
+
+    /// <summary>
+    /// True while the game's update window is open (set by
+    /// <see cref="Profiling.MetricCollector"/> BeginTick/EndTick). Terraria's
+    /// loop is single-threaded, so a plain static bool is sufficient; the rare
+    /// draw-thread probe that races a boundary mis-lanes ONE sample by one
+    /// phase — a magnitude-irrelevant error, same tolerance as the existing
+    /// race-on-counter note above.
+    /// </summary>
+    public static bool CurrentPhaseIsUpdate;
+
+    /// <summary>True when the draw-lane mirrors are sized (PhaseSplitAttribution on).</summary>
+    public static bool PhaseLanesEnabled => _drawTicksByBackend.Length > 0;
+
     // Registered during install only; read by the collector/UI after setup.
     // Hooks are shared across backends -- a delegate detour and an ILHook detour
     // for the same method share the same hookId. Backends differ only by where
@@ -115,6 +141,14 @@ public static class PerModAttribution
     /// byte arrays for allocation tracking. Called once at setup.
     /// </summary>
     public static void Configure(int modCount, int backendCount, bool trackAllocations)
+        => Configure(modCount, backendCount, trackAllocations, phaseLanes: true);
+
+    /// <summary>
+    /// Full overload: <paramref name="phaseLanes"/> sizes the draw-phase
+    /// mirrors (atlas S01). Off ⇒ every sample lands in the primary lane and
+    /// behaviour is bit-identical to pre-S01.
+    /// </summary>
+    public static void Configure(int modCount, int backendCount, bool trackAllocations, bool phaseLanes)
     {
         if (modCount < 0) modCount = 0;
         if (backendCount < 1) backendCount = 1;
@@ -127,6 +161,23 @@ public static class PerModAttribution
             _ticksByBackend[b] = new long[cells];
             _hookTicksByBackend[b] = Array.Empty<long>();
         }
+
+        if (phaseLanes)
+        {
+            _drawTicksByBackend = new long[backendCount][];
+            _hookDrawTicksByBackend = new long[backendCount][];
+            for (int b = 0; b < backendCount; b++)
+            {
+                _drawTicksByBackend[b] = new long[cells];
+                _hookDrawTicksByBackend[b] = Array.Empty<long>();
+            }
+        }
+        else
+        {
+            _drawTicksByBackend = Array.Empty<long[]>();
+            _hookDrawTicksByBackend = Array.Empty<long[]>();
+        }
+        CurrentPhaseIsUpdate = false;
 
         if (trackAllocations)
         {
@@ -168,6 +219,10 @@ public static class PerModAttribution
         {
             Array.Resize(ref _hookBytesByBackend[b], _hooks.Count);
         }
+        for (int b = 0; b < _hookDrawTicksByBackend.Length; b++)
+        {
+            Array.Resize(ref _hookDrawTicksByBackend[b], _hooks.Count);
+        }
         return hookId;
     }
 
@@ -204,6 +259,11 @@ public static class PerModAttribution
         {
             Array.Clear(_bytesByBackend[b], 0, _bytesByBackend[b].Length);
             Array.Clear(_hookBytesByBackend[b], 0, _hookBytesByBackend[b].Length);
+        }
+        for (int b = 0; b < _drawTicksByBackend.Length; b++)
+        {
+            Array.Clear(_drawTicksByBackend[b], 0, _drawTicksByBackend[b].Length);
+            Array.Clear(_hookDrawTicksByBackend[b], 0, _hookDrawTicksByBackend[b].Length);
         }
     }
 
@@ -251,6 +311,25 @@ public static class PerModAttribution
         {
             hookTicks[hookId] += elapsedStopwatchTicks;
         }
+
+        // Phase lane (S01): the primary arrays above carry the TOTAL exactly as
+        // before (every existing consumer bit-identical); a draw-phase sample
+        // ADDITIONALLY credits the draw mirror, so update = total − draw at
+        // harvest. Phase is read at credit time; a probe spanning the tick
+        // boundary mis-lanes one sample by one phase (documented tolerance).
+        if (!CurrentPhaseIsUpdate && (uint)backendId < (uint)_drawTicksByBackend.Length)
+        {
+            long[] drawTicks = _drawTicksByBackend[backendId];
+            if ((uint)index < (uint)drawTicks.Length)
+            {
+                drawTicks[index] += elapsedStopwatchTicks;
+            }
+            long[] hookDraw = _hookDrawTicksByBackend[backendId];
+            if ((uint)hookId < (uint)hookDraw.Length)
+            {
+                hookDraw[hookId] += elapsedStopwatchTicks;
+            }
+        }
     }
 
     /// <summary>
@@ -279,6 +358,21 @@ public static class PerModAttribution
             hookTicks[hookId] += elapsedStopwatchTicks;
         }
 
+        // Phase lane (S01) — see the CPU-only overload for the contract.
+        if (!CurrentPhaseIsUpdate && (uint)backendId < (uint)_drawTicksByBackend.Length)
+        {
+            long[] drawTicks = _drawTicksByBackend[backendId];
+            if ((uint)index < (uint)drawTicks.Length)
+            {
+                drawTicks[index] += elapsedStopwatchTicks;
+            }
+            long[] hookDraw = _hookDrawTicksByBackend[backendId];
+            if ((uint)hookId < (uint)hookDraw.Length)
+            {
+                hookDraw[hookId] += elapsedStopwatchTicks;
+            }
+        }
+
         // Allocation credit (only if Configure(trackAllocations: true) was called).
         if ((uint)backendId < (uint)_bytesByBackend.Length)
         {
@@ -292,6 +386,28 @@ public static class PerModAttribution
             {
                 hookBytes[hookId] += allocatedBytes;
             }
+        }
+    }
+
+    /// <summary>
+    /// Writes one backend's DRAW-PHASE per-mod/category totals for the tick,
+    /// in milliseconds, into <paramref name="destination"/> (S01). Zero-filled
+    /// when the phase lanes are disabled. Same layout and caller-owned-buffer
+    /// discipline as <see cref="HarvestInto(double[], int)"/>.
+    /// </summary>
+    public static void HarvestDrawInto(double[] destination, int backendId)
+    {
+        if ((uint)backendId >= (uint)_drawTicksByBackend.Length)
+        {
+            Array.Clear(destination, 0, destination.Length);
+            return;
+        }
+
+        long[] ticks = _drawTicksByBackend[backendId];
+        int n = ticks.Length < destination.Length ? ticks.Length : destination.Length;
+        for (int i = 0; i < n; i++)
+        {
+            destination[i] = ticks[i] * TicksToMs;
         }
     }
 

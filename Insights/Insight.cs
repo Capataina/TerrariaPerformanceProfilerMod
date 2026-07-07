@@ -57,6 +57,9 @@ public enum PatternKey : byte
     // detectors — sustained sub-real-time speed (uniform slow-motion), the
     // state spike/stall events structurally cannot represent.
     SustainedSlowness          = 25,
+    // Loop-anatomy (S01): a mod whose cost is dominated by the draw phase —
+    // its weight shows in render cadence, not game speed.
+    DrawBoundMod               = 26,
 }
 
 /// <summary>

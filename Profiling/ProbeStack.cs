@@ -85,6 +85,12 @@ public static class ProbeStack
     // increment allocates nothing.
     private static long _callCount;
 
+    // Draw-phase share of _callCount (S01): incremented when a probe enters
+    // outside the update window. Same non-atomic magnitude-gauge tolerance.
+    // This is what makes "24,227 probe calls/tick while PAUSED" legible — all
+    // of it was draw-phase traffic.
+    private static long _callCountDraw;
+
     // Initial capacity: comfortably above the deepest nesting we observe in practice
     // (typically <8). Resize doubles when needed -- amortised O(1) and only at warmup.
     private const int InitialCapacity = 32;
@@ -118,6 +124,7 @@ public static class ProbeStack
         s[_depth].StartTicks = Stopwatch.GetTimestamp();
         _depth++;
         _callCount++;
+        if (!Data.Aggregators.PerModAttribution.CurrentPhaseIsUpdate) _callCountDraw++;
     }
 
     /// <summary>
@@ -130,6 +137,17 @@ public static class ProbeStack
     {
         long c = _callCount;
         _callCount = 0L;
+        return c;
+    }
+
+    /// <summary>
+    /// Reads and resets the draw-phase share of the call counter (S01). Taken
+    /// in the same EndTick breath as <see cref="TakeCallCount"/>.
+    /// </summary>
+    public static long TakeDrawCallCount()
+    {
+        long c = _callCountDraw;
+        _callCountDraw = 0L;
         return c;
     }
 
@@ -192,6 +210,7 @@ public static class ProbeStack
         s[_depth].StartAllocBytes = allocBytesAtEnter;
         _depth++;
         _callCount++;
+        if (!Data.Aggregators.PerModAttribution.CurrentPhaseIsUpdate) _callCountDraw++;
     }
 
     /// <summary>

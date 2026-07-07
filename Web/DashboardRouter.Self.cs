@@ -35,6 +35,7 @@ internal static partial class DashboardRouter
             // instrumented calls per tick (observer-effect magnitude).
             harvestMsEma = snap.HarvestMsEma,
             probeCallsPerTick = snap.ProbeCallsPerTickEma,
+            probeCallsDrawPerTick = snap.ProbeCallsDrawPerTickEma,
         }, JsonOpts);
     }
 }

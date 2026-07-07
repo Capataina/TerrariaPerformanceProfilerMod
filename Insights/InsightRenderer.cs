@@ -83,6 +83,7 @@ public static class InsightRenderer
             PatternKey.ContextCorrelatedSpike => RenderContextCorrelatedSpike(rec, density),
             PatternKey.FrameHeadroom => RenderFrameHeadroom(rec, density),
             PatternKey.SustainedSlowness => RenderSustainedSlowness(rec, density),
+            PatternKey.DrawBoundMod => RenderDrawBoundMod(rec, density),
             PatternKey.CostConcentration => RenderCostConcentration(rec, density),
             PatternKey.FrameJitter => RenderFrameJitter(rec, density),
             PatternKey.HeapLeak => RenderHeapLeak(rec, density),
@@ -290,6 +291,24 @@ public static class InsightRenderer
         return $"game time is advancing at {speedPct}% of real-time speed and has been for {forDuration} " +
                $"({sessionSlow} below 90% this session). Frames are uniformly long rather than spiky, " +
                $"which is why the spike and stall counters can look quiet.{contributors}";
+    }
+
+    private static string RenderDrawBoundMod(Insight rec, Density density)
+    {
+        // Magnitude contract (DrawBoundModDetector): RatioOrDelta = draw share,
+        // ObservedMs = smoothed total ms/t, BaselineMs = the draw slice.
+        // Descriptive: names WHERE the cost sits and what that means for what
+        // the player feels — never whether the mod should stay.
+        string mod = ModName(rec.Subject.ModId);
+        string share = Pct(rec.Magnitude.RatioOrDelta);
+        string total = Ms(rec.Magnitude.ObservedMs);
+        string draw = Ms(rec.Magnitude.BaselineMs);
+
+        if (density == Density.Short)
+            return $"{mod} is draw-bound: {share} of its cost is in the draw phase.";
+        return $"{mod} spends {share} of its {total} ms/t in the draw phase ({draw} ms/t drawing). " +
+               $"Draw-phase cost shows up as render load (dropped frames under frameskip, longer loops without it) " +
+               $"rather than update-phase game speed.";
     }
 
     /// <summary>Compact human duration for insight copy: "38s", "4m 12s".</summary>

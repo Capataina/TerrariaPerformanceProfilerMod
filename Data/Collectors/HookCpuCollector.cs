@@ -30,9 +30,17 @@ public readonly struct HookCpuSnapshot
     public readonly IReadOnlyList<double>? PerHookMs;
     public readonly IReadOnlyList<double>? PerHookAverageMs;
 
+    /// <summary>
+    /// Smoothed DRAW-PHASE ms per mod/category (S01). SmoothedMsByCategory
+    /// carries the TOTAL; update cost = total − draw. Null when the phase
+    /// lanes are disabled in config.
+    /// </summary>
+    public readonly IReadOnlyList<double>? DrawMsByCategory;
+
     public HookCpuSnapshot(bool worldLoaded, int modCount, int categoryCount,
         IReadOnlyList<double>? smoothed, IReadOnlyList<double>? averaged,
-        IReadOnlyList<double>? perHook, IReadOnlyList<double>? perHookAvg)
+        IReadOnlyList<double>? perHook, IReadOnlyList<double>? perHookAvg,
+        IReadOnlyList<double>? drawMs = null)
     {
         WorldLoaded = worldLoaded;
         ModCount = modCount;
@@ -41,6 +49,7 @@ public readonly struct HookCpuSnapshot
         AverageMsByCategory = averaged;
         PerHookMs = perHook;
         PerHookAverageMs = perHookAvg;
+        DrawMsByCategory = drawMs;
     }
 
     public static readonly HookCpuSnapshot Empty
@@ -79,7 +88,8 @@ public sealed class HookCpuCollector : IDataCollector<HookCpuSnapshot>
             smoothed: c.PerModCategoryMs,
             averaged: c.PerModCategoryAverageMs,
             perHook: c.PerHookMs,
-            perHookAvg: c.PerHookAverageMs);
+            perHookAvg: c.PerHookAverageMs,
+            drawMs: PerModAttribution.PhaseLanesEnabled ? c.PerModCategoryDrawMs : null);
     }
 
     public object CurrentSnapshotBoxed() => CurrentSnapshot();

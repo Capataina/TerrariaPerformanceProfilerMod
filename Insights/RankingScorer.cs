@@ -102,6 +102,8 @@ public static class RankingScorer
         // SustainedSlowness stores (1 − realtime speed): 0.45 ⇒ the game runs
         // at 55% speed — read as a [0,1] severity share like its D-family kin.
         PatternKey.SustainedSlowness      => true,
+        // DrawBoundMod stores the draw share of the mod's cost.
+        PatternKey.DrawBoundMod           => true,
         _                                 => false,
     };
 

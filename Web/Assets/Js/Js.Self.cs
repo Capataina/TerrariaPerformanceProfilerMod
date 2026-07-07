@@ -98,7 +98,12 @@ function renderSelf() {
     statLine('backend', s.backend) +
     statLine('installed', s.installed ? 'yes' : 'pending', s.installed ? 'good' : 'warn') +
     statLine('harvest / tick', dash(s.harvestMsEma, v => v.toFixed(3) + ' ms')) +
-    statLine('probe calls / tick', dash(s.probeCallsPerTick, v => fmtInt(Math.round(v))));
+    statLine('probe calls / tick', dash(s.probeCallsPerTick, v => fmtInt(Math.round(v)))) +
+    // S01: the draw-phase share of the probe traffic — the number that makes
+    // '24,227 calls/tick while paused' legible (it was all draw traffic).
+    statLine('… of which draw-phase', s.probeCallsDrawPerTick > 0
+      ? fmtInt(Math.round(s.probeCallsDrawPerTick)) + ' (' + Math.round(100 * s.probeCallsDrawPerTick / Math.max(1, s.probeCallsPerTick)) + '%)'
+      : '—');
 
   renderHookDistribution();
 }
