@@ -69,6 +69,9 @@ internal static partial class DashboardRouter
                     kpi = new
                     {
                         avgFps,
+                        // Archived sessions carry no draw-beat data; 0 renders
+                        // as a dash in the KPI card rather than a fake number.
+                        renderFps = 0d,
                         worstFrameMs = a.MaxFrameMs,
                         bestFrameMs = 0d,
                         medianFrameMs = a.MedianFrameMs,
@@ -156,6 +159,7 @@ internal static partial class DashboardRouter
             kpi = new
             {
                 avgFps = kpi.AvgFps,
+                renderFps = kpi.RenderFps,
                 worstFrameMs = kpi.WorstFrameMs,
                 bestFrameMs = kpi.BestFrameMs,
                 medianFrameMs = kpi.MedianFrameMs,

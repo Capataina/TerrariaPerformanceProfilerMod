@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using Terraria.ModLoader;
 using PerformanceProfiler.Profiling.Events;
@@ -624,6 +625,18 @@ public sealed class ProfilerSystem : ModSystem
         // Pass the live game tick index so the stall detector can attribute
         // events to real ticks instead of synthetic counters.
         Collector?.BeginTick((long)Main.GameUpdateCount);
+    }
+
+    /// <summary>
+    /// Draw beat. <see cref="ModSystem.PostDrawInterface"/> fires once per
+    /// RENDERED frame — the beat frameskip drops when the game runs behind —
+    /// which makes it the render-fps counterpart to the update-cadence hooks
+    /// above. Feeds the collector's draw-period EMA (render fps on the KPI
+    /// strip). Generic tModLoader surface; observes only, draws nothing.
+    /// </summary>
+    public override void PostDrawInterface(SpriteBatch spriteBatch)
+    {
+        Collector?.OnDrawFrame();
     }
 
     /// <summary>

@@ -30,8 +30,11 @@ namespace PerformanceProfiler.Data.Stats;
 /// </summary>
 public struct KpiSnapshot
 {
-    /// <summary>Mean FPS over the rolling window, clamped to 60 (Terraria's tick ceiling).</summary>
+    /// <summary>Mean FPS over the rolling window, from the real inter-frame period (unclamped — drops below 60 during genuine slow-motion).</summary>
     public double AvgFps;
+
+    /// <summary>Rendered frames per second (draw cadence). Diverges below <see cref="AvgFps"/> when frameskip is dropping draws to keep updates real-time. 0 when no draw beat has been observed (e.g. sessions read from the DB).</summary>
+    public double RenderFps;
 
     /// <summary>Worst single-frame duration in ms inside the rolling window.</summary>
     public double WorstFrameMs;

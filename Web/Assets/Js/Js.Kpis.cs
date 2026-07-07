@@ -41,16 +41,24 @@ function renderKpiStrip() {
   if (spSuffix) spSuffix.textContent = dbMode ? 'session' : 'in 30s';
 
   // ---------- avg fps ----------
+  // avg fps is UPDATE cadence (is game time running at full speed?);
+  // render fps is DRAW cadence (how many frames the eyes get). With
+  // frameskip on and the game running behind they diverge: updates hold
+  // 60 while draws are dropped. When render sits well below avg, the tag
+  // says so instead of calling a frame-dropping session 'smooth'.
   const fpsClass = k.avgFps >= 55 ? 'good' : k.avgFps >= 30 ? 'warn' : 'bad';
-  const fpsTag = k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth';
+  const skipping = k.renderFps > 0 && k.renderFps < k.avgFps - 10;
+  const fpsTag = skipping ? 'skipping'
+    : k.avgFps < 30 ? 'rough' : k.avgFps < 55 ? 'okay' : 'smooth';
   setKpi('fps', {
     value: dash(k.avgFps, v => v.toFixed(0)),
     valueClass: fpsClass,
-    tag: fpsTag, tagClass: fpsClass,
+    tag: fpsTag, tagClass: skipping ? 'warn' : fpsClass,
     subs: [
       { k: 'median', v: msFmt(k.medianFrameMs) },
       { k: 'best',   v: msFmt(k.bestFrameMs) },
       { k: 'samples', v: dash(k.sampleN, fmtInt) },
+      { k: 'render', v: k.renderFps > 0 ? k.renderFps.toFixed(0) + 'fps' : '—' },
     ],
     sparkVals: ms.length > 1 ? ms.map(v => v > 0 ? 1000 / Math.max(1, v) : 0) : null,
     sparkClass: fpsClass,

@@ -101,6 +101,7 @@ public static class KpiCalculator
         return new KpiSnapshot
         {
             AvgFps = avgFps,
+            RenderFps = collector.RenderFps,
             WorstFrameMs = maxMs,
             MedianFrameMs = median,
             LagSpikeCount = lagCount,

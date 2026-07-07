@@ -38,6 +38,14 @@ public sealed class MetricCollector
     // jitter without feeling laggy.
     private const double PerModSmoothing = 0.06d;
 
+    /// <summary>
+    /// EMA factor for the inter-draw period (render-fps). Same responsiveness
+    /// as <see cref="PerModSmoothing"/>: at 60 draws/s the time constant is
+    /// ~17 frames (~0.3 s), fast enough to show a frameskip toggle within a
+    /// second without flickering per-frame.
+    /// </summary>
+    private const double DrawPeriodSmoothing = 0.06d;
+
     // Slow EMA for the per-hook ~30 s average. alpha = 2/(N+1) for an N = 1800-tick
     // (~30 s @ 60 Hz) horizon ≈ 0.00111, so it tracks the same window the old
     // per-hook windowed mean did, without the 1800-sample-per-hook history ring
@@ -113,6 +121,13 @@ public sealed class MetricCollector
     // frame time the player experiences, which FrameTimeMs (update-window only)
     // is structurally blind to.
     private long _prevBeginTimestamp = -1L;
+
+    // Draw-cadence tracking (render fps). Timestamp of the previous rendered
+    // frame's draw beat (-1 before the first draw of the session) and the EMA
+    // of the inter-draw period. Written from the draw phase, read by
+    // KpiCalculator — both main thread. See OnDrawFrame.
+    private long _prevDrawTimestamp = -1L;
+    private double _drawPeriodEmaMs;
 
     // Real inter-frame period (ms) for the frame currently being closed. Set in
     // BeginTick, read in EndTick. See TickFrame.RealFrameTimeMs.
@@ -411,6 +426,45 @@ public sealed class MetricCollector
     /// behaviour intact.
     /// </summary>
     public void BeginTick() => BeginTick(_history.Count);
+
+    /// <summary>
+    /// Rendered frames per second, derived from the EMA of the period between
+    /// draw beats (<see cref="OnDrawFrame"/>). This is the cadence the player's
+    /// eyes actually receive — distinct from <c>AvgFps</c> (update cadence):
+    /// with frameskip on and the game running behind, updates hold 60 UPS
+    /// while draws are skipped, so this drops below AvgFps. 0 until the second
+    /// draw of the session (no period exists yet).
+    /// </summary>
+    public double RenderFps => _drawPeriodEmaMs > 0d ? 1000d / _drawPeriodEmaMs : 0d;
+
+    /// <summary>
+    /// Records one rendered frame. Called once per draw from
+    /// <see cref="ProfilerSystem.PostDrawInterface"/> (main thread, same as the
+    /// tick path). Folds the inter-draw period into the render-fps EMA.
+    /// Suspend-length gaps (alt-tab / OS sleep — no rendering happening, not
+    /// slow rendering) reset the beat instead of folding, mirroring the
+    /// RealFrameTimeMs suspend guard in <see cref="EndTick"/>.
+    /// Cost: one timestamp read + compare + EMA fold per rendered frame
+    /// (~60/s), zero allocation — Invariant 2 by inspection.
+    /// </summary>
+    public void OnDrawFrame()
+    {
+        long now = Stopwatch.GetTimestamp();
+        long prev = _prevDrawTimestamp;
+        _prevDrawTimestamp = now;
+        if (prev < 0L)
+        {
+            return;
+        }
+        double periodMs = (now - prev) * TicksToMs;
+        if (periodMs >= StallDetector.SuspendCeilingMs)
+        {
+            return;
+        }
+        _drawPeriodEmaMs = _drawPeriodEmaMs <= 0d
+            ? periodMs
+            : _drawPeriodEmaMs + DrawPeriodSmoothing * (periodMs - _drawPeriodEmaMs);
+    }
 
     /// <summary>
     /// Marks the end of a tick, builds its <see cref="TickFrame"/>, commits it
