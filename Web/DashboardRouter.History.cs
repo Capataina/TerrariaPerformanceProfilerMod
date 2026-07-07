@@ -109,7 +109,13 @@ internal static partial class DashboardRouter
             IReadOnlyList<RecentSessionView> recent = store.RecentSessions(1);
             if (recent.Count > 0)
             {
-                ModlistRow? prevList = db.Modlists.FindOne(x => x.Fingerprint == recent[0].Fingerprint);
+                // C1-class fix (second instance): an indexer+member access inside a
+                // LiteDB predicate (recent[0].Fingerprint) makes the LINQ translator
+                // resolve recent[0] as a document path and throw "TargetException:
+                // Object does not match target type" — here it failed /api/data-health
+                // on every dashboard poll. Hoist to a captured string constant.
+                string prevFingerprint = recent[0].Fingerprint;
+                ModlistRow? prevList = db.Modlists.FindOne(x => x.Fingerprint == prevFingerprint);
                 if (prevList != null)
                 {
                     prevRoster = new List<string>(prevList.Mods.Count);

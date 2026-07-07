@@ -46,6 +46,17 @@ public sealed class MetricCollector
     // stays an exact windowed mean (its history ring is small: modCount*cats*1800).
     private const double PerHookAverageSmoothing = 2d / (1800d + 1d);
 
+    // Below this, an EMA cell is flushed to exactly 0. An exponential average of a
+    // cost that goes idle never reaches 0 — it asymptotes through ever-smaller
+    // positives and bottoms out as a subnormal double like 2.3e-284, which (a)
+    // serialised into the WarmAggregate as visual garbage (the C2 bug) and (b)
+    // triggers the CPU's slow subnormal path on x86 every tick for every idle
+    // cell. 1e-12 ms (a femtosecond) is far below any real per-tick cost, so
+    // snapping cells beneath it to 0 is lossless for the observable and keeps the
+    // arrays free of subnormals. All EMA values here are >= 0, so a one-sided
+    // compare is sufficient.
+    private const double DenormalFloor = 1e-12;
+
     // Stopwatch-ticks → milliseconds. Stopwatch.Frequency is fixed at process
     // boot on every platform tModLoader runs on, so this is a process-lifetime
     // constant; caching the reciprocal trades a per-tick division for a multiply
@@ -457,8 +468,10 @@ public sealed class MetricCollector
         double total0 = 0d;
         for (int i = 0; i < _perModSmoothedMs.Length; i++)
         {
-            total0 += _perModRawMs[i];
-            _perModSmoothedMs[i] += PerModSmoothing * (_perModRawMs[i] - _perModSmoothedMs[i]);
+            double raw = _perModRawMs[i];
+            total0 += raw;
+            double v = _perModSmoothedMs[i] + PerModSmoothing * (raw - _perModSmoothedMs[i]);
+            _perModSmoothedMs[i] = v < DenormalFloor ? 0d : v;
         }
 
         PerModAttribution.HarvestHooksInto(_perHookRawMs, backendId: 0);
@@ -470,8 +483,10 @@ public sealed class MetricCollector
         for (int i = 0; i < _perHookSmoothedMs.Length; i++)
         {
             double raw = _perHookRawMs[i];
-            _perHookSmoothedMs[i] += PerModSmoothing * (raw - _perHookSmoothedMs[i]);
-            _perHookAverageMs[i] += PerHookAverageSmoothing * (raw - _perHookAverageMs[i]);
+            double sm = _perHookSmoothedMs[i] + PerModSmoothing * (raw - _perHookSmoothedMs[i]);
+            double av = _perHookAverageMs[i] + PerHookAverageSmoothing * (raw - _perHookAverageMs[i]);
+            _perHookSmoothedMs[i] = sm < DenormalFloor ? 0d : sm;
+            _perHookAverageMs[i] = av < DenormalFloor ? 0d : av;
         }
 
         // Allocation tracking: parallel harvest + smoothing for bytes. Same shape
@@ -482,7 +497,8 @@ public sealed class MetricCollector
             UpdateRollingAverage(_perModRawBytes!, _perModHistoryBytes!, _perModRollingBytes!, _perModAverageBytes!, _sampleSlot);
             for (int i = 0; i < _perModSmoothedBytes!.Length; i++)
             {
-                _perModSmoothedBytes[i] += PerModSmoothing * (_perModRawBytes![i] - _perModSmoothedBytes[i]);
+                double v = _perModSmoothedBytes[i] + PerModSmoothing * (_perModRawBytes![i] - _perModSmoothedBytes[i]);
+                _perModSmoothedBytes[i] = v < DenormalFloor ? 0d : v;
             }
 
             PerModAttribution.HarvestHookAllocationsInto(_perHookRawBytes!, backendId: 0);
@@ -491,8 +507,10 @@ public sealed class MetricCollector
             for (int i = 0; i < _perHookSmoothedBytes!.Length; i++)
             {
                 double raw = _perHookRawBytes![i];
-                _perHookSmoothedBytes[i] += PerModSmoothing * (raw - _perHookSmoothedBytes[i]);
-                _perHookAverageBytes![i] += PerHookAverageSmoothing * (raw - _perHookAverageBytes[i]);
+                double sm = _perHookSmoothedBytes[i] + PerModSmoothing * (raw - _perHookSmoothedBytes[i]);
+                double av = _perHookAverageBytes![i] + PerHookAverageSmoothing * (raw - _perHookAverageBytes[i]);
+                _perHookSmoothedBytes[i] = sm < DenormalFloor ? 0d : sm;
+                _perHookAverageBytes[i] = av < DenormalFloor ? 0d : av;
             }
         }
 

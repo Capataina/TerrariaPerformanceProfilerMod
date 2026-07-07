@@ -331,7 +331,16 @@ public sealed class ProfilerSystem : ModSystem
                         var recent = store.RecentSessions(1);
                         if (recent.Count > 0)
                         {
-                            ModlistRow? prevList = histDb.Modlists.FindOne(x => x.Fingerprint == recent[0].Fingerprint);
+                            // C1 fix: hoist the value out of the LiteDB predicate. An
+                            // indexer+member access (recent[0].Fingerprint) INSIDE the
+                            // Expression makes LiteDB's LINQ-to-BsonExpression translator
+                            // treat recent[0] as a document path and invoke the Fingerprint
+                            // getter reflectively on the wrong instance, throwing
+                            // "TargetException: Object does not match target type" — the
+                            // crash that killed cross-session eval on its first live run.
+                            // A plain captured string translates to a clean constant.
+                            string prevFingerprint = recent[0].Fingerprint;
+                            ModlistRow? prevList = histDb.Modlists.FindOne(x => x.Fingerprint == prevFingerprint);
                             if (prevList != null)
                             {
                                 var prevNames = new List<string>(prevList.Mods.Count);

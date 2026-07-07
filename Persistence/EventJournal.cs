@@ -61,7 +61,16 @@ public sealed class EventJournal : IDisposable
     /// </summary>
     public void AppendBatch(IReadOnlyList<DbWriteOp> batch)
     {
-        if (_stream == null || batch.Count == 0) return;
+        // Capture the stream into a local ONCE. The writer thread runs AppendBatch
+        // while world-unload can dispose this journal on another thread; reading
+        // _stream field-by-field left a window where the null-guard passed but a
+        // concurrent dispose then nulled _stream before the write, throwing the
+        // NullReferenceException seen at shutdown (EventJournal.cs:line 87). With a
+        // captured local, a concurrent dispose can only close the stream we already
+        // hold — that surfaces as a clean ObjectDisposedException the writer
+        // already catches, never an NRE.
+        System.IO.Stream? stream = _stream;
+        if (stream == null || batch.Count == 0) return;
 
         // Serialise each line straight to UTF-8 bytes and stream it. The old
         // path built a whole-batch StringBuilder, materialised it as one
@@ -84,8 +93,8 @@ public sealed class EventJournal : IDisposable
                 Payload = SerializePayload(op.Payload),
             };
             byte[] lineBytes = JsonSerializer.SerializeToUtf8Bytes(line, JsonOpts);
-            _stream.Write(lineBytes, 0, lineBytes.Length);
-            _stream.WriteByte((byte)'\n');
+            stream.Write(lineBytes, 0, lineBytes.Length);
+            stream.WriteByte((byte)'\n');
             appended += lineBytes.Length + 1;
         }
 
