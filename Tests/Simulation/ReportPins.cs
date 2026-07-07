@@ -50,6 +50,16 @@ public sealed class ReportPins
     {
         string html = HtmlReportWriter.Render(Sample());
 
+        // Env-gated artefact save: PP_WRITE_REPORT_SAMPLE=<dir> writes the
+        // rendered sample so the e2e sweep can load it over file:// in a real
+        // browser (the render check the pure-string asserts cannot do).
+        string? outDir = Environment.GetEnvironmentVariable("PP_WRITE_REPORT_SAMPLE");
+        if (!string.IsNullOrEmpty(outDir))
+        {
+            System.IO.Directory.CreateDirectory(outDir);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "report-sample.html"), html);
+        }
+
         // The property that makes the artefact durable: file:// with the
         // network cable pulled renders identically, forever.
         Assert.DoesNotContain("http://", html);

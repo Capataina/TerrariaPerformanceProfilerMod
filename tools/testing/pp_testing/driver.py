@@ -141,7 +141,15 @@ class Dashboard:
     def select_first_row(self, key, index):
         try:
             panel = self.panel_locator(key, index)
-            row = panel.locator('.row.clickable, .dtable tr.clickable, [data-mod]').first
+            rows = panel.locator('.row.clickable, .dtable tr.clickable, [data-mod]')
+            # Prefer a row that is NOT already selected: auto-selecting
+            # panels (Observatory picks its top mod) would otherwise hand
+            # the feedback rule a row whose class cannot change - a false
+            # positive against correct behaviour (caught live 2026-07-07).
+            row = rows.filter(has_not=self.page.locator('nothing')).first
+            unselected = panel.locator('.row.clickable:not(.sel), .dtable tr.clickable:not(.sel)')
+            if unselected.count() > 0:
+                row = unselected.first
             if row.count() == 0:
                 return False
             row.scroll_into_view_if_needed(timeout=1500)

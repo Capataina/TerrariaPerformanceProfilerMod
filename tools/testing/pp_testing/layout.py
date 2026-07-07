@@ -187,32 +187,59 @@ _DRAWER_CLOSED_JS = r"""() => {
 
 
 def _selection_feedback(dash, key, panels):
-    """Clicking a row in a clickable list must visibly change it (class or style)."""
+    """Clicking a row in a clickable list must visibly change it (class or style).
+
+    Targets the first NON-selected row and tracks it BY INDEX across the click:
+    auto-selecting panels (Observatory picks its top mod) would otherwise hand
+    the rule a pre-selected row whose class cannot change (a false positive
+    against correct behaviour, caught live 2026-07-07), and reading back a
+    different row than the one clicked compares apples to oranges.
+    """
     out = []
+    pick_js = r"""([key, i]) => {
+      const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+      const panel = pane && pane.querySelectorAll('.panel')[i];
+      const rows = panel ? panel.querySelectorAll('.row.clickable, .dtable tr.clickable, [data-mod]') : [];
+      let idx = -1;
+      for (let r = 0; r < rows.length; r++) {
+        if (!String(rows[r].className).includes('sel')) { idx = r; break; }
+      }
+      if (idx < 0 && rows.length > 0) idx = 0;
+      if (idx < 0) return null;
+      const row = rows[idx];
+      return { idx, cls: row.className, bg: getComputedStyle(row).backgroundColor };
+    }"""
+    read_js = r"""([key, i, idx]) => {
+      const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+      const panel = pane && pane.querySelectorAll('.panel')[i];
+      const rows = panel ? panel.querySelectorAll('.row.clickable, .dtable tr.clickable, [data-mod]') : [];
+      if (idx >= rows.length) return null;
+      const row = rows[idx];
+      return { cls: row.className, bg: getComputedStyle(row).backgroundColor,
+               drawer: Array.from(document.querySelectorAll('.drawer')).some(d => !d.className.includes('hidden'))
+                       || !!document.getElementById('popup-card') };
+    }"""
+    click_js = r"""([key, i, idx]) => {
+      const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
+      const panel = pane && pane.querySelectorAll('.panel')[i];
+      const rows = panel ? panel.querySelectorAll('.row.clickable, .dtable tr.clickable, [data-mod]') : [];
+      if (idx >= rows.length) return false;
+      rows[idx].scrollIntoView({ block: 'nearest' });
+      // dispatchEvent, not .click(): [data-mod] also matches SVG slices
+      // (memory strip), and SVGElement has no click() method.
+      rows[idx].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return true;
+    }"""
     for p in panels:
         if not p["hasRows"]:
             continue
-        before = dash.evaluate(
-            r"""([key, i]) => {
-              const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
-              const panel = pane && pane.querySelectorAll('.panel')[i];
-              const row = panel && panel.querySelector('.row.clickable, .dtable tr.clickable, [data-mod]');
-              if (!row) return null;
-              return { cls: row.className, bg: getComputedStyle(row).backgroundColor };
-            }""", [key, p["index"]])
+        before = dash.evaluate(pick_js, [key, p["index"]])
         if before is None:
             continue
-        if not dash.select_first_row(key, p["index"]):
+        if not dash.evaluate(click_js, [key, p["index"], before["idx"]]):
             continue
-        after = dash.evaluate(
-            r"""([key, i]) => {
-              const pane = document.querySelector('.tab-pane[data-pane="' + key + '"]');
-              const panel = pane && pane.querySelectorAll('.panel')[i];
-              const row = panel && panel.querySelector('.row.clickable, .dtable tr.clickable, [data-mod]');
-              if (!row) return null;
-              return { cls: row.className, bg: getComputedStyle(row).backgroundColor,
-                       drawer: !(document.getElementById('modcard')?.className || '').includes('hidden') };
-            }""", [key, p["index"]])
+        dash.page.wait_for_timeout(250)
+        after = dash.evaluate(read_js, [key, p["index"], before["idx"]])
         if after is None:
             continue
         changed = (after["cls"] != before["cls"]) or (after["bg"] != before["bg"]) or after.get("drawer")
