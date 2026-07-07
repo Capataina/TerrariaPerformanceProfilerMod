@@ -1,7 +1,9 @@
-Performance Profiler is an always-on, player-facing telemetry mod for tModLoader.
+Performance Profiler answers the question every big modlist raises: what is each mod actually costing you, and what are you getting for it?
 
-It attributes every per-tick CPU cost to the mod (and the subsystem within that mod) that produced it, surfaces a btop-style hierarchical drill-down, and generates an end-of-session retrospective showing where the last few hours of play actually went.
+It measures every mod's per-tick CPU (split into update-phase vs draw-phase work), allocations, and RAM footprint through read-only instrumentation of the hooks tModLoader itself exposes, then serves a local browser dashboard (press F9): live frame health that reads honestly even during slow-motion, per-mod cost rankings, spike and stall forensics with causes (an alt-tab is never counted as a stall), engagement tracking, a session timeline, cross-session lifetime statistics, and an insights feed whose findings are descriptive, never prescriptive - every number says what was measured, nothing tells you what to remove.
 
-Read-only instrumentation: no save changes, no runtime behaviour changes, no network, no telemetry. Worst case is the mod declining to load.
+Also: a self-contained HTML session report you can keep or share (one file, no game needed), per-feature settings through the standard Mod Config menu (every heavy feature has a slider, defaults are the full experience), and a Self tab where the profiler measures its own cost with the same rigour it applies to everyone else.
 
-Status: early development (Milestone 0 — hello-world scaffold).
+Read-only instrumentation: no save changes, no game-behaviour changes, no network beyond the local dashboard, no telemetry leaving your machine. If the loader's internals ever drift from what the profiler can verify, it disables itself cleanly rather than risk your run.
+
+Status: late pre-release (v0.35). Feature-complete core; runtime hardening toward the first public release.

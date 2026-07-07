@@ -4,7 +4,7 @@
 
 ### Per-mod CPU, RAM, and *engagement* attribution for your entire modded Terraria session — live, in your browser.
 
-![status](https://img.shields.io/badge/status-v0.27.1%20·%20seven%20live%20tabs%20·%20cross--session%20memory-79c0ff?style=flat-square)
+![status](https://img.shields.io/badge/status-v0.35%20·%20honest%20metrics%20·%20phase%20attribution%20·%20cross--session%20memory-79c0ff?style=flat-square)
 ![C#](https://img.shields.io/badge/C%23-.NET%208-512BD4?style=flat-square&logo=dotnet&logoColor=white)
 ![tModLoader](https://img.shields.io/badge/tModLoader-1.4.4-1b7340?style=flat-square)
 ![read-only](https://img.shields.io/badge/instrumentation-read--only-95d4a3?style=flat-square)
@@ -356,7 +356,7 @@ self-describing harness** that screenshots and audits every tab off-game, with n
 running game:
 
 ```
-  L1  pure-logic xUnit        detectors, ranking, attribution, schema — 108 tests
+  L1  pure-logic xUnit        detectors, ranking, attribution, schema, scenario engine — 205 tests
   L4  layout invariants       Playwright: overflow, sticky headers, selection, alignment,
                               label-overlap, dead-space — deterministic, fires on a regression
   L6  generative fixtures     fills the /api contract (discovered from source) at realistic +
@@ -380,7 +380,7 @@ engine: its own measurement, pipeline stage, surface, and persistence footprint 
 not a chart or a panel.
 
 ```
-  NOW  ── v0.29 ───────────────────────────────────────────────────────────────────
+  NOW  ── v0.35 ───────────────────────────────────────────────────────────────────
          seven live tabs · insights engine (5 families, 20 detectors) · cross-session
          history layer + data-quality gates · off-game L4/L6/L8 testing harness ·
          the HONEST MEASUREMENT CORE (2026-07-07): the frame metric spans the whole
@@ -389,31 +389,33 @@ not a chart or a panel.
          a 'skipping' tag when frameskip drops draws; the profiler's own harvest +
          probe cost on the Self tab; suspend-aware stall attribution
 
-  IN FLIGHT ── the 2026-07-07 batch ──────────────────────────────────────────────
-   ◆ S06+S07  honesty completion    detectors/Lag tab still read update-window time
-                                    (the live-caught "you sustain 60 fps" during
-                                    31-fps slow-mo); fingerprint robustness
-   ◆ S01      loop-anatomy split    per-mod update-ms vs draw-ms attribution
-   ◆ S23      per-feature settings  tModLoader ModConfig, impact-grouped sliders
-   ◆ S04      memory guard          working-set trend, growth verdicts, reload-stack
-                                    detection (the 30 → 40.5 KB/hook finding)
-   ◆ S17      HTML session report   one self-contained shareable file
-   ◆ S27      e2e testing           synthetic sessions + live-mimic UI harness
-   ◆ S16-S20  ui overhaul           gradient ribbon, warming states, popup cards,
-                                    the 38-item audit ledger (plans/ui-ux-audit.md)
+  SHIPPED ── the 2026-07-07 batch (0.30.0 → 0.35.0, all off-game verified) ───────
+   ● S06+S07  honesty completion    real-cadence detectors, sustained-slowness
+                                    signal, cause-split stalls, fingerprint v2
+   ● S01      loop-anatomy split    per-mod update/draw attribution (+0.001 ms/t
+                                    measured); draw-bound insights
+   ● S23      per-feature settings  tModLoader ModConfig, impact-grouped sliders
+   ● S04      memory guard          trend verdicts, growth severity, reload-stack
+                                    detection (the 30 → 40.5 KB/hook staircase)
+   ● S17      HTML session report   one self-contained file, three triggers
+   ● S27      e2e testing           scenario engine + store round-trips + run_all
+   ● S16-S20  ui overhaul           ribbon axis + minute drill, warming states,
+                                    popup cards, the audit ledger closed
+   ▷ NEXT     the runtime playtest  Build + Reload verifies the batch in-game
 
-  THE MAP ── by domain (status: ● built/partial · ◆ planned · ◇ idea · ▽ deferred) ─
-   Measurement   ◆ S01 loop anatomy   ◇ S02 load-time    ◇ S03 content-level
-                 ◆ S04 memory owner   ◇ S05 forensics    ◆ S06 honesty  ◆ S07 fingerprint
+  THE MAP ── by domain (status: ● built/partial · ◆ planned · ◇ idea · ▽ deferred;
+             the atlas matrix carries per-slot commit evidence) ─
+   Measurement   ● S01 loop anatomy   ◇ S02 load-time    ◇ S03 content-level
+                 ● S04 memory owner   ◇ S05 forensics    ● S06 honesty  ● S07 fingerprint
                  ▽ S08 multiplayer
    Intelligence  ◇ S09 the Lab (A/B experiments)         ◇ S10 update regression
                  ◇ S11 engagement-beyond-combat          ◇ S12 live sentinel
                  ◇ S13 insight lifecycle                 ◇ S14 modlist doctor card
-   Presentation  ◇ S15 session DVR    ◆ S16 gradient ribbon   ◆ S17 HTML report
-                 ◆ S18 popup cards    ◆ S19 per-tab quality   ◆ S20 warming states
+   Presentation  ◇ S15 session DVR    ● S16 gradient ribbon   ● S17 HTML report
+                 ● S18 popup cards    ● S19 per-tab quality   ● S20 warming states
                  ▽ S21 mobile/Deck    ▽ S22 overlay revival
-   Platform      ◆ S23 settings       ● S24 self-RAM     ● S25 self-CPU
-                 ● S26 db health      ◆ S27 e2e testing  ◇ S28 backend parity
+   Platform      ● S23 settings       ● S24 self-RAM     ● S25 self-CPU
+                 ● S26 db health      ● S27 e2e testing  ◇ S28 backend parity
                  ◇ S29 abort telemetry
    Release       ◇ S30 workshop kit   ● S31 localisation (partial)
 
