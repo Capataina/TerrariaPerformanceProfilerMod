@@ -373,33 +373,56 @@ markup — add an eighth tab tomorrow and it is audited with zero harness change
 
 ## Roadmap
 
-```
-  NOW  ── v0.27.1 ─────────────────────────────────────────────────────────────────
-         seven live tabs (Observatory + Insights split) · rich chart vocabulary ·
-         insights engine (5 families) · the CROSS-SESSION HISTORY LAYER: a two-level
-         per-mod rollup keyed on stable identity, a HistoryStore read layer, cross-
-         session + cross-modpack detectors (LifetimeData), a session-end insight
-         producer, modlist-change detection, and a player-initiated reset control ·
-         off-game L4/L6/L8 testing harness · v0.27.1 DATA-QUALITY pass: a thin-session
-         gate + tick-weighted lifetime averages (load-window sessions no longer inflate
-         the mean), insights that name their mods + show the loaded/idle roster,
-         profiler self-exclusion, a roster-evolution matrix, and a session/roster banner
+The full slot-by-slot map — 31 capabilities across five domains, each with status
+and size — lives in [`context/notes/feature-atlas.md`](context/notes/feature-atlas.md).
+This section is its summary. A "slot" is a capability at the scale of the insights
+engine: its own measurement, pipeline stage, surface, and persistence footprint —
+not a chart or a panel.
 
-  NEXT ───────────────────────────────────────────────────────────────────────────
-   ◇ ContextBaseline re-key on stable identity        (per-context cost baselines
-                                                        survive a modlist edit too)
-   ◇ per-mod lifetime trend in the mod-context drawer (/api/history is ready)
-   ◇ shareable post-session HTML report               (one self-contained file)
-   ◇ richer per-hook timing histograms (Deep mode)    (the gated HookFrequencyTail
-                                                        + LoadoutCombinationCost detectors)
+```
+  NOW  ── v0.29 ───────────────────────────────────────────────────────────────────
+         seven live tabs · insights engine (5 families, 20 detectors) · cross-session
+         history layer + data-quality gates · off-game L4/L6/L8 testing harness ·
+         the HONEST MEASUREMENT CORE (2026-07-07): the frame metric spans the whole
+         game loop (update + draw + vsync), so slow-motion finally reads as
+         slow-motion; render fps (draw cadence) beside avg fps (update cadence) with
+         a 'skipping' tag when frameskip drops draws; the profiler's own harvest +
+         probe cost on the Self tab; suspend-aware stall attribution
+
+  IN FLIGHT ── the 2026-07-07 batch ──────────────────────────────────────────────
+   ◆ S06+S07  honesty completion    detectors/Lag tab still read update-window time
+                                    (the live-caught "you sustain 60 fps" during
+                                    31-fps slow-mo); fingerprint robustness
+   ◆ S01      loop-anatomy split    per-mod update-ms vs draw-ms attribution
+   ◆ S23      per-feature settings  tModLoader ModConfig, impact-grouped sliders
+   ◆ S04      memory guard          working-set trend, growth verdicts, reload-stack
+                                    detection (the 30 → 40.5 KB/hook finding)
+   ◆ S17      HTML session report   one self-contained shareable file
+   ◆ S27      e2e testing           synthetic sessions + live-mimic UI harness
+   ◆ S16-S20  ui overhaul           gradient ribbon, warming states, popup cards,
+                                    the 38-item audit ledger (plans/ui-ux-audit.md)
+
+  THE MAP ── by domain (status: ● built/partial · ◆ planned · ◇ idea · ▽ deferred) ─
+   Measurement   ◆ S01 loop anatomy   ◇ S02 load-time    ◇ S03 content-level
+                 ◆ S04 memory owner   ◇ S05 forensics    ◆ S06 honesty  ◆ S07 fingerprint
+                 ▽ S08 multiplayer
+   Intelligence  ◇ S09 the Lab (A/B experiments)         ◇ S10 update regression
+                 ◇ S11 engagement-beyond-combat          ◇ S12 live sentinel
+                 ◇ S13 insight lifecycle                 ◇ S14 modlist doctor card
+   Presentation  ◇ S15 session DVR    ◆ S16 gradient ribbon   ◆ S17 HTML report
+                 ◆ S18 popup cards    ◆ S19 per-tab quality   ◆ S20 warming states
+                 ▽ S21 mobile/Deck    ▽ S22 overlay revival
+   Platform      ◆ S23 settings       ● S24 self-RAM     ● S25 self-CPU
+                 ● S26 db health      ◆ S27 e2e testing  ◇ S28 backend parity
+                 ◇ S29 abort telemetry
+   Release       ◇ S30 workshop kit   ● S31 localisation (partial)
 
   v1.0 ───────────────────────────────────────────────────────────────────────────
-   ◇ first public Steam Workshop release · first-launch UX · screenshots · GIFs
+   ◇ first public Steam Workshop release · S30 release kit · runtime-verified core
 
   LATER ──────────────────────────────────────────────────────────────────────────
-   ◇ Steam Deck handheld dashboard view
-   ◇ mobile-friendly dashboard layout
-   ◇ multiplayer-server-side variant
+   ◇ S15 session DVR · S09 the Lab · S10 update regression · S03 content-level
+   ◇ S21 Steam Deck / mobile layouts · S22 overlay revival · S08 multiplayer variant
 ```
 
 ---
