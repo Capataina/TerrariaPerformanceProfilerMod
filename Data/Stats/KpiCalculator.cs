@@ -55,7 +55,7 @@ public static class KpiCalculator
         // Single forward pass: avg, max, min, lag count, total-lag-ms. Median needs sort.
         for (int i = 0; i < n; i++)
         {
-            double v = hist[i].FrameTimeMs;
+            double v = hist[i].RealFrameTimeMs;
             sumMs += v;
             if (v > maxMs) maxMs = v;
             if (v < minMs) minMs = v;
@@ -86,13 +86,17 @@ public static class KpiCalculator
         // history capacity) so the buffer never grows beyond that.
         double[] sorted = _medianScratch ??= new double[n];
         if (sorted.Length < n) sorted = _medianScratch = new double[n];
-        for (int i = 0; i < n; i++) sorted[i] = hist[i].FrameTimeMs;
+        for (int i = 0; i < n; i++) sorted[i] = hist[i].RealFrameTimeMs;
         System.Array.Sort(sorted, 0, n);
         double median = sorted[n / 2];
 
-        // Clamp FPS to 60 — that's Terraria's tick ceiling; values higher
-        // are noise (very fast frames don't translate to FPS in practice).
-        double avgFps = avgMs > 0d ? System.Math.Min(60d, 1000d / System.Math.Max(1000d/60d, avgMs)) : 0d;
+        // Honest FPS from the real inter-frame period: 1000 / mean real-frame-ms.
+        // No 60-clamp — the old clamp existed because this read compute time
+        // (FrameTimeMs), which produced absurd "300 fps" figures it had to cap.
+        // RealFrameTimeMs is the actual game-loop cadence, so it sits at ~60 on a
+        // healthy tick and drops below 60 during genuine slow-motion; clamping
+        // that would re-hide the very slow-down this metric exists to show.
+        double avgFps = avgMs > 0d ? 1000d / avgMs : 0d;
 
         return new KpiSnapshot
         {

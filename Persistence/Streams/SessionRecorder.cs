@@ -752,11 +752,13 @@ public sealed class SessionRecorder
         // Frame distribution from history. The RingBuffer's enumerator is
         // oldest-first; we only need a one-pass average + max for the
         // archive — p95/p99 will be lifted out of warm-tier data by future
-        // queries.
+        // queries. Uses RealFrameTimeMs (the honest Update+Draw+vsync period,
+        // already suspend-guarded in MetricCollector) so the archive average is
+        // consistent with MaxFrameMs, which is also real-frame-based.
         double totalFrame = 0d;
         double max = _maxFrameSeen;
         int n = collector.History.Count;
-        for (int i = 0; i < n; i++) totalFrame += collector.History[i].FrameTimeMs;
+        for (int i = 0; i < n; i++) totalFrame += collector.History[i].RealFrameTimeMs;
         double avg = n > 0 ? totalFrame / n : 0d;
 
         return new TickAggregateArchive

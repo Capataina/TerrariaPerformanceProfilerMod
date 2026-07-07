@@ -39,7 +39,7 @@ internal static partial class DashboardRouter
             if (last != null)
             {
                 var a = last.Archive;
-                double avgFps = a.AvgFrameMs > 0d ? Math.Min(60d, 1000d / a.AvgFrameMs) : 0d;
+                double avgFps = a.AvgFrameMs > 0d ? 1000d / a.AvgFrameMs : 0d;
                 // LiteDB is opened with UTC_DATE=false, so stored UTC dates read
                 // back as Local-kind. Re-label as UTC before any offset math: a
                 // Local-kind value paired with a zero offset throws in
@@ -135,7 +135,7 @@ internal static partial class DashboardRouter
             source = "live",
             unixMs = Time.UnixMsNow(),
             tickIndex = latest.TickIndex,
-            frameMs = latest.FrameTimeMs,
+            frameMs = latest.RealFrameTimeMs,
             avg30sMs = session30sAvg,
             gcMs = latest.GcTimeMs,
             npcCount = latest.NpcCount,
@@ -204,7 +204,7 @@ internal static partial class DashboardRouter
         for (int i = 0; i < n; i++)
         {
             ticks[i] = history[i].TickIndex;
-            ms[i] = history[i].FrameTimeMs;
+            ms[i] = history[i].RealFrameTimeMs;
             gc[i] = history[i].GcTimeMs;
         }
 
@@ -299,7 +299,7 @@ internal static partial class DashboardRouter
         if (n == 0) return 0d;
         double sum = 0d;
         int start = hist.Count - n;
-        for (int i = 0; i < n; i++) sum += hist[start + i].FrameTimeMs;
+        for (int i = 0; i < n; i++) sum += hist[start + i].RealFrameTimeMs;
         return sum / n;
     }
 }

@@ -438,14 +438,28 @@ public sealed class MetricCollector
             gcTimeMs = 0d;
         }
 
+        double updateWindowMs = TimestampDeltaMs(_tickStartTimestamp, endTimestamp);
+
+        // Real inter-frame period is the honest frame budget (Update + Draw +
+        // vsync), EXCEPT when the preceding gap was a suspend or world-load:
+        // that is wall time in which nothing rendered (window unfocused so the
+        // game stopped ticking, or assets were binding), and recording it as a
+        // multi-second "frame" would swamp the FPS metric after every alt-tab.
+        // In that case, and on the first tick (no predecessor), fall back to the
+        // update-window compute time — the resume tick's real cost.
+        StallCause? gapCause = _stallDetector.LastGapCause;
+        bool gapWasNonCompute =
+            gapCause is StallCause.ProcessSuspended or StallCause.WorldLoad;
+        double realFrameMs = (_realFramePeriodMs > 0d && !gapWasNonCompute)
+            ? _realFramePeriodMs
+            : updateWindowMs;
+
         TickFrame frame = new TickFrame
         {
             TimestampUnixMs = Time.UnixMsNow(),
             TickIndex = tickIndex,
-            FrameTimeMs = TimestampDeltaMs(_tickStartTimestamp, endTimestamp),
-            RealFrameTimeMs = _realFramePeriodMs > 0d
-                ? _realFramePeriodMs
-                : TimestampDeltaMs(_tickStartTimestamp, endTimestamp),
+            FrameTimeMs = updateWindowMs,
+            RealFrameTimeMs = realFrameMs,
             GcTimeMs = gcTimeMs,
             NpcCount = npcCount,
             ProjectileCount = projectileCount,

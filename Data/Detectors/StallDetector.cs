@@ -261,6 +261,16 @@ public sealed class StallDetector
     public int Count => _events.Count;
 
     /// <summary>
+    /// Cause classified for the gap that ended at the most recent <see cref="OnBeginTick"/>,
+    /// or <c>null</c> when that gap was a normal (sub-threshold) frame. Read by
+    /// <see cref="MetricCollector.EndTick"/> to decide whether the tick's real inter-frame
+    /// period is a representative frame time: a <see cref="StallCause.ProcessSuspended"/> or
+    /// <see cref="StallCause.WorldLoad"/> gap is wall time in which nothing rendered, so it
+    /// must not be recorded as a multi-second "frame" that would swamp the FPS metric.
+    /// </summary>
+    public StallCause? LastGapCause { get; private set; }
+
+    /// <summary>
     /// Called by <see cref="MetricCollector.BeginTick"/> after the tick start
     /// timestamp has been captured. Detects a stall by comparing the wall
     /// period since the previous <c>BeginTick</c> against the shared baseline.
@@ -295,6 +305,7 @@ public sealed class StallDetector
         // baseline snapshot and bail.
         if (!_hasBaselineSample || !baseline.IsCalibrated)
         {
+            LastGapCause = null;
             CaptureBaseline(beginStamp);
             _hasBaselineSample = true;
             return;
@@ -309,6 +320,7 @@ public sealed class StallDetector
             // No stall. Slide the baseline sample forward and reset the
             // gap-focus tracker so the next stall starts with a clean
             // "focus held throughout" assumption.
+            LastGapCause = null;
             CaptureBaseline(beginStamp);
             _focusHeldAcrossGap = hadFocusThisTick;
             return;
@@ -361,6 +373,9 @@ public sealed class StallDetector
             Severity = ClassifySeverity(tickPeriodMs, baselineMs),
             Warming = _ticksSeen <= WarmupTicks,
         };
+        // Publish the gap cause so the collector can exclude non-compute gaps
+        // (suspends / world-loads) from the real-frame-time metric.
+        LastGapCause = ev.Cause;
         // A ProcessSuspended (alt-tab / OS-sleep) or WorldLoad gap is wall time
         // in which NO mod ran — the process was paused or the world was
         // (un)loading. Crediting the pre-gap smoothed cost to it is meaningless,
