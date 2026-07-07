@@ -225,3 +225,14 @@ The dividing line: **if it produces a stream-shaped artefact, it's in `Data/`. I
 
 - **Inline calculation in `DashboardRouter` and JS.** Pre-v0.10, the router did heatmap bucketing and median maths inline, and some derivation lived in the dashboard JS. Those paths were migrated into pipeline stages (`HeatmapAggregator`, `KpiCalculator`, etc.); deriving a persist-worthy number outside a `Data/` stage is now disallowed by convention (`notes/conventions.md` §15). The router and JS that remain only format and present.
 - **Direct `ProfilerSystem.Collector` reads by external consumers.** Made `internal` in v0.10. Reaching into the live collector from a consumer (the BuildNow data-race) is superseded by the name-keyed snapshot lookup.
+
+## 2026-07-07 additions
+
+`HookCpuSnapshot` gained `DrawMsByCategory` (null when phase lanes are off —
+the JS reads the `phaseSplit` flag); `/api/self` gained the `memoryGuard`
+block (trend verdict + ≤240-point series + arm history; the router reads the
+process-singleton SelfHealth directly — same precedent as its HookInterceptor
+static reads); `/api/now` gained `pollMs` + the kpi fields `renderFps`,
+`realtimeSpeed`, `timeBelowThresholdMs`, `deficitMsPerSecond`, `pausedMs`,
+`pauseCount`. New pure pipeline pieces: `HeatmapFold`, `RealtimeSpeed`,
+`MemoryTrend` (all test-linked).

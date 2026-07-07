@@ -112,3 +112,19 @@ The interpretation layer (`Insights/`) mirrors the data-pipeline discipline (§1
 ## 26. The L4/L8 testing split + DOM-discovery genericisation
 
 The off-game dashboard audit harness (`tools/testing/`) splits by a hard rule: if a property can be a deterministic assertion it is **L4** (Playwright layout/interaction invariants), and if it needs a human-style eye it is **L8** (the agent-driven vision audit). Both are genericised — nothing hardcodes the dashboard's shape: tabs are discovered from `.tab[data-tab]`, panes from `.tab-pane[data-pane]`, panels from `.panel`, endpoints by regexing `/api/<name>` out of the extracted JS, poll fns from `window` keys matching `/^poll/`. A seventh tab is audited with zero harness change. The harness reuses `tools/preview/render.py`'s verbatim-string extractor so the tested dashboard is byte-identical to the preview — a second C#-string parser would be a second source of truth and the failure this avoids.
+
+## Crystallised 2026-07-07
+
+- **The pure-core pattern.** Any detector/stat logic worth testing gets a
+  Terraria-free `*Core.cs` (or a pure static class like `RealtimeSpeed`)
+  linked into the runtime-free suite; the tML-coupled wrapper stays thin.
+  Established precedent: CostConcentrationCore; this batch added
+  SustainedSlownessCore, DrawBoundModCore, HeatmapFold, FingerprintCore,
+  MemoryTrend, KpiCalculator's core/Live split.
+- **The linked-source test rule is the enforcement.** Every csproj Compile
+  Include is verified Terraria-free at add time; a linked file gaining a
+  Terraria using breaks the suite compile — that break is the feature.
+- **Verbatim-string assets: double quotes are `""`, comments included.** A
+  bare `"` inside the C# `@"..."` JS/CSS constants terminates the constant —
+  the 1187-error incident came from `"all clear"` in a JS comment. Prefer
+  single quotes inside asset strings everywhere.

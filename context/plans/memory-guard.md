@@ -1,5 +1,7 @@
 # Plan — Memory Guard (S04, first slice)
 
+> **Status: EXECUTED (0f9e844, 0.33.0). Deviation, recorded: the reload-stack feed-insight entry deferred to S13 (one-shot load-time findings don't fit the re-emitting detector model); its surfaces are the Self-tab arm table + the client.log WARN.**
+
 > Slot: atlas S04 (memory ownership engine) — this is the trend/growth/verdict
 > slice, not per-mod heap ownership. Closes H3 (SelfHealth growth-blindness)
 > and instruments the open leak question. Version target: 0.33.0.

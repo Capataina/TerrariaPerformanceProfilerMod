@@ -241,3 +241,13 @@ Nothing in this subsystem is in progress as of 2026-05-20. The audit's hook-inst
 - `systems/metric-collection.md` — what `PerModAttribution.Add` does with the per-detour ticks.
 - `systems/allocation-tracking.md` — the CPU+alloc IL emission variant.
 - `plans/code-health-audit/hook-instrumentation.md` — the audit findings that drove the 2026-05-20 changes.
+
+## 2026-07-07: phase lanes + backend config
+
+`PerModAttribution.Configure` gained the `phaseLanes` parameter (sized from
+`PhaseSplitAttribution` at install; off ⇒ the draw mirrors never allocate and
+`Add`'s lane branch is dead — behaviour bit-identical to pre-S01).
+`HookBackend.Mode` is config-driven at Load: `PerHookAttribution=false` means
+the Delegate backend, not lost attribution. The install path now also persists
+an `InstallArmRow` per arm and WARNs on the reload-stack signature (see
+persistence.md).

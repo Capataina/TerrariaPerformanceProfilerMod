@@ -90,6 +90,14 @@ The mod is past its dashboard-first pivot and its data-pipeline consolidation. T
 - **Persistence is LiteDB.** The legacy JSON `SessionLogWriter` was deleted in v0.3; persistence is a single LiteDB file + NDJSON redo journal + rotating backups, driven by one writer thread the game thread never touches. `SessionRecorder` orchestrates the `Data/Streams/*` writers. Canonical: `systems/persistence.md`.
 - **Two hook backends, ILHook default.** `HookInterceptor` (delegate, ~71.6% signature-matched) and `ILHookInterceptor` (IL, ~100%, the default) coexist; `HookBackend.Mode` chooses. Canonical: `systems/hook-instrumentation.md`.
 
+**State at 2026-07-07 close:** v0.35.0 · 205 tests green · the honesty
+mega-batch shipped (real-cadence metrics end-to-end, phase-lane attribution,
+per-feature ModConfig, memory guard, HTML session report, popup-card UI,
+scenario-engine test rings). Everything is off-game verified; the next
+Build + Reload playtest is the runtime gate. The capability map is
+`notes/feature-atlas.md`; the batch's designs are the seven EXECUTED-stamped
+files in `plans/`.
+
 The full decision history (what landed in each version and why, the v0.6 perf pass, the v0.10 audit, the v0.12 parallelised rework) is the canonical record in `notes/decisions.md`, newest first. The v0.5→v0.6 performance research lives in `perf-pass/`. The code-health audit's implementation receipt is in `plans/code-health-audit/index.md`.
 
 ## Notes for future sessions

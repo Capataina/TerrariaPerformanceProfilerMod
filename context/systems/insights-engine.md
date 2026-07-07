@@ -219,3 +219,23 @@ The seven `Publish/` stats register through `DataRegistry` (`IDataStat` / `IData
 - `systems/metric-collection.md` — what `det.Evaluate(collector, …)` and `CollectorInsightInput` read.
 - `systems/spike-detection.md` — `PeakContributorToSpikeDetector` reads `collector.Spikes`; `ContextBaseline.ObserveSpikes` attributes spikes to contexts; `GcPauseCulpritDetector` reads `collector.Stalls`.
 - `Tests/RankingScorerTests.cs`, `Tests/InsightStoreTests.cs`, `Tests/Insights/` (`SharedPrimitivesTests`, `TemporalBaselineTests`, `CrossSessionStoreTests`, `ReferenceFrameTests`) — pin the audit findings and the reference-frame maths.
+
+## The 2026-07-07 detectors (0.30.0–0.32.0)
+
+- **SustainedSlowness (PatternKey 25)** — the level detector paired with the
+  variance set: fires when RealtimeSpeed < 90% held ≥ 30s; copy: "game time is
+  advancing at 51% of real-time speed and has been for 4m 12s…", naming the
+  costliest mods WHILE slowed (never a cause — draw attribution arrived only
+  with S01). Pure core (`SustainedSlownessCore`) is test-linked.
+- **FrameHeadroom reworked (X1).** Reads `UpdateWindowEmaMs` (the baseline
+  median is real-cadence now and pins at ~16.67 under vsync — useless for
+  headroom) and emits ONLY at `RealtimeSpeedNow ≥ 0.98`
+  (`RealtimeSpeed.FullSpeedGate`). Mutually exclusive with SustainedSlowness
+  by construction. Copy names the uncovered surface (draw cost).
+- **DrawBoundMod (PatternKey 26, S01)** — ≥1 ms/t total AND ≥60% draw share,
+  top-3 by cost: "X spends 72% of its 7.4 ms/t in the draw phase — draw cost
+  shows as render load, not game speed." Silent when phase lanes are off.
+  Pure core (`DrawBoundModCore`) is test-linked.
+- Registration surface for a new detector: `PatternKey` enum → engine list →
+  `InsightRenderer` switch + template → `RankingScorer.IsSharePattern` (when
+  the magnitude is a [0,1] share).

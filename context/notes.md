@@ -7,7 +7,15 @@ Index of `notes/`. Each entry is one bullet pointing at the file that owns the t
 - [decisions](notes/decisions.md) — resolved decisions from working sessions, newest first; the project-internal decision record.
 - [conventions](notes/conventions.md) — repository-wide coding and structural conventions not enforced by tooling, including the unified-`Data/`-pipeline rules.
 - [compile-gate](notes/compile-gate.md) — how to verify the mod off-game: the pure-logic `dotnet test` gate and the full-mod `dotnet msbuild` Roslyn gate (`error CS` count; the `TML003` packaging lock is expected and ignored).
+- [feature-atlas](notes/feature-atlas.md) — the 31-slot capability tracker (status matrix + briefs); the roadmap's canonical map. Updated per slot-status change.
 - [philosophy](notes/philosophy.md) — the project posture the five Invariants come from: universal not bespoke, capture the chain not the consequence, data stack vs presentation stack, descriptive attribution.
+
+## Active work areas (2026-07-07)
+
+The honesty + feature mega-batch (0.28.1→0.35.0) landed; the standing gap is
+RUNTIME verification (a Build + Reload playtest). Most-active docs:
+`systems/metric-collection.md`, `systems/persistence.md`,
+`systems/web-dashboard.md`, `notes/feature-atlas.md`.
 
 ## Forward-looking (designs not yet implemented)
 

@@ -1,5 +1,7 @@
 # Future feature — HTML session report
 
+> **Status: EXECUTED 2026-07-07 (ef74479) — kept as the why-record. Shipped as a static server-side render (no JS); trigger set: dashboard button + /profiler-report + AutoExportHtmlReport config.**
+
 > Captured 2026-05-20 alongside the LiteDB migration discussion. Not for now;
 > stored so the idea survives chat compaction.
 

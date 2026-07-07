@@ -151,3 +151,18 @@ A broken link anywhere in that chain has a different failure mode:
 ## The 2026-05-19 design-wording correction (still valid)
 
 The README and the design pitch say per-mod attribution "comes for free because tModLoader tracks per-assembly detour ownership through `MonoModHooks`." The public tModLoader API does not expose any such ownership table. Attribution **is** genuinely free, but via the profiler's own `MethodBase.DeclaringType.Assembly → Mod.Code` reflection — the dictionary built once at `PostSetupContent` and probed at each detour callsite. Same outcome; correct the wording when the README/design is next touched.
+
+## 2026-07-07 integration points
+
+- `PerModAttribution.CurrentPhaseIsUpdate` (static): written by
+  MetricCollector at tick boundaries, read by `Add` + ProbeStack counters —
+  the phase-lane contract (one-sample boundary tolerance documented).
+- `ProfilerConfig` gates three boundaries: Load ([ReloadRequired] backend/
+  alloc/server), world-arm (`ApplyRuntimeConfig`: history, cadence,
+  sensitivities, memory-guard), poll-time (`pollMs` → JS timer re-arm). The
+  hot path never reads config.
+- `ProfilerSystem.SelfHealth` (static process singleton) is now read directly
+  by the Self router for the memory-guard block — precedent: routers already
+  read HookInterceptor statics.
+- The session-end ordering contract: `recorder.End` → writer drain → archive
+  readers (summary log, auto report). The report exists BECAUSE the drain ran.

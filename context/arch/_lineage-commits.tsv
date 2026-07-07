@@ -1,0 +1,270 @@
+# window	hash	date	THEME	subject
+# Replace each 'TODO' in the THEME column with a theme key from lineage.themes[].key (in data.js). The script tallies lineage.buckets[].counts from this column on the next orchestrate run; do not hand-edit the counts.
+0	c426015	2026-05-19	TODO	Scaffold the Performance Profiler tModLoader mod
+0	23cbe99	2026-05-19	TODO	Fix tModLoader log path in README and CLAUDE.md
+0	70b4730	2026-05-19	TODO	Milestone 0: fix hello-world hook + add agent-readable logging
+0	24ddb50	2026-05-19	TODO	Rewrite README as a visual directional document; add MIT LICENSE
+0	678c95c	2026-05-19	TODO	Add context/ — tModLoader integration reconnaissance
+0	fa58121	2026-05-19	TODO	Add the per-tick data model and ring buffer
+0	3e662b9	2026-05-19	TODO	Add the Metric Collector engine and its tModLoader wiring
+0	cf05d4b	2026-05-19	TODO	Add the F9 profiler overlay — Milestone 1 UI
+0	bc654d7	2026-05-19	TODO	Drop Milestone 0 from the README
+0	b1acec8	2026-05-19	TODO	Add #nullable enable to every source file
+0	0596a20	2026-05-19	TODO	M2 task 1: add the visual foundation (ProfilerTheme)
+0	d0478be	2026-05-19	TODO	M2 task 2: overhaul the overlay panel to the modern look
+0	afccffc	2026-05-19	TODO	M2 task 8: make the overlay draggable
+0	20a8094	2026-05-19	TODO	M2 task 3: per-mod CPU attribution (first cut)
+0	e4bba47	2026-05-19	TODO	M2 task 4: the btop-style per-mod cost list
+0	3d67d91	2026-05-19	TODO	M2 task 4: make the per-mod tree foldable
+0	874bbd0	2026-05-19	TODO	session wrap: Milestone 1 + 2 build, repo published
+0	ba883e5	2026-05-19	TODO	M2: make hook coverage explicit
+0	2777629	2026-05-19	TODO	M2: add stable overlay inspection controls
+0	0088aef	2026-05-19	TODO	M2: export aggregated session reports
+0	9fb8641	2026-05-19	TODO	Add project collaborator brief
+0	70a49bf	2026-05-19	TODO	Expand hook coverage to 8 new signature families
+0	660728c	2026-05-19	TODO	UI: hide zero-cost category rows in expanded mod view
+0	17ba7cf	2026-05-19	TODO	Coverage: track unsupported signature shape frequency in session JSON
+0	64237a3	2026-05-19	TODO	Coverage: add top-10 hook families + fix session identity / pruning
+0	adfcf24	2026-05-19	TODO	UI polish: scrollable list, toggleable categories, hover highlights, tighter layout
+0	195452d	2026-05-19	TODO	Add ILHook migration plan with parallel coexistence architecture
+0	3eccf89	2026-05-19	TODO	Add research-backed ILHook migration plan (evidence-grounded)
+0	d2da531	2026-05-19	TODO	ILHook backend: dynamic, signature-agnostic instrumentation alongside delegate path
+0	83dfa49	2026-05-19	TODO	PROFILER HEALTH now reflects active backend's coverage
+0	b52f8b6	2026-05-19	TODO	ILHook as default backend; sort categories by ms within each mod
+0	7da4058	2026-05-19	TODO	Hook closed-generic instantiations to cover mods built on generic bases
+0	5725572	2026-05-19	TODO	Fix world-load crash from hooking tModLoader-internal closed generics
+0	a1b7453	2026-05-20	TODO	Add events-tab implementation plan (Opus research, 1003 lines)
+0	291d177	2026-05-20	TODO	Add spikes + allocations implementation plan (Opus research, 1246 lines)
+0	4b8b6f8	2026-05-20	TODO	Add aggregated overview tab plan (Opus research, 991 lines)
+0	08dd5eb	2026-05-20	TODO	Spikes batch (a): raw per-tick ring, median spike detector, SPIKES tab
+0	66b32f3	2026-05-20	TODO	Add insights engine plan (Opus research, 1413 lines)
+0	45baf02	2026-05-20	TODO	Fix spike attribution: ring buffer was comparing two unrelated counters
+0	f32d33d	2026-05-20	TODO	Spikes batch (b): per-mod allocation tracking + MEM/BOTH overlay view
+0	037f8d5	2026-05-20	TODO	Refactor overlay into UI/Overlay/ with a plug-and-play tab registry
+0	e9cfea1	2026-05-20	TODO	Add LiteDB migration plan (Opus research, 1591 lines)
+0	693847f	2026-05-20	TODO	Overview tab: ModImpactScorer composite-impact engine
+0	a376f6a	2026-05-20	TODO	Overview tab: leaderboard UI + register as default landing tab
+0	18d19de	2026-05-20	TODO	Events tab (a): context capture + aggregator
+0	e6a1020	2026-05-20	TODO	Insights Engine: in-session detector catalog, store, renderer, tab
+0	1062694	2026-05-20	TODO	Events tab (b): tab body + registry registration
+0	bb95091	2026-05-20	TODO	Merge Agent A (Events tab) into main
+0	6537950	2026-05-20	TODO	Audit fixes for the three merged tabs: throttle Tick to 1 Hz, kill hot-path allocations, add drill-into-TREE
+0	77a99d2	2026-05-20	TODO	CHA round 1: dead-code, shared category router, backend-aware coverage, persistence hardening
+0	aa914ce	2026-05-20	TODO	CHA round 2: insights honesty, dual-surface JSON, IsAvailable contract, truncation caching
+0	14fac59	2026-05-20	TODO	CHA round 3: non-shipping test harness + implementation receipt
+0	8d19612	2026-05-20	TODO	context: reorganise into integration/ tmodloader/ systems/; refresh entry-point docs
+0	14f0a3f	2026-05-20	TODO	context: fill systems/ with ten subsystem deep-dives, expand tmodloader/ with "how we plug in" sections
+0	cdbe762	2026-05-20	TODO	Baseline service + pure-relative spike threshold
+0	b13218e	2026-05-20	TODO	context: note cdbe762's BaselineTests.cs in test-harness.md
+0	52a3b85	2026-05-20	TODO	ProfilerSelfHealth: honest self-footprint measurement
+0	503041b	2026-05-20	TODO	StallDetector: relative trigger, perceptual badge, cause classification
+0	cfd02a5	2026-05-20	TODO	SessionLogWriter schema v5: stalls + baseline + selfHealth blocks
+0	e6935ed	2026-05-20	TODO	PROFILER HEALTH strip: self-footprint line
+0	0e5ddde	2026-05-20	TODO	SPIKES tab: unified lag-events feed with spike + stall rows
+0	5b28e41	2026-05-20	TODO	Move per-mod accumulator clear from BeginTick to post-harvest EndTick
+0	4e2032d	2026-05-20	TODO	Un-gate GcPauseCulpritDetector with real attribution
+0	6c45f34	2026-05-20	TODO	ProfilerSelfHealth: fix cadence-guard signed-overflow on first refresh
+0	075cb0c	2026-05-20	TODO	context: UI overhaul plan (draft, awaiting review)
+0	c959bb1	2026-05-20	TODO	context: revise SUMMARY tab spec to be properly multi-dimensional
+0	af6e3b4	2026-05-20	TODO	UI Phase 0: layout constants + theme palette additions + 5-stop heat ramp
+0	4d7f67a	2026-05-20	TODO	UI Phase 0 follow-up: default mode is the bigger one; compact is the HUD
+0	6144886	2026-05-20	TODO	UI Phase 1: component library (cards, bars, charts, badges)
+0	99bcd74	2026-05-20	TODO	UI Phases 2-3: chrome rewrite + multi-dimensional SUMMARY tab
+0	946af50	2026-05-20	TODO	UI Phases 4-7: LAG timeline, INSIGHTS cards, SELF tab, ModConfig, resize
+0	43912ca	2026-05-20	TODO	Fix: replace donut rotated-wedge rendering with safe stacked horizontal bar
+0	e82615d	2026-05-20	TODO	Replace stacked share bar with three-axis city skyline visualisation
+0	7584cc5	2026-05-20	TODO	DonutChart: proper triangle-based donut + extract skyline as own component
+0	a96be18	2026-05-20	TODO	Fix overlap bugs: stale chrome offsets, packed health card, duplicate ranking
+0	ad3dc7b	2026-05-20	TODO	v0.2: session-wrap bump + CLAUDE.md versioning discipline
+0	15cb50a	2026-05-20	TODO	session wrap: append UI-overhaul-era decisions to context/notes/decisions.md
+0	c035f83	2026-05-20	TODO	Persistence Checkpoint A: LiteDB foundation (records + facade + writer thread)
+0	15b55bd	2026-05-20	TODO	Persistence Checkpoint B: SessionRecorder wired into ProfilerSystem; JSON path deleted
+0	e9d98ff	2026-05-20	TODO	Persistence Checkpoint C: modularise the writer — stream-per-collection plug-ins
+0	3a9373d	2026-05-20	TODO	Persistence Checkpoint D: xUnit fixtures + LiteDB benchmark; 2 bug fixes
+0	9f7a214	2026-05-20	TODO	Persistence Checkpoint E (final): docs — context/systems/persistence.md + v0.3 decisions entry
+0	5975214	2026-05-20	TODO	v0.3 hygiene pass: in-game UI/UX fixes + DB writer tightening
+0	5f1cf23	2026-05-20	TODO	v0.4 — tracker arsenal: stall attribution, clustering, richer context, deaths, snapshots, chat commands, inline log narration
+0	923ce65	2026-05-20	TODO	v0.4 hygiene: rip out hardcoded ms thresholds; remove SelfTab scale projection
+0	6e6ade0	2026-05-20	TODO	docs: log the tML 1.4.4 weather/invasion/difficulty gap as a deferred follow-up
+0	d4f00fb	2026-05-20	TODO	CLAUDE.md: add Invariant 5 — no mod-specific code
+0	eaf0dfb	2026-05-20	TODO	v0.5 — interaction-tracking arsenal: 6 new event streams, 3 new insight detectors, MainThreadFreeze cause, philosophy note, Invariant 5
+0	19ed862	2026-05-20	TODO	perf-pass: full research dossier set + master plan (Phase 1-5 of v0.6)
+0	89b7e6b	2026-05-20	TODO	v0.6 A1: wire GlobalItem.OnSpawn + OnPickup so itemCreatedEvents captures world-drops and pickups
+0	8f7df46	2026-05-20	TODO	v0.6 A2: fix PostUpdateBuffs snapshot-before-gate; emit active buffs on first valid tick
+0	779d000	2026-05-20	TODO	v0.6 A3: damage-weighted death attribution; remove the last game-thread DB read
+0	b2f023d	2026-05-20	TODO	v0.6 Phase alpha: shared infrastructure (Time, RowPool, ListPool, LangNameCache, ModOwnerCache, EnumStringTable, BoolIndex)
+0	8b2ca60	2026-05-20	TODO	v0.6 Phase beta: per-tick zero-alloc + AggressiveInlining on hot probe path
+0	cc20b9b	2026-05-20	TODO	v0.6 Phase gamma (partial): LangNameCache + ModOwnerCache wired into every interaction emit + fingerprint StringBuilder reused
+0	29b20eb	2026-05-20	TODO	v0.6 Phase epsilon (partial): relocate session-end aggregation off the main thread
+0	476d24e	2026-05-20	TODO	v0.6 Phase eta (partial): remove per-frame overlay-mount allocations
+0	fcf2001	2026-05-20	TODO	v0.6 Phase zeta: insight detector LINQ removal
+0	cb294ee	2026-05-20	TODO	v0.6 Phase delta: BSON short field names via centralised mapper
+0	68b1065	2026-05-20	TODO	v0.6 Phase beta (remainder): ContextTransitionWatcher word-level XOR biome diff
+0	d0a67eb	2026-05-20	TODO	v0.6 Phase epsilon (epsilon7) + wrap housekeeping
+0	218dac4	2026-05-20	TODO	v0.6 Phase zeta1: promote AllocationBurst + GcPauseCulprit per-pass scratch to fields
+0	f29dca5	2026-05-20	TODO	v0.6 stall-cluster span correctness fix (latent §5.L)
+0	ab1dd02	2026-05-20	TODO	v0.6 wrap: build.txt 0.5 -> 0.6, decisions.md entry, verification.md
+0	511f742	2026-05-20	TODO	v0.6.1 hot-path: dirty-flag fast skip on PostUpdateEquips and PostUpdateBuffs
+0	dd57987	2026-05-20	TODO	v0.6.1 hot-path: incremental histogram baseline (metric-collection §4.6 [H])
+0	0abd504	2026-05-20	TODO	v0.6.1 hot-path: power-of-two retention windows + mask indexing in PerTickAttributionRing
+0	0902a8b	2026-05-20	TODO	v0.6.1: HookSurfaceCache deduplicates assembly walks across both backends + Fall-damage naming fix + StallClusterRow short names
+0	a325b37	2026-05-20	TODO	v0.6.1 wrap: build.txt 0.6 -> 0.6.1, decisions.md entry, AggressiveInlining on LangNameCache hot lookups
+0	940718e	2026-05-20	TODO	v0.6.1: chat-command hardening — wrap every /profiler-* Action in SafeRun
+0	df1d9f1	2026-05-20	TODO	v0.6.1 hot-path: full Row pool Rent/Return cycle on every interaction event stream
+0	55d4e06	2026-05-20	TODO	v0.6.1: PreSaveAndQuit overlap + SIMD UpdateRollingAverage
+0	297bff6	2026-05-20	TODO	v0.6.1 overlay: SpikesTab.RebuildTimelineMarks 60Hz->event-only + DonutChart vertex array reuse
+0	7ebaa01	2026-05-20	TODO	v0.6.1 wrap housekeeping: zero-warning build
+0	dd37fd8	2026-05-20	TODO	v0.6.1 verification.md: comprehensive final state
+0	e43e373	2026-05-20	TODO	prune perf-pass design docs: consolidate deferred items, delete shipped research
+0	90e3932	2026-05-20	TODO	v0.7 Phase A: segment engine + Timeline tab
+0	2570bec	2026-05-20	TODO	v0.7 Phases B & C: live panel, retrospective toasts, segment-driven insights
+0	4e3e53e	2026-05-20	TODO	v0.7.1: segment UX polish — toast layout, floating Now-Playing, no biome drama-toast, Purity suppressed
+0	1c37284	2026-05-21	TODO	v0.7.2: floating UIs off by default + composite biome segments
+0	3354f2e	2026-05-21	TODO	v0.7.3: self-health severity bands keyed on ratio over measured baseline
+0	362725f	2026-05-21	TODO	v0.8.0-proto1: TcpListener HTTP dashboard prototype
+0	ae3c01b	2026-05-21	TODO	v0.8.0: macOS browser-launch fix + version label
+0	a158bf3	2026-05-21	TODO	v0.9.0: dashboard-first architecture — in-game UI archived, browser is the surface
+0	1dadc06	2026-05-21	TODO	v0.9.1: fix tML in-game build break + silence HTTP timeout log noise
+0	15a9baa	2026-05-21	TODO	dashboard: fill in the missing depth (donut, tree, mod cards, lag, self gauge, tooltips, +more)
+0	7279449	2026-05-21	TODO	dashboard pass: tokyo night, KPI strip, session heatmap, bugfixes, polish
+0	0baead2	2026-05-21	TODO	calcs migrated to C#: KpiCalculator, EventsFeed, DB-backed heatmap
+0	2e684c3	2026-05-21	TODO	notes: capture user's 'unified data interface' vision
+0	0e9946f	2026-05-21	TODO	notes: clarify unified-data-interface — split file reorg from runtime registry
+0	88e4f33	2026-05-21	TODO	notes: unified data interface — clarify the policy goal, not just shape
+0	916ac10	2026-05-21	TODO	dashboard pass: 2 perf bugs fixed + palantir palette + lag merge + KPI multi
+0	ea00541	2026-05-21	TODO	web: modularise into Server/ + Api root + Assets/Css + Assets/Js, rename TinyHttp
+0	fed42b2	2026-05-21	TODO	data pipeline steps 1-5: interfaces + lifecycle + KPI + EventsFeed + Heatmap
+0	0f99614	2026-05-21	TODO	data pipeline steps 6-11: collectors + stats + aggregators + router migration
+0	41c4fd7	2026-05-21	TODO	v0.10: data pipeline step 12 — tighten ProfilerSystem.Collector to internal
+0	90e5cc5	2026-05-21	TODO	code-health-audit: first wave of high-impact fixes
+0	6443451	2026-05-21	TODO	code-health-audit: second wave — finish BuildNow migration + persistence fixes
+0	05d4e05	2026-05-21	TODO	upkeep-context: capture v0.10 data pipeline + multi-agent audit
+0	9286234	2026-05-21	TODO	v0.11: finish the Data/ migration — every stream-shaped artefact now lives in Data/
+0	f751360	2026-05-21	TODO	plan: correct status header — v0.11 not v0.10, two sub-items deliberately skipped
+0	d510907	2026-05-21	TODO	delete unified-data-pipeline plan file — work landed, plan obsolete
+0	b642a72	2026-05-21	TODO	dashboard: fix mod-tree hover flicker + add collapse-all
+0	c8cbacb	2026-05-21	TODO	wave 0 prep — split shared files + lock snapshot contracts
+0	e9715c5	2026-05-21	TODO	wave 1 — F1/F2/F3 foundations landed + wired
+0	0d25537	2026-05-21	TODO	wave 2 — data-layer fan-out: 17 new streams for Timeline / Lag / Insights
+0	9456b16	2026-05-21	TODO	wave 3 — Timeline / Lag / Insights UI rebuilt end-to-end
+0	ff20711	2026-05-21	TODO	v0.12 wrap: waves 4-5 — visualisation patch + docs + version bump
+8	0b952a2	2026-06-22	TODO	Context: reconcile context/ to v0.12 + browser-dashboard reality
+8	07a7fe6	2026-06-22	TODO	Audit: code-health audit findings + install-RAM decompilation + diagnostic
+8	851a201	2026-06-22	TODO	Plan: install-RAM optimisation plan + recovered pre-upgrade modlist
+8	d25f311	2026-06-22	TODO	Tests: restore the pure-logic harness (audit F4/F5), 69/69 green
+8	032f3cf	2026-06-22	TODO	Self-health: force Gen2 in MarkInstallEnd so install-delta is honest (audit F2)
+8	aa69c73	2026-06-22	TODO	Hygiene: dedupe usings + fix keybind/cost-model/benchmark doc drift (F6/F9-F10/F8/F3)
+8	90b5ed0	2026-06-22	TODO	build.txt: 0.12 -> 0.12.1 (patch)
+8	2124898	2026-06-22	TODO	ILHook: trim retained per-hook Cecil scaffolding, profiler RAM 3.7 GB -> 1.0 GB
+8	350767e	2026-06-22	TODO	Web: freeze a shared readable-vocabulary component layer (dashboard redesign wave 0)
+8	adfeab8	2026-06-22	TODO	Web: rebuild Lag / Insights / Timeline onto the readable vocabulary (redesign wave 1)
+8	f0cad68	2026-06-22	TODO	Memory tab: per-mod RAM (ours + tModLoader estimate) with a split-bar strip + drawer
+8	b75b7c2	2026-06-22	TODO	tools: headless dashboard preview harness for agent visual iteration
+8	13b2d34	2026-06-22	TODO	tools: preview harness pumps every tab's data before capture
+8	ce64405	2026-06-22	TODO	Web: shared foundation for the dashboard bug-fix sweep
+8	3ba2084	2026-06-22	TODO	Web: fix the dashboard bug sweep across Lag / Insights / Timeline / Memory (v0.14.1)
+8	37b3890	2026-06-22	TODO	Lag: stop counting paused/suspended time as lag (the impossible 788357 ms)
+8	fa36626	2026-06-22	TODO	Dashboard: "reading from db" mode — populate from the last session when idle (v0.15)
+8	1b3c4a4	2026-06-22	TODO	Lag/db: fix /api/now 500 in reading-from-db mode (LiteDB Local-kind date)
+8	8dd31f4	2026-06-22	TODO	Web: shared coherence layer — one canonical empty-state app-wide (fix wave 1)
+8	170149a	2026-06-22	TODO	tools: preview harness auto-selects the first item so detail panes render
+8	996393f	2026-06-22	TODO	Web: per-tab coherence + UX pass on the shared vocabulary (fix wave 2)
+8	c946d87	2026-06-22	TODO	Profiler: real fixes for idle metrics, archive worst-frame, db lag-spikes (fix wave 3) + v0.16
+8	c3cb796	2026-06-22	TODO	Dashboard: fix five visual/interaction bugs from the v0.16 sweep + bump 0.16.1
+8	4bcb632	2026-06-22	TODO	context: plan the dashboard's genericisation into a shadcn-style component library
+8	c027862	2026-06-23	TODO	context: flesh out the UI component-library plan from a full Web/Assets read
+8	533d6d1	2026-06-23	TODO	Web: component-library foundation — shadcn neutral tokens + components + charts (wave 0)
+8	16f445d	2026-06-23	TODO	Web: migrate Self tab onto the component library (reference pane)
+8	8bff037	2026-06-23	TODO	Web: migrate the remaining five panes onto the component library (fan-out wave)
+8	e844ebb	2026-06-23	TODO	Web: cleanup wave — kill the named collisions, shrink coherence, v0.17
+8	d22411d	2026-06-23	TODO	Web: iteration 2 — colour-science palette + visual QA from in-game feedback (v0.18)
+8	c02e628	2026-06-23	TODO	Web: fix live-mode visual bugs found in-game (v0.18.1)
+8	b546047	2026-06-23	TODO	context: note the Insights usage-attribution bug for the future rework
+8	bc60d00	2026-06-23	TODO	Context: add the extensive-testing-infrastructure plan (layered strategy)
+8	9f5f647	2026-06-24	TODO	Docs: point the design-source reference at the structured vault project folder
+8	2203a8c	2026-06-24	TODO	Context: add the monolithic insights-engine consolidation plan
+8	9a55b3e	2026-06-24	TODO	Context: refresh the _Overview folder map for the plans/ directory
+8	87e0601	2026-06-24	TODO	Insights: relocate the engine to a top-level Insights/ module (Wave 1a)
+8	ef7413c	2026-06-24	TODO	Insights: extract Shared primitives, kill the duplication census (Wave 1b)
+8	15d71d8	2026-06-24	TODO	Insights: relocate the I-series interpreted stats into the module (Wave 2)
+8	5a78ca9	2026-06-24	TODO	Insights: generalise the canonical Insight type + harden the store (Wave 0)
+8	6e8ffd3	2026-06-24	TODO	Insights: fix the usage axis — measure active use, not creation (Wave 4)
+8	6f2feca	2026-06-24	TODO	Insights: reference-frame substrate + un-gate conditional-cost (Wave 3)
+8	6346d31	2026-06-24	TODO	Insights: light up the Headroom + Structure families (Wave 5, partial)
+8	7a80228	2026-06-24	TODO	Insights: cross-session baseline persistence + fingerprint (Wave 6)
+8	1ed97f3	2026-06-24	TODO	Insights: dual-surface insight logging + wrap the rework (Wave 7) — v0.19.0
+8	56cae13	2026-06-24	TODO	Insights: add Family C frame-jitter detector (Wave 5 follow-on) — 3 of 5 families
+8	398da95	2026-06-24	TODO	Insights: Family B (Temporal) — leak + cost-shift + new-contributor, with workload control
+8	036fa1a	2026-06-24	TODO	Insights: un-gate ContextCorrelatedSpike (Family A) — spikes vs dwell
+8	d84a244	2026-06-24	TODO	Context: update insights-rework status — all five families, five detectors un-gated
+8	90292f6	2026-06-24	TODO	tools/preview: add an offline interactive dashboard preview builder
+8	f58cb1a	2026-06-24	TODO	design: add the dashboard UI spec + previews, and organise the folder
+8	35079ca	2026-06-24	TODO	Web: dashboard interaction + readability pass
+8	4f2999c	2026-06-24	TODO	context: expand the testing plan with the agent-driven UI/UX audit axis (L8)
+8	d2323f9	2026-06-24	TODO	context: add the session's new notes to the _Overview folder map
+8	fe2d57b	2026-06-24	TODO	Testing: implement the L4/L6/L8 dashboard testing suite + first UI audit
+8	f8dadf9	2026-06-24	TODO	Testing: capture upgrade — generic click targets, non-panel sections, master→detail, hover
+8	78ed64a	2026-06-24	TODO	Web: universal component fixes — truncation, selection feedback, gauge centring
+8	5828115	2026-06-24	TODO	Web: bespoke per-tab UI fixes across all six tabs (L8 audit fix wave)
+8	ac7f65a	2026-06-24	TODO	Web: second UI fix pass + final audit convergence — v0.20.0
+8	417b813	2026-06-24	TODO	Web: three new chart encodings — bubble scatter, sankey cost-flow, modlist waffle
+8	a0ed7a2	2026-06-24	TODO	Web: clear the remaining P2/P3 findings + v0.21.0
+8	eeac7eb	2026-06-24	TODO	Self: hook distribution populates on tab open (no click), sourced from /api/memory
+8	c90b275	2026-06-24	TODO	Web: per-mod cost-stream chart — every mod stacked over a rolling time window
+8	42280b3	2026-06-24	TODO	Web: share-% display fix + swimlane legibility + stream restyle + auto-detect invariants
+8	7229098	2026-06-24	TODO	preview: regenerate dashboard-preview.html with the latest fixes + new charts
+8	5c74046	2026-06-24	TODO	Web: cost-stream top-N + window controls (default top 5 / last 25)
+8	b33739a	2026-06-24	TODO	Web: systemic dead-space pass (panels hug content) + v0.22.0
+8	22e4a59	2026-06-24	TODO	Web: monochrome cost stream + fix the Self masonry void
+8	51c1406	2026-06-24	TODO	Web: equalise the Self install-footprint + process-context pair height
+8	8dc1dfe	2026-06-24	TODO	Docs: bring the README current to v0.22.0 (six live tabs + the new charts) + _Overview folder map
+8	2aa9e1c	2026-06-24	TODO	Docs: full README rewrite — a proud, content-rich front door for a one-of-a-kind mod
+8	fcd3d04	2026-06-25	TODO	Context: reconcile context/ from v0.12 → v0.22 + migrate architecture to the HTML explorer
+8	200f818	2026-06-25	TODO	CHA: fresh full-repository code-health audit (6-cluster sweep) — 88 findings + 8 potential
+8	dae40e4	2026-06-25	TODO	CHA impl: implement the free + correctness findings from the audit + v0.23.0
+8	2054a13	2026-06-25	TODO	Web: split Insights into Observatory + Insights — give the orphaned feed a home + v0.24.0
+9	6df118f	2026-06-25	TODO	Web: redesign Insights as a kanban board + combined overview + mod-context drawer — v0.25.0
+9	b06ad2b	2026-06-25	TODO	Web: fix the kanban's single-column collapse + group-by toggle + visual pass — v0.26.0
+9	8a4fc75	2026-06-25	TODO	Context: add the database-rework plan — the cross-session history layer (draft)
+9	92c0821	2026-06-25	TODO	Context: refine the database-rework plan — unify with the Insights engine + the next-level roadmap
+9	c4a34f6	2026-06-25	TODO	Context: add the module-layout section to the database-rework plan — Persistence/ home
+9	d3ee250	2026-06-25	TODO	Persistence: consolidate the memory layer into a top-level Persistence/ module (DB rework wave 0a)
+9	97ddea9	2026-06-25	TODO	Persistence: freeze the two-level rollup contracts + identity fields (DB rework wave 0b)
+9	882aff4	2026-06-25	TODO	Persistence: the cross-session rollup write path — fold every session into a two-level per-mod history (DB rework wave 1a)
+9	3a119e9	2026-06-25	TODO	Persistence: the HistoryStore cross-session read layer (DB rework wave 2)
+9	7e179b4	2026-06-25	TODO	Persistence: one-time backfill of the rollup from existing session history (DB rework wave 1b)
+9	c457dd0	2026-06-25	TODO	Insights: cross-session + cross-modpack detectors + the insight producer (DB rework wave 4)
+9	413c94e	2026-06-25	TODO	Persistence + Web: self-cleaning lifecycle backend — modlist-change, reset control, cross-session read endpoints (DB rework waves 3 + 5 backend)
+9	104f778	2026-06-25	TODO	Web: the reset-db control + cross-session kanban columns (DB rework wave 3 frontend)
+9	3704d67	2026-06-25	TODO	Web: the cross-session memory (data-health) view + modlist-change surface (DB rework wave 5)
+9	1414abe	2026-06-25	TODO	Release: bump to v0.27.0 — the cross-session history layer + README/context (DB rework wrap)
+9	7cc1752	2026-06-26	TODO	Docs: sync the README to the seven-tab dashboard (wrap-up doc pass)
+9	a33d680	2026-06-26	TODO	Insights: freeze the aggregate-insight contributor contract (0.27.1 wave 0)
+9	0222bd1	2026-06-26	TODO	Persistence + Insights: fix thin-session rollup contamination, self-flagging, and bare counts (0.27.1 wave 1)
+9	803c902	2026-06-26	TODO	Web: surface the contributor bars, roster-evolution matrix, and session/roster banner (0.27.1 wave 2)
+9	e74ef27	2026-06-26	TODO	Release: bump to v0.27.1 — the cross-session data-quality + snapshot-context patch
+9	51dc957	2026-06-26	TODO	Docs: sync the README to the v0.27.1 surfaces (wrap-up doc pass)
+11	c7dfa2d	2026-07-07	TODO	Profiling: make the frame-time metric honest — measure the real inter-frame period, not just the Update window (A1 + A5)
+11	6643b09	2026-07-07	TODO	Profiling + Self: measure and surface the profiler's own per-tick overhead (A2 + A3 + A4)
+11	0ea4113	2026-07-07	TODO	Profiling: drop the ~1.8 GB per-hook history rings — EMA the per-hook average instead (B1)
+11	0158c8f	2026-07-07	TODO	Profiling: quantify the scaffolding-trim reclaim; document why the install-RAM residual stays (B4)
+11	aad357f	2026-07-07	TODO	Persistence + Web + Profiling: fix the LiteDB-predicate crash class, denormal cost garbage, and the journal shutdown race (C1 + C2 + C3)
+11	074428f	2026-07-07	TODO	Persistence + Web: add a non-destructive rebuild-rollup control; confirm the backup ring is already bounded (D1 + D2)
+11	10ea682	2026-07-07	TODO	Docs + release: correct the README modes fiction, mark perf-pass §2.8 executed, bump to v0.28.0 (E1 + E2)
+11	c1bc578	2026-07-07	TODO	Audit: post-rework code-health sweep — clean bill of health (Phase 2)
+11	51d1852	2026-07-07	TODO	Context: focused upkeep — sync context/ to the v0.28.0 measurement-honesty rework (Phase 3)
+11	d1b5e09	2026-07-07	TODO	Profiling: finish the honest-frame repoint on the read side + drop the FPS 60-clamp (0.28.1)
+11	5f1bb21	2026-07-07	TODO	Profiling + Web: render-fps (draw cadence) beside avg fps on the KPI strip (0.29.0)
+11	35824c5	2026-07-07	TODO	Context: live UI/UX audit of all 7 tabs against a real slow-motion session
+11	0c250b2	2026-07-07	TODO	Context + README: the feature atlas — 31 slots across five domains, and the roadmap rebuilt on it
+11	d39b090	2026-07-07	TODO	Plans: seven end-to-end designs for the 2026-07-07 implementation batch
+11	448f447	2026-07-07	TODO	Honesty completion + e2e Ring 1: real-cadence detectors, the sustained-slowness signal, cause-aware stalls, fingerprint v2, and the scenario engine that pins it all (0.30.0)
+11	c1cf962	2026-07-07	TODO	Bug batch: the DbWriter shutdown race, the topbar column bug, and six audit UI fixes (0.30.1)
+11	88f10f4	2026-07-07	TODO	Settings: per-feature ModConfig with impact-grouped sliders, wired end to end (0.31.0)
+11	2332c00	2026-07-07	TODO	Tests: make the forced-GC repeatability pin order-independent
+11	84409c1	2026-07-07	TODO	Loop anatomy (S01): per-mod update/draw phase attribution, measured at +0.001 ms/t (0.32.0)
+11	0f9e844	2026-07-07	TODO	Memory guard (S04 first slice): trend verdicts, the growth severity axis, and reload-stack detection (0.33.0)
+11	ef74479	2026-07-07	TODO	HTML session report (S17): one self-contained shareable file, three triggers (0.34.0)
+11	fb2d061	2026-07-07	TODO	UI overhaul (S16/S18/S19/S20): warming states, popup cards, the ribbon axis, and thirteen audit-ledger closures (0.35.0)
+11	f15303a	2026-07-07	TODO	E2E framework close-out (S27): Ring-2 store round-trips + the one-command gate
+11	2f2fc1c	2026-07-07	TODO	P5 verification sweep: all gates green, one harness rule rebuilt on a live catch

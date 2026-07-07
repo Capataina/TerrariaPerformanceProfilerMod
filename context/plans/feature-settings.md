@@ -1,5 +1,7 @@
 # Plan — Per-Feature Settings via ModConfig (S23)
 
+> **Status: EXECUTED (88f10f4, 0.31.0) minus RetainHookScaffolding — the deeper trim lever is S24 work and a toggle promising unbuilt behaviour would be dishonest. All other fields shipped + localised; defaults reproduce the heaviest behaviour.**
+
 > Slot: atlas S23. Version target: 0.32.0.
 > User-specified design (2026-07-07, verbatim constraints): per-feature toggles
 > and sliders "categorised by impact (heavy RAM section, heavy CPU section),

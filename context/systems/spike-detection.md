@@ -110,3 +110,15 @@ Nothing.
 - `systems/persistence.md` — the `SpikeStream` + `SessionRecorder` path that persists windows.
 - `notes/decisions.md` — the spikes-and-allocations design rationale (the per-feature plan note was folded in here).
 - `plans/code-health-audit/hook-instrumentation.md` — `_windowsView` caching finding.
+
+## 2026-07-07: real-cadence trigger + sensitivity
+
+`SpikeDetector.OnTick` triggers on `frame.RealFrameTimeMs` against the (now
+real-cadence) baseline median — a spike is a frame the PLAYER felt, not a
+compute excursion the draw phase absorbed (`448f447`). Per-mod attribution is
+unchanged (it reads the tick's compute breakdown regardless). Window worsts
+inherit real cadence, so chart spike marks align with the honest trace.
+`SpikeSensitivity`/`StallSensitivity` config values divide the tuned threshold
+multipliers (1.0 = the 2×/3× defaults) via
+`MetricCollector.ConfigureDetectorSensitivity` — runtime-safe, applied on
+OnChanged.

@@ -4,31 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PerformanceProfiler · Architecture Explorer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%231a2030'/%3E%3Ccircle cx='8' cy='8' r='3.2' fill='%2367c3dc'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div class="app">
+<div class="app" id="app">
   <header class="topbar" id="topbar"></header>
 
   <div class="workbench" id="workbench">
-    <aside class="left-rail">
-      <div class="lr-head"><span class="lr-title">Explorer</span><span class="lr-count" id="lrCount"></span></div>
-      <div class="lr-scroll" id="leftScroll"></div>
-    </aside>
+    <nav class="nav" id="nav"></nav>
 
-    <main class="center" style="position:relative">
-      <button class="rail-edge-toggle left" id="edgeLeft" title="toggle explorer">‹</button>
-      <div class="ws-tabs" id="wsTabs"></div>
+    <main class="main">
       <div class="ws-body" id="wsBody"></div>
-      <button class="rail-edge-toggle right" id="edgeRight" title="toggle context">›</button>
     </main>
 
-    <aside class="right-rail">
-      <div class="rr-scroll" id="rrScroll"></div>
+    <aside class="inspector" id="inspector">
+      <div class="insp-scroll" id="rrScroll"></div>
     </aside>
   </div>
 
-  <footer class="bottom" id="bottom"></footer>
+  <footer class="statusbar" id="statusbar"></footer>
 </div>
 
 <script src="data.js"></script>

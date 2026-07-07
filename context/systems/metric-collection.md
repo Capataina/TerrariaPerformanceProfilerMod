@@ -234,3 +234,33 @@ Nothing in progress. The subsystem is the load-bearing baseline that every audit
 - `systems/persistence.md` — the `SessionRecorder` that rolls up per-mod totals into LiteDB.
 - `tmodloader/lifecycle-and-loop.md` — `PreUpdateEntities` / `PostUpdateEverything` as the tick boundaries.
 - `Tests/RingBufferTests.cs` — pins ring-buffer wrap-around.
+
+## The 2026-07-07 honesty + anatomy layer (0.30.0–0.32.0)
+
+Four additions completed the honest-measurement arc the morning pass started:
+
+- **Read-side repoint finished (`448f447`).** `Baseline`'s frame histogram/MAD,
+  `SpikeDetector`'s trigger, `HeatmapFold` (extracted pure from the
+  aggregator), `FrameTimeCollector.frameMs`, and both `ProfilerSystem`
+  narration sites now read `RealFrameTimeMs`. The rule: player-facing = real
+  cadence; attribution internals + self-overhead = compute time, each
+  deliberate and commented.
+- **RealtimeSpeed (`Data/Stats/RealtimeSpeed.cs`, pure).** Period EMA → speed
+  fraction (clamped at 1: 60 UPS is a ceiling), deficit ms/s, 30s sustained-
+  fire constants. `MetricCollector.EndTick` folds it from the suspend-guarded
+  `realFrameMs`, so alt-tabs never read as slow. Accumulators:
+  `ConsecutiveSlowMs` (resets on recovery) + `TimeBelowThresholdMs` (session).
+- **Phase lanes (`84409c1`).** `PerModAttribution.CurrentPhaseIsUpdate` is set
+  true in `BeginTick`, false at the end of `EndTick`; `Add` additionally
+  credits a draw-mirror grid when the flag is false. The PRIMARY grid keeps
+  the TOTAL (bit-identical for every prior consumer); update = total − draw.
+  Collector folds `_perModDrawSmoothedMs` with the same smoothing + denormal
+  flush; `PerModCategoryDrawMs` exposes it. Measured: +0.001 ms/t update-path,
+  +0.158 ms draw-path on a synthetic 62k-credit tick (PhaseLaneBench).
+  `ProbeStack` counts draw-phase entries separately →
+  `SelfHealth.ProbeCallsDrawPerTickEma` (the "24,227 calls while paused"
+  number is now legible: all draw traffic).
+- **Config surface (`88f10f4`).** `ConfigureDetectorSensitivity` (sensitivity
+  is a divisor on the tuned threshold multipliers), history capacity from
+  `FrameHistoryTicks` at arm, insights stride cached into
+  `_insightsCadenceTicks` — the hot path never reads `ModContent.GetInstance`.

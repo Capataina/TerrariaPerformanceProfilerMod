@@ -31,24 +31,39 @@
     idx.push({ kind: "cmd", label: "Play data flow on graph", sub: "command", icon: "▶", color: "var(--cyan)", run: () => { App.switchTab("graph"); App.graph().flowNodes(A.dataFlow.steps.map(s => s.sys.split("::")[0]).filter((x, i, a) => x !== a[i - 1]), { interval: 560 }); } });
     idx.push({ kind: "cmd", label: "Toggle blast-radius mode", sub: "command", icon: "⊛", color: "var(--cyan)", run: () => { App.switchTab("graph"); App.graph().setImpact(!App.graph().isImpact()); } });
     idx.push({ kind: "cmd", label: "View raw markdown source", sub: "command", icon: "⟨⟩", color: "var(--cyan)", run: () => { if (App.setMd) App.setMd(true); } });
+    if (window.CALLGRAPH) {
+      idx.push({ kind: "view", label: "Call Graph", sub: "static call graph · ego + hierarchy", icon: "⌁", color: "var(--cyan)", run: () => App.switchTab("calls") });
+      (CALLGRAPH.nodes || []).forEach(nd => {
+        if (nd.ext) return;
+        idx.push({ kind: "fn", label: nd.name, sub: "call graph · " + (nd.meta || ""), icon: "ƒ", color: "var(--violet)", run: () => { App.switchTab("calls"); if (App.cgFocus) App.cgFocus(nd.id); } });
+      });
+    }
     return idx;
   }
-  const INDEX = buildIndex();
+  let INDEX = null;
 
   function initSearch() {
     const inp = $("#search"), box = $("#searchResults");
     let active = -1, results = [];
     function render(q) {
+      if (!INDEX) INDEX = buildIndex();
       q = q.trim().toLowerCase();
       if (!q) { results = INDEX.slice(0, 8); }
-      else results = INDEX.map(it => ({ it, s: score(it, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 9).map(x => x.it);
+      else results = INDEX.map(it => ({ it, s: score(it, q) })).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 12).map(x => x.it);
+      const KORDER = ["view", "subsystem", "fn", "section", "step", "term", "risk", "decision", "cmd"];
+      results.sort((a, b) => KORDER.indexOf(a.kind) - KORDER.indexOf(b.kind));
       active = results.length ? 0 : -1;
-      box.innerHTML = results.length ? results.map((r, i) => `
+      let html = "", lastKind = null;
+      results.forEach((r, i) => {
+        if (r.kind !== lastKind) { html += `<div class="sr-group">${esc(r.kind)}</div>`; lastKind = r.kind; }
+        html += `
         <div class="sr-item ${i === active ? "active" : ""}" data-i="${i}">
           <span class="sr-icon" style="color:${r.color}">${r.icon}</span>
           <span class="sr-main"><span class="sr-label">${esc(r.label)}</span><span class="sr-sub">${esc(r.sub.slice(0, 70))}</span></span>
           <span class="sr-kind">${esc(r.kind)}</span>
-        </div>`).join("") : `<div class="sr-empty">No matches for “${esc(q)}”</div>`;
+        </div>`;
+      });
+      box.innerHTML = results.length ? html : `<div class="sr-empty">No matches for “${esc(q)}”</div>`;
       box.classList.add("open");
       box.querySelectorAll(".sr-item").forEach(el => {
         el.addEventListener("mousedown", e => { e.preventDefault(); choose(+el.dataset.i); });
@@ -77,22 +92,31 @@
     });
     document.addEventListener("keydown", e => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); inp.focus(); inp.select(); render(inp.value); }
-      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") { e.preventDefault(); $("#toggleLeft").click(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") { e.preventDefault(); const wb = document.querySelector("#workbench"); if (App.setNavCollapsed) App.setNavCollapsed(!wb.classList.contains("nav-collapsed")); }
     });
   }
 
   /* ================= UNIVERSAL ENTITY LINKING ================= */
   function initEntity() {
-    function lit(name, on) {
+    const labelFor = id => { const n = (A.nodes || []).find(x => x.id === id); return n ? n.label : id; };
+    function cssEsc(s) { return String(s).replace(/"/g, '\\"'); }
+    function lit(name, on, x, y) {
       $$(`.ent[data-entity="${cssEsc(name)}"]`).forEach(el => el.classList.toggle("entity-lit", on));
       const owner = App.ENTITY[name];
       const g = App.graph && App.graph();
-      if (on && owner && g && g.hasNode(owner)) g.highlight([owner]);
-      else if (!on && g) g.clearHighlight();
+      if (on) {
+        // on-tab feedback: name the owning subsystem (works on any tab, not just the graph)
+        if (owner && window.__tip) window.__tip.show(x, y, `<b>${esc(name)}</b><span style="color:var(--tx-3)">state owned by </span><span style="color:var(--cyan)">${esc(labelFor(owner))}</span>`);
+        if (owner && g && g.hasNode(owner)) g.highlight([owner]);
+      } else {
+        if (window.__tip) window.__tip.hide();
+        if (g) g.clearHighlight();
+      }
     }
-    function cssEsc(s) { return String(s).replace(/"/g, '\\"'); }
-    document.addEventListener("mouseover", e => { const t = e.target.closest(".ent[data-entity]"); if (t) lit(t.dataset.entity, true); });
+    document.addEventListener("mouseover", e => { const t = e.target.closest(".ent[data-entity]"); if (t) lit(t.dataset.entity, true, e.clientX, e.clientY); });
+    document.addEventListener("mousemove", e => { const t = e.target.closest(".ent[data-entity]"); if (t && window.__tip) window.__tip.move(e.clientX, e.clientY); });
     document.addEventListener("mouseout", e => { const t = e.target.closest(".ent[data-entity]"); if (t) lit(t.dataset.entity, false); });
+    document.addEventListener("click", e => { const t = e.target.closest(".ent[data-entity]"); if (t) { const owner = App.ENTITY[t.dataset.entity]; const g = App.graph && App.graph(); if (owner && g && g.hasNode(owner)) g.select(owner); } });
   }
 
   /* ================= MARKDOWN SOURCE ================= */
@@ -136,6 +160,15 @@
       s += `> ${A.concept.note}\n\n## Structural Notes\n\n`; A.notes.forEach(n => s += `- **[${n.tag}] ${n.title}** — ${n.body}\n`);
       return s;
     },
+    calls() {
+      const C = window.CALLGRAPH;
+      if (!C || !C.nodes || !C.nodes.length) return `## Call Graph\n\n_No call-graph data generated for this repository yet._\n`;
+      let s = `## Call Graph\n\n${C.scope}\n\n`;
+      s += mdTable(["metric", "value", "share"], (C.stats || []).map(t => [t[0], t[1], t[3] || ""]));
+      s += `\n\n### Functions (full inventory)\n\n` + mdTable(["function", "site", "in", "out"], (C.fns || []).map(f => [f.name, `${f.file}:${f.line}`, f.in, f.out]));
+      s += `\n\n### Call edges (view spine)\n\n`; (C.edges || []).forEach(e => s += `- ${e[0]} → ${e[1]} (${e[2]})\n`);
+      return s;
+    },
     source() {
       const p = A.project;
       let s = `# ${p.name}\n\n${p.tagline}\n\n> ${p.purpose}\n\n## Tech stack\n` + p.techStack.map(t => `- ${t.name} (${t.meta})`).join("\n");
@@ -148,16 +181,14 @@
   App.markdownFor = tab => `<!-- generated from arch/data.js (view: ${tab}) -->\n\n` + ((MD[tab] && MD[tab]()) || "");
 
   /* ================= PERSISTENCE ================= */
-  const KEY = "nd.state.v3";
+  const KEY = "arch.state.v5";
   let restoring = false;
   function persist() {
     if (restoring) return;
     const wb = $("#workbench");
-    const app = document.querySelector(".app");
     const st = {
       tab: App.curTab(), node: App.graph() ? App.graph().getSelected() : null,
-      left: wb.classList.contains("left-collapsed"), right: wb.classList.contains("right-collapsed"),
-      bottom: app.classList.contains("bottom-collapsed"),
+      nav: wb.classList.contains("nav-collapsed"),
     };
     try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {}
     const h = "#" + st.tab + (st.node ? "/" + st.node : "");
@@ -170,9 +201,7 @@
     try { st = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
     const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
     if (hash) { const [t, n] = hash.split("/"); if (t) st.tab = t; if (n) st.node = n; else if (hash.indexOf("/") < 0) st.node = null; }
-    if (st.left) App.setLeft(true);
-    if (st.right) App.setRight(true);
-    if (st.bottom) App.setBottom(true);
+    if (st.nav) App.setNavCollapsed(true);
     if (st.node && App.graph().hasNode(st.node)) App.graph().select(st.node);
     if (st.tab && App.tabs.some(t => t.id === st.tab)) App.switchTab(st.tab);
     restoring = false;
@@ -185,7 +214,7 @@
       if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") { App.graph().stopFlow(); App.graph().deselect(); $("#searchResults").classList.remove("open"); }
-      else if (/^[1-7]$/.test(e.key)) { const t = App.tabs[+e.key - 1]; if (t) App.switchTab(t.id); }
+      else if (/^[0-9]$/.test(e.key)) { const t = App.tabs[e.key === "0" ? 9 : +e.key - 1]; if (t) App.switchTab(t.id); }
     });
   }
 

@@ -302,3 +302,31 @@ This satisfies dual-surface observability: the browser is the player surface; `c
 - `systems/persistence.md` — the LiteDB-backed lifetime data the dashboard surfaces (and the future full-session heatmap source). The persistence layer is the cross-session agent surface; the dashboard is the live read-side.
 - `tmodloader/ui-system.md` — `KeybindLoader.RegisterKeybind` for the F9 bind (`ProfilerOverlaySystem`), and the tModLoader lifecycle the server's `Load` / `Unload` hang off.
 - `systems/insights-engine.md` — the engine behind `/api/insights` (legacy) and the source feeding several v0.12 Insights endpoints.
+
+## The 2026-07-07 surface layer (0.30.1–0.35.0)
+
+- **Topbar**: fourth grid track (`auto auto 1fr auto` — H1's wrap was a
+  column-count bug) hosts `.topbar-controls`: the export-report button
+  (feedback on the button itself; path in the tooltip) + reset.
+- **New primitives**: `panelState()` (warming / empty-honest / disabled — the
+  S20 age-gate language, driven by `sessionMinutes()`), the popup-card system
+  (`Js.Cards.cs`: boss report card from swimlane clicks, minute drill from
+  ribbon columns; esc/backdrop close), `scroll-fade-x` affordance.
+- **Lag tab** leads with GAME SPEED + TIME BELOW 90% tiles (X2); the six
+  variance panels speak panelState language ("no variance events — the level
+  signal lives in the game-speed tile").
+- **Kanban**: columns order by strongest card; all-weak columns fold behind
+  their count (I4); header tooltips (I2); fade affordance (I3).
+- **Poll cadence**: `PollMs` config flows via `/api/now.pollMs`;
+  `armPolls()/maybeRearmPolls()` re-arm every timer preserving the tuned
+  endpoint ratios; the footstrip cadence text is dynamic (and says 1-7, X6).
+- **Observatory**: micro-lines say "used"; usage shares carry the early-read
+  gate; cost bars split update/draw from `/api/mods` `drawMs` when
+  `phaseSplit` is true.
+- **Self**: gauge subtitle names the driving severity axis ("healthy · memory
+  climbing"); memory-guard block renders trend badge + sparkline + per-install
+  arm table.
+- **Timeline**: ribbon gained its time axis + minute-click drill; transitions
+  fall back to a left-flowing chip list on degenerate (<2s) windows (T3);
+  open segments read as ongoing (faded edge + "· live", T4 re-diagnosis);
+  idle lanes collapse (T5); chronicle 'session' kind (T8).

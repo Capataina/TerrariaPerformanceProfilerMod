@@ -158,3 +158,16 @@ fingerprint on InternalName-set rather than name+version.
 3. Ship order proposal: X1/X2/X3 (honesty, pairs with H4) → S1/T3/T4/M2 (broken
    renders) → X4 empty-state pattern + T1 gradient ribbon (one design, many
    surfaces) → polish (X5/X6/T5-T8/I2-I4/M3).
+
+---
+
+## Closure map (2026-07-07 evening)
+
+| Rows | Status | Commit |
+|---|---|---|
+| X1, X2, X3, X7 | fixed (measurement) | 448f447 |
+| X5, X6, X8, S1, T2, T3, M3 | fixed | c1cf962 |
+| T4, M2 | re-diagnosed (honest bars / scroll-region existed); T4 got the ongoing-edge treatment | c1cf962 |
+| X4, L2, T5, T6*, T7*, T8, O1, O2, O3, I2, I3, I4, S3, SE1, SE2 | fixed (T6/T7 folded into panel work) | fb2d061, 0f9e844 |
+| S5 | superseded by the ribbon axis + minute drill | fb2d061 |
+| M5 | guard data live; the area-chart visual carries to the next UI wave | 0f9e844 |

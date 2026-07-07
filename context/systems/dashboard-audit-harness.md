@@ -213,3 +213,15 @@ Nothing. The harness is current as of v0.22.0.
 - `tools/preview/render.py` — the static-only L3 harness whose extractor this suite reuses and whose interaction ceiling it lifts (memory `preview-harness-static-only`).
 - `context/pages/` — this harness's durable output: one dossier per discovered tab plus `_index.md`.
 - `build.txt` `buildIgnore` carries `tools\*` (and `context\*`), so neither the harness nor its dossiers ship in the `.tmod`.
+
+## 2026-07-07: the selection-feedback rule rebuilt on a live catch
+
+The rule failed on correct behaviour: it clicked the FIRST clickable row,
+which Observatory auto-selects at render — the one row whose state cannot
+change. Repro (scratch Playwright + console capture) proved the product right
+and the rule wrong. Rebuilt: pick the first NON-selected row, track it BY
+INDEX across the click (a first rewrite that re-picked per-side compared
+different rows and went 1→3 false failures — the recorded dead end), dispatch
+a bubbling MouseEvent (`.click()` throws on `[data-mod]` SVG slices), and
+recognise any visible `.drawer` or a popup card (the insights kanban opens
+`#ins-drawer`, not `#modcard`). 38 panels PASS post-fix (`2f2fc1c`).

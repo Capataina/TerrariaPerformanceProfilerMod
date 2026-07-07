@@ -402,3 +402,16 @@ Nothing.
 - `systems/data-pipeline.md` — the `DataRegistry` register / initialise / reset / dispose lifecycle.
 - `systems/events-and-context.md` — what `_contextTagger.Snapshot` and `Events.Accumulate` consume.
 - `systems/insights-engine.md` — `InsightsEngine.Shared = null` clear.
+
+## 2026-07-07: config gates + session-end additions
+
+`PerformanceProfiler.Load` reads `ProfilerConfig` for the [ReloadRequired]
+gates before anything installs: `PerHookAttribution` → `HookBackend.Mode`
+(ILHook ↔ Delegate — "per-hook off" means backend choice, not lost
+attribution), `AllocationTracking` → `HookBackend.AllocationTracking`,
+`DashboardServer` gates the HTTP server construction. World-arm applies the
+snapshot via `ApplyRuntimeConfig` (also the OnChanged target). The session-end
+task gained the auto HTML report AFTER `DrainAndTruncateJournalForSessionEnd`
+(archive-row availability is guaranteed by ordering, not polling), and
+PostSetupContent persists the InstallArmRow + runs the reload-stack
+comparator.

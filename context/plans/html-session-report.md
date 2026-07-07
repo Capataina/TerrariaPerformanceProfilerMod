@@ -1,5 +1,7 @@
 # Plan — HTML Session Report (S17)
 
+> **Status: EXECUTED (ef74479, 0.34.0). Deviation, an upgrade: fully server-side static render (zero JS) instead of the planned JSON+renderer; self-containment pinned by a network-blocked browser load (2f2fc1c).**
+
 > Slot: atlas S17. Design seed: context/notes/future-html-report.md
 > (2026-05-20). Version target: 0.34.0.
 

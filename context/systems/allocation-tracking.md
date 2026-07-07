@@ -146,3 +146,11 @@ Nothing.
 - `systems/insights-engine.md` — `AllocationBurstDetector`.
 - `systems/web-dashboard.md` — the live MEM/BOTH surface; the in-game metric pill is archived under `UI/`.
 - `notes/decisions.md` — the spikes-and-allocations design rationale (the per-feature plan note was folded in here).
+
+## 2026-07-07: the config gate
+
+`HookBackend.AllocationTracking` is now driven by the `AllocationTracking`
+ModConfig field at Load ([ReloadRequired]). Off ⇒ `PerModAttribution.Configure`
+sizes no byte arrays (`TracksAllocations` false), alloc surfaces render the
+disabled/dash state (the X5 convention: '0 B' means measured zero while
+tracking is ON; '—' means not instrumented).

@@ -215,3 +215,28 @@ Nothing.
 - `plans/code-health-audit/build-and-tests.md` — audit finding that drove the harness creation.
 - `systems/insights-engine.md` — the subsystem most-pinned by tests today.
 - `systems/metric-collection.md` — `RingBuffer<TickFrame>` is the consumer of `RingBuffer<T>`.
+
+## The 2026-07-07 rings (S27)
+
+- **Ring 1 — scenario simulation (`Tests/Simulation/`).** `ScenarioRunner`
+  drives the REAL classes (Baseline, StallDetector, SpikeDetector +
+  PerTickAttributionRing, `KpiCalculator.ComputeCore`, HeatmapFold,
+  RealtimeSpeed folds, the insight cores) with scripted sessions.
+  MetricCollector cannot link (tML-transitive via SelfHealth), so the runner
+  mirrors EndTick's documented contract (suspend guard, folds) with
+  move-together pointer comments; `KpiCalculator` split into a pure core
+  (linked) + `KpiCalculator.Live.cs` (collector overload, unlinked). Scenario
+  library: healthy60, slowmo30 (the live session's exact shape), altTabbed
+  (the 25/41/45s gaps), spiky, warming. The honesty battery pins the X1/X2/X3
+  classes as permanent assertions.
+- **Ring 2 — store round-trips (`StoreRoundTripPins`).** Real temp-file LiteDB
+  exercising production predicate SHAPES (the C1 indexer class only bites
+  against the live translation layer), the ModVersions BSON round-trip incl. a
+  legacy pre-v2 document, and the X3 cause-split verified in-store.
+- **Diagnostics benches**: PhaseLaneBench (best-of-5 numbers printed, loose
+  ceiling asserted — tight timing pins flake); the forced-GC repeatability pin
+  is min-of-3-pairs (order-independence after a live flake).
+- **run_all.sh**: dotnet test + compile gate (loader-lock noise ignored) +
+  harness assert, one command, loud skip if the venv is absent.
+- **Suite count: 205.** The linked-source rule is the enforcement: a linked
+  file gaining a Terraria using breaks the compile.

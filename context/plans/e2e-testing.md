@@ -1,5 +1,7 @@
 # Plan — E2E Testing Framework (S27): catch bugs without launching the game
 
+> **Status: EXECUTED rings 1-2 + runner (448f447, f15303a). Ring-3 scenario-contract emission deferred with reason (own pass); the harness's existing fixtures cover the UI surface. run_all.sh green end-to-end 2026-07-07 (2f2fc1c).**
+
 > Slot: atlas S27. Version target: tooling (no shipped version bump; test csproj
 > + tools/ only). The user's directive: "I won't have the game open while you
 > are doing the development… implement a full end to end testing framework…

@@ -227,3 +227,35 @@ Nothing in progress in this subsystem as of this pass. The streams themselves no
 ## Obsolete / No Longer Relevant
 
 - **The JSON-per-session writer (`SessionLogWriter.cs`, ~940 lines) and the `Sessions/*.json` files.** Deleted in v0.3 and superseded by this layer. Mentioned here only so a reader who finds old JSON files (or old references) knows they predate the LiteDB store.
+
+## The 2026-07-07 layer: fingerprint v2, install arms, the report module, shutdown hardening
+
+- **Fingerprint v2 (`FingerprintCore.cs`, pure + test-linked).** Identity =
+  sorted InternalName set EXCLUDING the profiler; load order and versions are
+  no longer identity (v1 hashed `loadIndex:name@version`, so 11 dev sessions
+  produced 10 "modlists" — audit X7). Versions persist as
+  `SessionRow.ModVersions` ("Name@Version" list) — the S10 update-regression
+  substrate. AlgName bumped to `sha256-of-sorted-names-selfless-v2`; the
+  one-time roster fracture on upgrade is expected and messaged.
+- **InstallArmRow (`0f9e844`).** One row per hook-install keyed by
+  `pid:processStartTicks`. Reload Mods keeps the process while swapping ALCs,
+  so pinned install residue shows as the delta STAIRCASING at constant hook
+  count (live case: 1.82→2.46 GB, 30→40.5 KB/hook, same 62,203 hooks). The
+  comparator WARNs at install; `/api/self` serves the arm history. Direct
+  load-time insert — the writer thread exists to decouple the GAME loop
+  (LegacyJsonImporter precedent).
+- **Report module (`Persistence/Report/`, `ef74479`).** `SessionReportReader`
+  (LiteDB → `SessionReportData`, every predicate hoisted per the C1 rule) +
+  `HtmlReportWriter` (pure static HTML: zero JS, zero network refs — pinned by
+  a network-blocked browser load) + `ReportExporter` (writes
+  `reports/session-<stamp>-<id>.html`). Triggers: topbar button
+  (`/api/export-report`), `/profiler-report`, `AutoExportHtmlReport` at
+  session end (placed AFTER the writer drain so the archive row is guaranteed).
+  The X3 rule travels into the artefact: suspends/world-loads render as
+  "paused (excluded)".
+- **Shutdown hardening (H2, `c1cf962`).** `ProfilerDatabase.Dispose` skips
+  LiteDB dispose if the writer outlived its join (leak-on-stuck-thread beats
+  closing the file under an in-flight batch); `DbWriterThread` treats
+  `ObjectDisposedException` as terminal (`_storeClosed`), journals the drain
+  tail, and skips the dead store. The 19:03 `Cannot access a closed file`
+  class is closed at both ends.

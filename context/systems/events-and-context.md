@@ -179,3 +179,10 @@ Nothing.
 - `systems/insights-engine.md` — the gated detectors that will consume the transition stream.
 - `systems/web-dashboard.md` — the live event surface (the in-game EventsTab is archived under `UI/`).
 - `notes/decisions.md` — the events-context design rationale (the per-tab plan notes were folded in here).
+
+## 2026-07-07 touches
+
+Per-context frame accumulation (`events.Accumulate`) reads `RealFrameTimeMs` —
+"Forest costs X ms/t" is player-facing (`448f447`). The chronicle's
+"session opened" lines carry their own `session` kind instead of `join` (T8);
+the JS chip row picks new kinds up via present-set filtering.

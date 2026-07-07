@@ -5,8 +5,8 @@
    ============================================================ */
 window.Graph = (function () {
   const SVGNS = "http://www.w3.org/2000/svg";
-  const LAYER_GAP = 224, ROW_GAP = 104;
-  const POS_KEY = "nd.graph.pos.v3";
+  const LAYER_GAP = 252, ROW_GAP = 118;
+  const POS_KEY = "arch.graph.pos.v2";
 
   let stage, svg, root, gEdges, gFlow, gNodes;
   let allNodes = [], allEdges = [], allById = {};
@@ -153,11 +153,11 @@ window.Graph = (function () {
       });
       const pulse = el("rect", { class: "node-pulse", x: -w / 2, y: -h / 2, width: w, height: h, rx: 11, fill: "none", stroke: `var(--k-${n.kind})`, "stroke-width": 1.5, style: "transform-box: fill-box; transform-origin: center;" });
       const glow = el("rect", { class: "node-glow", x: -w / 2, y: -h / 2, width: w, height: h, rx: 11, fill: "none", stroke: `var(--k-${n.kind})`, "stroke-width": 2 });
-      const box = el("rect", { class: "node-box", x: -w / 2, y: -h / 2, width: w, height: h, rx: 11, fill: "#11131b", stroke: `var(--k-${n.kind})`, "stroke-width": 1.4 });
+      const box = el("rect", { class: "node-box", x: -w / 2, y: -h / 2, width: w, height: h, rx: 11, fill: "var(--bg-elevated)", stroke: `var(--k-${n.kind})`, "stroke-width": 1.4 });
       const dot = el("circle", { class: "node-dot", cx: -w / 2 + 16, cy: 0, r: 3.5 + Math.min(n._deg, 8) * 0.42, fill: `var(--k-${n.kind})` });
-      const label = el("text", { class: "node-label", x: -w / 2 + 28, y: -1, "text-anchor": "start", "font-size": 13, fill: "#e7eaf2", "dominant-baseline": "middle" });
+      const label = el("text", { class: "node-label", x: -w / 2 + 28, y: -1, "text-anchor": "start", "font-size": 13, fill: "var(--tx)", "dominant-baseline": "middle" });
       label.textContent = n.label;
-      const sub = el("text", { class: "node-sub", x: -w / 2 + 28, y: 12, "text-anchor": "start", "font-size": 8.5, fill: "#6b7488", "dominant-baseline": "middle", "letter-spacing": ".04em" });
+      const sub = el("text", { class: "node-sub", x: -w / 2 + 28, y: 12, "text-anchor": "start", "font-size": 8.5, fill: "var(--tx-3)", "dominant-baseline": "middle", "letter-spacing": ".04em" });
       sub.textContent = n.root.replace("src/", "").replace(/\/$/, "").replace(".rs", "") || "entry";
       g.append(pulse, glow, box, dot, label, sub);
 
@@ -177,9 +177,20 @@ window.Graph = (function () {
       }
 
       n._g = g; gNodes.append(g);
-      g.addEventListener("mouseenter", () => setHover(n.id));
-      g.addEventListener("mouseleave", () => setHover(null));
-      g.addEventListener("mousedown", ev => startNodeDrag(ev, n));
+      g.addEventListener("mouseenter", ev => {
+        setHover(n.id);
+        if (window.__tip) {
+          const outs = edges.filter(e => e.from === n.id).length, ins = edges.filter(e => e.to === n.id).length;
+          window.__tip.show(ev.clientX, ev.clientY,
+            `<b>${n.label}</b><span class="tip-rel" style="color:var(--k-${n.kind});background:color-mix(in oklab, var(--k-${n.kind}), transparent 86%)">${n.kind}</span>` +
+            `<span class="tip-row"><i>root</i><em>${n.root || "-"}</em></span>` +
+            `<span class="tip-row"><i>depends on</i><em>${outs}</em></span>` +
+            `<span class="tip-row"><i>consumed by</i><em>${ins}</em></span>`);
+        }
+      });
+      g.addEventListener("mousemove", ev => window.__tip && window.__tip.move(ev.clientX, ev.clientY));
+      g.addEventListener("mouseleave", () => { setHover(null); if (window.__tip) window.__tip.hide(); });
+      g.addEventListener("mousedown", ev => { if (window.__tip) window.__tip.hide(); startNodeDrag(ev, n); });
     });
   }
 
@@ -199,6 +210,10 @@ window.Graph = (function () {
   }
   function applyView() {
     root.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
+    if (stage) {
+      const px = (view.x * 0.12).toFixed(1), py = (view.y * 0.12).toFixed(1);
+      stage.style.backgroundPosition = `${px}px ${py}px, ${px}px ${py}px`;
+    }
     const zl = document.getElementById("zoomVal"); if (zl) zl.textContent = Math.round(view.k * 100) + "%";
     drawMinimap();
   }
@@ -387,6 +402,15 @@ window.Graph = (function () {
     nodes.forEach(n => { const c = el("rect", { rx: 8, fill: `var(--k-${n.kind})`, opacity: .85 }); n._mm = c; mm.append(c); });
     mmView = el("rect", { class: "mm-view" }); mm.append(mmView);
     mmReady = true; updateMinimapGeom();
+    mm.style.cursor = "crosshair";
+    mm.onclick = e => {
+      const r = mm.getBoundingClientRect(), vb = mm.viewBox.baseVal;
+      if (!r.width || !vb.width) return;
+      const wx = vb.x + (e.clientX - r.left) / r.width * vb.width;
+      const wy = vb.y + (e.clientY - r.top) / r.height * vb.height;
+      const sr = stage.getBoundingClientRect();
+      animateView(sr.width / 2 - wx * view.k, sr.height / 2 - wy * view.k, view.k);
+    };
   }
   function updateMinimapGeom() {
     if (!mmReady) return;
@@ -416,9 +440,9 @@ window.Graph = (function () {
       if (i > 0) { const e = edges.find(e => e.from === seq[i - 1] && e.to === id) || edges.find(e => e.from === id && e.to === seq[i - 1]); if (e) { e._f.classList.add("run", "flow-edge"); } }
       if (opts.onFlowStep) opts.onFlowStep(i, id);
       i++;
-      if (i < seq.length) flowTimer = setTimeout(step, o.interval || 620);
-      else if (o.loop) { i = 0; flowTimer = setTimeout(step, 950); }
-      else flowTimer = setTimeout(() => { stopFlow(); if (opts.onFlowEnd) opts.onFlowEnd(); }, 900);
+      if (i < seq.length) flowTimer = setTimeout(step, o.interval || 420);
+      else if (o.loop) { i = 0; flowTimer = setTimeout(step, 650); }
+      else flowTimer = setTimeout(() => { stopFlow(); if (opts.onFlowEnd) opts.onFlowEnd(); }, 560);
     }
     fit(true); step();
   }
@@ -458,18 +482,19 @@ window.Graph = (function () {
       place.push({ ...nb, x: cx + Math.cos(ang) * r * 1.7, y: cy + Math.sin(ang) * r });
     });
     place.forEach(p => {
-      const col = { dep: "rgba(255,255,255,0.25)", strong: "#4fd6c0", write: "#9d8df7", peer: "#f0b65e" }[p.rel];
+      const col = { dep: "rgba(255,255,255,0.25)", strong: "var(--cyan)", write: "var(--violet)", peer: "var(--amber)" }[p.rel];
       const x1 = p.dir === "out" ? cx : p.x, y1 = p.dir === "out" ? cy : p.y;
       const x2 = p.dir === "out" ? p.x : cx, y2 = p.dir === "out" ? p.y : cy;
-      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="1.3" ${p.rel === "write" || p.rel === "peer" ? 'stroke-dasharray="3 3"' : ""}/>`;
+      const bend = (y1 + y2) / 2 + (x2 > x1 ? 9 : -9);
+      s += `<path d="M ${x1} ${y1} Q ${(x1 + x2) / 2} ${bend}, ${x2} ${y2}" fill="none" stroke="${col}" stroke-width="1.4" ${p.rel === "write" || p.rel === "peer" ? 'stroke-dasharray="3 3"' : ""}/>`;
     });
     place.forEach(p => {
       const k = allById[p.id].kind;
-      s += `<g class="ego-node" data-ego="${p.id}" style="cursor:pointer"><circle cx="${p.x}" cy="${p.y}" r="5" fill="var(--k-${k})"/>` +
-        `<text x="${p.x}" y="${p.y + 15}" text-anchor="middle" font-size="8.5" fill="#a6adbf" font-family="var(--mono)">${p.id}</text></g>`;
+      s += `<g class="ego-node" data-ego="${p.id}" style="cursor:pointer"><circle cx="${p.x}" cy="${p.y}" r="6" fill="var(--k-${k})"/>` +
+        `<text x="${p.x}" y="${p.y + 17}" text-anchor="middle" font-size="9.5" fill="var(--tx-2)" font-family="var(--mono)">${p.id.length > 12 ? p.id.slice(0, 11) + "…" : p.id}</text></g>`;
     });
-    s += `<g><rect x="${cx - 30}" y="${cy - 13}" width="60" height="26" rx="7" fill="#11131b" stroke="var(--k-${center.kind})" stroke-width="1.4"/>` +
-      `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#e7eaf2" font-family="var(--mono)">${center.label}</text></g>`;
+    s += `<g><rect x="${cx - 36}" y="${cy - 15}" width="72" height="30" rx="9" fill="var(--bg-elevated)" stroke="var(--k-${center.kind})" stroke-width="1.5"/>` +
+      `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="10.5" fill="var(--tx)" font-family="var(--mono)">${center.label}</text></g>`;
     svgEl.innerHTML = s;
     svgEl.querySelectorAll(".ego-node").forEach(g => g.addEventListener("click", () => selectExternal(g.dataset.ego)));
   }
@@ -502,17 +527,20 @@ window.Graph = (function () {
 
   function init(stageEl, o) {
     stage = stageEl; opts = o || {};
-    allNodes = ARCH.nodes.map(n => ({ ...n }));
+    /* Default x/y to the origin before the spread: the minimap and edge
+       geometry build once before the first layout pass, and undefined
+       coordinates there emit an SVG attribute warning per element. */
+    allNodes = ARCH.nodes.map(n => ({ x: 0, y: 0, ...n }));
     allEdges = ARCH.edges.map(e => ({ ...e }));
     allById = {}; allNodes.forEach(n => allById[n.id] = n);
     const deg = {}; allNodes.forEach(n => deg[n.id] = 0);
     allEdges.forEach(e => { deg[e.from]++; deg[e.to]++; });
-    allNodes.forEach(n => { n._deg = deg[n.id]; const d = Math.min(deg[n.id], 8); n.w = Math.max(106 + d * 5, 36 + n.label.length * 8.4); n.h = 44 + d * 1.7; });
+    allNodes.forEach(n => { n._deg = deg[n.id]; const d = Math.min(deg[n.id], 8); n.w = Math.max(120 + d * 5, 46 + n.label.length * 8.6); n.h = 50 + d * 1.7; });
     loadPositions();
 
     svg = el("svg");
     const defs = el("defs");
-    [["dep", "rgba(255,255,255,0.3)"], ["strong", "#4fd6c0"], ["write", "#9d8df7"], ["peer", "#f0b65e"]].forEach(([k, c]) => {
+    [["dep", "rgba(255,255,255,0.3)"], ["strong", "var(--cyan)"], ["write", "var(--violet)"], ["peer", "var(--amber)"]].forEach(([k, c]) => {
       const m = el("marker", { id: "ar-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
       m.append(el("path", { d: "M0 0 L10 5 L0 10 z", fill: c })); defs.append(m);
     });

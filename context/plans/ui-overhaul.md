@@ -1,5 +1,7 @@
 # Plan — UI/UX Overhaul (S16 + S18 + S19 + S20)
 
+> **Status: EXECUTED pass 2 (fb2d061, 0.35.0). U4 dropped as redundant (topstat flash pre-existed). Remaining pass-1 ideas not in the fix-map (Memory trend area chart, donut draw-bound glyph) carry to the next UI wave.**
+
 > Slots: S16 gradient ribbon, S18 popup cards, S19 per-tab quality, S20 warming
 > states. Bug ledger source: plans/ui-ux-audit.md (X1-X8 + per-tab rows, live
 > capture 2026-07-07). Version target: 0.35.0.

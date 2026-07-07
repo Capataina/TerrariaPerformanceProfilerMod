@@ -1,5 +1,7 @@
 # Future settings UX — Standard vs Advanced modes
 
+> **Status: PARTIALLY EXECUTED 2026-07-07 (88f10f4): the per-feature 'advanced' half shipped via tModLoader's own ModConfig (impact-grouped sliders). The Standard/Advanced PRESET half was explicitly not built — presets remain rejected in favour of heaviest-defaults.**
+
 > Captured from a discussion on 2026-05-20. Not yet implemented; this note
 > exists so the idea survives chat compaction.
 

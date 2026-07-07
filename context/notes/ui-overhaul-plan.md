@@ -1,5 +1,7 @@
 # UI Overhaul Plan — Performance Profiler
 
+> **Status: SUPERSEDED by plans/ui-overhaul.md (executed fb2d061) + plans/ui-ux-audit.md (the ledger). Kept as the original framing record.**
+
 **Status:** draft, awaiting Caner's pass before implementation
 **Owner:** Claude (UI lead)
 **Date:** 2026-05-20

@@ -21,13 +21,13 @@ persistence footprint (the insights-engine scale bar).
 
 | # | Slot | Domain | Player question | Status | Size |
 |---|------|--------|----------------|--------|------|
-| S01 | Loop-anatomy attribution | Measurement | Where in the frame does mod X hurt — update, draw, GC? | planned | L |
+| S01 | Loop-anatomy attribution | Measurement | Where in the frame does mod X hurt — update, draw, GC? | **built** (84409c1, 0.32.0; Observatory split bars fb2d061) | L |
 | S02 | Load-time profiler | Measurement | Why does my game take 4 minutes to boot, and which mod owns it? | idea | L |
 | S03 | Content-level attribution | Measurement | It's not Calamity, it's *that boss* | idea | XL |
-| S04 | Memory ownership engine | Measurement | Who owns my 10 GB, and who is growing? | planned (memory-guard first slice) | XL |
+| S04 | Memory ownership engine | Measurement | Who owns my 10 GB, and who is growing? | **partial** (guard slice built 0f9e844, 0.33.0; per-mod ownership open) | XL |
 | S05 | Stutter forensics | Measurement | What exactly happened in that one 400ms hitch? | idea | L |
-| S06 | Real-cadence honesty completion | Measurement | Is every number the dashboard shows true during slow-motion? | planned | M |
-| S07 | Fingerprint robustness | Measurement | Why does the profiler think I ran 10 different modlists? | planned (inside honesty-completion) | S |
+| S06 | Real-cadence honesty completion | Measurement | Is every number the dashboard shows true during slow-motion? | **built** (448f447, 0.30.0; pinned) | M |
+| S07 | Fingerprint robustness | Measurement | Why does the profiler think I ran 10 different modlists? | **built** (448f447; v2 identity) | S |
 | S08 | Multiplayer / server profiling | Measurement | What does my modlist cost the server? | deferred (v2 decision, 2026-05-19) | XL |
 | S09 | The Lab — experiment engine | Intelligence | The insight says X is expensive — prove disabling it helps | idea (top-3 leverage) | XL |
 | S10 | Mod-update regression tracking | Intelligence | Calamity auto-updated last night — did it get slower? | idea (top-3 leverage) | L |
@@ -36,18 +36,18 @@ persistence footprint (the insights-engine scale bar).
 | S13 | Insight lifecycle | Intelligence | I acted on that insight — did the situation change? | idea | M |
 | S14 | Modlist doctor report card | Intelligence | Give me the one-screen verdict on my whole modlist | idea | M |
 | S15 | Session DVR | Presentation | Show me the whole session's story, not the last 30s | idea | L |
-| S16 | Session-time gradient ribbon | Presentation | When during my session did it go bad? | planned (inside ui-overhaul) | S |
-| S17 | HTML session report | Presentation | Let me share/keep my session's story without the game | planned | M |
-| S18 | Popup card system | Presentation | Click the boss fight, get its report card | planned (inside ui-overhaul) | M |
-| S19 | Per-tab UX quality | Presentation | Does every pane read honestly, instantly, beautifully? | planned (ui-overhaul; audit ledger exists) | L |
-| S20 | Warming states | Presentation | Why does minute 2 claim 97% of my mods are dormant? | planned (inside ui-overhaul) | S |
+| S16 | Session-time gradient ribbon | Presentation | When during my session did it go bad? | **built** (fb2d061; axis + minute drill) | S |
+| S17 | HTML session report | Presentation | Let me share/keep my session's story without the game | **built** (ef74479, 0.34.0; three triggers) | M |
+| S18 | Popup card system | Presentation | Click the boss fight, get its report card | **built** (fb2d061; boss + minute cards) | M |
+| S19 | Per-tab UX quality | Presentation | Does every pane read honestly, instantly, beautifully? | **partial** (audit rows closed c1cf962+fb2d061; enhancement backlog lives) | L |
+| S20 | Warming states | Presentation | Why does minute 2 claim 97% of my mods are dormant? | **built** (fb2d061; panelState + gates) | S |
 | S21 | Mobile / Steam Deck layout | Presentation | Can I read this on the couch? | deferred (revisit at v1.0 polish) | M |
 | S22 | In-game overlay revival | Presentation | Quick HUD without alt-tabbing (archived UI/ tree exists) | deferred (dashboard-first decision D1) | L |
-| S23 | Per-feature settings (ModConfig) | Platform | Let me turn the heavy parts down without losing the rest | planned | M |
+| S23 | Per-feature settings (ModConfig) | Platform | Let me turn the heavy parts down without losing the rest | **built** (88f10f4, 0.31.0; minus the S24 trim lever) | M |
 | S24 | Self-optimisation: RAM | Platform | Why does the profiler itself cost 2.4 GB? | partial (B1 EMA cut 1.8 GB; scaffolding diet + reload-leak remain) | L |
 | S25 | Self-optimisation: CPU | Platform | What does measuring cost, and can it cost less? | partial (harvest fusion candidate filed; budget guard missing) | M |
 | S26 | DB health | Platform | Does the store stay small, fast, and uncorrupted forever? | partial (compaction manual; no size budget; backups bounded) | M |
-| S27 | E2E testing framework | Platform | Can we catch bugs without launching the game? | planned | L |
+| S27 | E2E testing framework | Platform | Can we catch bugs without launching the game? | **built** (rings 1-2 + run_all; Ring-3 contract deferred) | L |
 | S28 | Backend parity surfacing | Platform | If the two measurement backends disagree, who tells the player? | idea (gap G2) | S |
 | S29 | Abort-clean telemetry | Platform | When instrumentation aborts, does the player learn why? | idea | S |
 | S30 | Workshop release kit | Release | Screenshots, description, first-launch UX, publish flow | idea (v1.0 gate list in vault Roadmap) | M |
@@ -264,7 +264,7 @@ S01 anatomy + S04 ownership + S11 engagement ──feed──> S14 doctor card
 
 ## 2026-07-07 implementation batch (this session's picks)
 
-Picked for end-to-end plans + implementation now: **S06+S07** (honesty),
+EXECUTED 2026-07-07 (see the per-plan status banners). Originally picked: **S06+S07** (honesty),
 **S01** (loop anatomy), **S23** (settings), **S04 first slice** (memory guard),
 **S17** (HTML report), **S27** (testing), **S16/S18/S19/S20** (ui-overhaul
 umbrella). Plus the ledgered bug batch (H1/H2 + audit BUG rows).

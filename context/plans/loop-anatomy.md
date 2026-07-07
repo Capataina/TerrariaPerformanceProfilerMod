@@ -1,5 +1,7 @@
 # Plan — Loop-Anatomy Attribution (S01): per-mod update vs draw split
 
+> **Status: EXECUTED (84409c1, 0.32.0). Measured: update-path lane cost +0.001 ms/t, draw-path +0.158 ms (bench best-of-5). Deviations, recorded in the commit: phase read at credit-time not frame-capture; Observatory split-bar UI landed with the ui-overhaul wave (fb2d061); per-hook draw drill-down deferred until a consumer needs it smoothed.**
+
 > Slot: atlas S01. Version target: 0.31.0.
 > Evidence base: 24,227 probe calls/tick observed while the game was PAUSED
 > (2026-07-07 live capture) — zero update ticks, all draw-phase hook traffic,

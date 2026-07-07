@@ -1,5 +1,33 @@
 # Decisions
 
+## 2026-07-07 (evening) — the honesty + feature mega-batch (0.28.1 → 0.35.0)
+
+Nine versions in one arc; every decision's full story is in the commit bodies
+(d1b5e09 → 2f2fc1c). The durable ones:
+
+- **Player-facing numbers read real cadence; internals read compute; every use
+  deliberate.** The rule that closed X1/X2/X3/H4. FrameHeadroom now reads the
+  update-window EMA GATED on measured full speed — with Baseline real-cadence,
+  vsync pins the median at ~16.67 by construction, so compute-headroom-with-a-
+  gate is the only honest shape.
+- **Phase lanes: primary grid keeps the TOTAL, draw is an additive mirror.**
+  Bit-identical for every existing consumer; update = total − draw. Measured
+  +0.001 ms/t (update path). Phase read at credit time — the frame-capture
+  variant costs bytes for precision the documented one-sample tolerance
+  already covers.
+- **Settings = tML's own ModConfig, heaviest defaults, hot path never reads
+  config.** Caner's constraints verbatim. RetainHookScaffolding deliberately
+  NOT shipped: a toggle promising unbuilt trim behaviour is the real cheap-out.
+- **Fingerprint v2: identity is the sorted InternalName set, self-excluded.**
+  Versions → session metadata (the S10 substrate). One-time fracture accepted.
+- **Never dispose the store under a live writer** (H2): leak beats corrupt.
+- **The report renders server-side, zero JS** — strictly more self-contained
+  than the planned JSON+renderer; pinned by a network-blocked browser load.
+- **The harness rule that failed was testing the untestable** — clicking the
+  auto-selected row. Fixed the RULE (index-tracked non-selected pick), and the
+  1→3-failures dead end of the first rewrite is recorded in 2f2fc1c.
+
+
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
 ## 2026-07-07 — the measurement-honesty + RAM + correctness rework (v0.27.1 → v0.28.0)
