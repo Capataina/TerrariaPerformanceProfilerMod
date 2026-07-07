@@ -2,6 +2,50 @@
 
 Resolved decisions from working sessions, newest first. Project-internal record; the README is the directional summary.
 
+## 2026-07-07 — the measurement-honesty + RAM + correctness rework (v0.27.1 → v0.28.0)
+
+The first real play-test of a 62k-hook, 29-mod stack exposed that the game ran in genuine
+slow-motion while the dashboard read "60 fps smooth". A 16-item bug ledger (A–E) landed across 7
+commits. The durable decisions:
+
+- **The frame-time metric was measuring the wrong window (A1).** `FrameTimeMs` spans only
+  `PreUpdateEntities → PostUpdateEverything` (the Update half), so it was structurally blind to the
+  Draw phase (where thousands of the profiler's own hooks fire) and to its own post-timestamp
+  harvest. Terraria dilates game time when a full loop can't finish in 16.7 ms, so the game
+  slow-motioned while the update-only number stayed ~3 ms. Decision: add `RealFrameTimeMs` (the true
+  inter-`BeginTick` period) as an ADDITIVE field and repoint the player-facing surfaces to it,
+  rather than a risky global rewrite of `FrameTimeMs` that feeds the spike detector + baseline +
+  170 tests. Kept `FrameTimeMs` as the labelled update-vs-total-work breakdown.
+- **The profiler now measures its own cost (A2/A3).** The harvest is timed into
+  `ProfilerSelfHealth.HarvestMsEma`; `ProbeStack` counts instrumented calls into
+  `ProbeCallsPerTickEma`. Decision: for the probe-dispatch cost, surface the COUNT (honest proxy)
+  rather than add a third per-call Stopwatch to time the thing we're trying to shrink.
+- **The ~1.8 GB per-hook history rings were the RAM killer (B1).** `HookCount * 1800` doubles ×2 at
+  world-entry. Decision: EMA the per-hook average (O(1) memory, same ~30 s horizon) instead of a
+  windowed mean — validated as standard streaming practice (EMA O(1) vs window Θ(w)). This is
+  optimisation in the project's sense (same observable, cheaper), not doing-less; no hook lost
+  coverage. The per-mod average stays an exact windowed mean (its ring is small).
+- **The install-RAM residual (~31 KB/hook post-trim) is left in place (B4).** The ILContext dispose
+  already ships; the residual is MonoMod's `SourceCloneIl`, required for re-chain safety. Decision:
+  measure it (a reclaim diagnostic) rather than trim it blind, which would break downstream mods'
+  hook chains (Invariant 4). The tModLoader MonoMod wiki confirms two mods on one method risk
+  incompatibility.
+- **No Lite/Standard/Deep mode selector exists, and won't (E1).** The README advertised one; the
+  code has always run the single heaviest path (`AllocationTracking = true`, empty `ProfilerConfig`).
+  Decision, from Caner: a mode selector is self-defeating for a profiler-in-development — the point
+  is that the *heaviest* version works. The planned config is **per-feature, impact-graded sliders**
+  (a "heavy RAM" group, a "heavy CPU" group, each feature off→full), a pre-1.0 surface. README
+  rewritten to the truth + this direction.
+- **A LiteDB predicate-crash CLASS, not a one-off (C1).** `FindOne(x => x.F == recent[0].F)` embeds
+  an indexer in the Expression; LiteDB's LINQ translator mis-resolves it into
+  `TargetException: Object does not match target type`. Two instances found + fixed (session-start
+  eval, `/api/data-health`); the rest of the predicate surface swept clean. Fix: hoist to a captured
+  local. Plus a non-destructive **`rebuild-rollup`** reset scope (D1) to correct contaminated
+  lifetime means without wiping session history.
+
+Everything is verified off-game (0 error CS, 170 tests) and runtime-pending the next play-test,
+same posture as the rest of the cross-session layer.
+
 ## 2026-06-24 — the v0.13 → v0.22 arc (insights module, component library, chart vocabulary, testing harness)
 
 A dense single-day arc that took the mod v0.13 → v0.22. Five threads, each a deliberate decision; the commit bodies and `notes/insights-rework-status.md` carry the per-commit detail, this is the durable why-record.

@@ -172,6 +172,34 @@ The game thread pays a single `Interlocked.Increment` + `Channel.Writer.TryWrite
 
 `PerformanceProfiler.Mod.Load` opens the `ProfilerDatabase` singleton. `ProfilerSystem.OnWorldLoad` creates a `SessionRecorder` against it and upserts the modlist identity rows. `PostUpdateEverything` calls `SessionRecorder.OnTick(latestFrame, collector)` plus the `ContextTransitionWatcher` after each `EventContext` snapshot. `OnWorldUnload` calls `SessionRecorder.End("clean")` which builds the per-mod and per-hook aggregates, the archive row, and the SessionEnd op. `Mod.Unload` disposes the database (writer drain, final checkpoint, backup rotation, journal truncate).
 
+### Reset control + rollup rebuild (v0.28.0)
+
+`Persistence/Lifecycle/StoreReset.cs` exposes three player-initiated scopes via
+`GET /api/reset?scope=…` (gated by the dashboard confirm dialog; the only path that mutates the
+store):
+
+- **`everything`** — `DropAllUserData`; the store starts fresh.
+- **`modlist`** — forgets this stack's sessions + per-stack rows but PRESERVES each mod's global
+  lifetime rollup (the spine).
+- **`rebuild-rollup`** (new, D1) — **non-destructive**: clears only the two derived rollup
+  collections (`ModLifetimeRollups` + `ModModlistRollups`) and re-folds every ended session via
+  `RollupBackfill.Run` with the CURRENT fold logic (the v0.27.1 thin-session gate + tick-weighting).
+  Corrects a store whose lifetime means were contaminated by an older fold WITHOUT deleting any
+  session — the "fix the numbers without wiping my history" path. Surfaced first in the dialog as
+  the safest option ("rebuild lifetime numbers").
+
+Two v0.28 correctness fixes live in this area: the **C1 LiteDB-predicate crash class** — a
+`FindOne(x => x.Fingerprint == recent[0].Fingerprint)` embeds an indexer inside the Expression,
+which LiteDB's LINQ translator mis-resolves into `TargetException: Object does not match target
+type`; fixed at both instances (`ProfilerSystem.cs:334`, `DashboardRouter.History.cs:112`) by
+hoisting the value to a captured local — and the **`EventJournal.AppendBatch` shutdown race**,
+where a concurrent world-unload dispose could null `_stream` between the guard and the write
+(now captured into a local, so a dispose surfaces as a clean `ObjectDisposedException`).
+
+> The cross-session rollup layer itself (the two-level `Mod*Rollup` collections, the `HistoryStore`
+> read model, `RollupBackfill`) is documented in `notes/cross-session-history-layer.md`; this
+> system file predates that layer and covers the base session/event persistence.
+
 The legacy JSON path (`Profiling/SessionLogWriter.cs` and `Sessions/*.json` files) was deleted in v0.3. `LegacyJsonImporter.RunOnceIfNeeded` performs a one-shot ingestion of any pre-existing JSON files into the new schema and moves them to `ImportedLegacyJson/` so the directory is empty for future launches.
 
 ## Known Issues / Active Risks

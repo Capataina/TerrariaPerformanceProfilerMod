@@ -33,7 +33,20 @@ Does not own:
 Per-tick observation struct (`Profiling/TickFrame.cs`):
 
 - `TickIndex` (`long`) — `Main.GameUpdateCount` at close-of-tick.
-- `FrameTimeMs` (`double`) — wall-time of the tick measured by the collector's own `Stopwatch`.
+- `FrameTimeMs` (`double`) — **update-window work only**: the span from `BeginTick`
+  (`PreUpdateEntities`) to `EndTick` (`PostUpdateEverything`). This is the Update half of the
+  game loop; it excludes the Draw phase and the profiler's own post-timestamp harvest, so it is
+  NOT the player-facing frame time. (v0.28.0, A1: before this, `FrameTimeMs` *was* treated as the
+  frame time, which is why a draw-bound slow-motion session read a healthy ~3 ms while the game
+  crawled — the dashboard said "60 fps smooth" during genuine slow-motion.)
+- `RealFrameTimeMs` (`double`) — **the honest frame period** (v0.28.0, A1): wall time between
+  consecutive `BeginTick` stamps, spanning the whole loop (Update + Draw + vsync sleep). Locked at
+  60 fps it reads ~16.7 ms; in slow-motion it rises to the true elongated period. Carries a
+  one-frame lag (only knowable at the next `BeginTick`), invisible to the per-second aggregates.
+  The `TickDownsampler` feeds THIS into `WarmAggregate.AvgFrameMs`, and `SessionRecorder`'s "worst
+  frame" uses it — so every player-facing frame number is now the real one. The spike detector +
+  `Baseline` still key off the update-window `FrameTimeMs` (internally consistent work-vs-median);
+  the stall detector already used the real inter-`BeginTick` period.
 - `AllocBytes` (`long`) — `GC.GetAllocatedBytesForCurrentThread()` delta across the tick.
 - `NpcCount`, `ProjectileCount`, `DustCount` (`int` each) — entity counts at close-of-tick.
 - `Context` (`EventContext`) — the `ContextTagger.Snapshot` for the tick (biome/boss/weather/invasion). Optional; zeroed if no tagger is alive.
@@ -59,6 +72,25 @@ PerModAttribution.AddAlloc(modId, categoryId, hookId, deltaBytes)  // alloc path
 ```
 
 Hookid registration is via `RegisterHook` (single-backend mode) or `RegisterOrReuseHook` (Parallel mode). The Parallel-mode reuse ensures both backends write to the same row for the same `(modId, categoryId, displayName)` tuple — divergence comparisons would be meaningless otherwise.
+
+### Per-hook averages via EMA, and profiler self-overhead (v0.28.0)
+
+Two rework facts the harvest now carries:
+
+- **Per-hook rolling average is a slow EMA, not a windowed mean (B1).** The old windowed mean
+  needed a `_perHookHistoryMs` ring of `HookCount * 1800` doubles — on a 62k-hook stack that is
+  ~896 MB *per array*, ~1.8 GB with the bytes twin, allocated at world-entry (a prime "ran out of
+  RAM" cause). It was removed; `PerHookAverageMs`/`PerHookAverageBytes` are now EMAs with
+  `alpha = 2/(1800+1)` (same ~30 s horizon, O(HookCount) memory). The per-**mod** average stays an
+  exact windowed mean (its ring is small: `modCount*cats*1800`). All EMA folds flush values below
+  `DenormalFloor = 1e-12` to zero (C2) — an idle-cost EMA otherwise bottoms out as a subnormal
+  double that serialised as garbage AND hits the x86 subnormal penalty every tick.
+- **The profiler measures its own per-tick cost (A2 + A3).** `EndTick` captures its end timestamp
+  BEFORE its harvest runs, so the harvest/smoothing/detector work was invisible to `FrameTimeMs`.
+  It is now timed (`harvestMs`) and folded into `ProfilerSelfHealth.HarvestMsEma`; `ProbeStack`
+  counts instrumented calls (`_callCount`, read+reset per tick via `TakeCallCount`) into
+  `ProbeCallsPerTickEma`. Both surface on the Self tab (`harvest / tick`, `probe calls / tick`) so
+  the profiler's true cost is visible, not hidden — the "verifiable, not trusted" claim made honest.
 
 ### `BeginTick` / `EndTick`
 
