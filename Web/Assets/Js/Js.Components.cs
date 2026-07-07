@@ -115,6 +115,29 @@ function seriesPaths(values, opts) {
 // layer); stops each surface re-inventing its own empty class.
 function emptyState(msg) { return `<div class='empty'>${escapeHtml(msg)}</div>`; }
 
+// ---- Panel states (S20 warming pattern, audit X4) ---------------------
+// One visual language for the three ways a panel can honestly have nothing
+// to show. 'warming' carries the session-age note so a young session never
+// renders judgement-toned output ('97% dormant') from seconds of data;
+// 'empty-honest' names what the emptiness means (and what DOES carry the
+// signal); 'disabled' points at the config. All three reuse .empty chrome
+// with a small state tag so the eye learns one shape.
+function panelState(kind, msg, detail) {
+  const tag = kind === 'warming' ? 'warming up' : kind === 'disabled' ? 'off in config' : 'nothing here';
+  return `<div class='empty pstate pstate-${kind}'>` +
+    `<span class='pstate-tag'>${tag}</span>` +
+    `<span>${escapeHtml(msg)}</span>` +
+    (detail ? `<span class='pstate-detail'>${escapeHtml(detail)}</span>` : '') +
+    `</div>`;
+}
+
+// Session age in minutes from the live payload (0 when unknown). The gate the
+// warming states key on: tickIndex is the game's update counter at 60 UPS.
+function sessionMinutes() {
+  return lastNow && lastNow.worldLoaded && lastNow.tickIndex > 0
+    ? lastNow.tickIndex / 3600 : 0;
+}
+
 // Render a value, or an em-dash when it is genuinely absent (null / NaN), so a
 // label is never left with nothing after it. fn is an optional formatter; a real
 // zero still formats normally (the formatter decides how to show it).

@@ -55,6 +55,11 @@ internal static partial class DashboardAssets
    anchors the perf-ramp fill to its min..max ms/t so the colour ramp is
    readable rather than a bare gradient. Pure chrome — no data colour here
    except the swatch dots and the ramp swatch, which mirror the data encoding. */
+/* U2: the ribbon's time axis — start / span / now, muted, under the bars. */
+.tl-heatstrip .hs-axis {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 0.6rem; color: var(--muted);
+}
 .tl-heatstrip .hs-legend {
   display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem 0.8rem;
   font-family: var(--mono); font-size: 0.62rem; color: var(--muted);
@@ -203,6 +208,8 @@ internal static partial class DashboardAssets
    scaled to the segment-containing span, a right-pinned label read as a
    marooned straggler floating over dead space. Sitting it near the start keeps
    a blank Boss/Invasion/Subworld row legible as legitimately empty, not broken. */
+/* T5: collapsed idle lanes — compact single line, muted. */
+.tl-laneRow.lane-idle .tl-lane { min-height: 1.2rem; }
 .tl-lane-empty {
   position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
   /* Clear the family label that ::before draws at the lane's top-left. */

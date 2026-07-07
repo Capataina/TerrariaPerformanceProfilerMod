@@ -187,7 +187,7 @@ function renderLagHeatmap() {
 
   if (cells.length === 0) {
     setLagHeatmapTitle('lag events by cause', 'ranked by event count');
-    root.innerHTML = emptyState('no events observed');
+    root.innerHTML = panelState('empty', 'no variance events observed', 'spikes and stalls count VARIANCE - uniform slowness shows in the game-speed tile above');
     return;
   }
 
@@ -292,7 +292,7 @@ function renderLagClusters() {
 
   if (clusters.length === 0) {
     renderIfChanged('lagClusters', 'empty', () => {
-      setHTML(root, emptyState('no clusters yet'));
+      setHTML(root, panelState('empty', 'no recurring lag signatures yet', 'clusters need repeated events to correlate'));
       if (detailRoot) detailRoot.innerHTML = '';
     });
     return;
@@ -422,7 +422,7 @@ function renderLagDensity() {
   const entries = (snap && snap.entries) || [];
 
   if (entries.length === 0) {
-    setHTML(root, emptyState('no segments closed yet'));
+    setHTML(root, panelState('warming', 'no segments closed yet', 'per-segment density appears once a biome visit or fight ends'));
     if (subRoot) subRoot.textContent = '—';
     if (legendRoot) legendRoot.innerHTML = '';
     _renderSig['lagDensity'] = 'empty';   // so a later identical non-empty set still rebuilds
@@ -499,7 +499,7 @@ function renderLagGcPressure() {
   if (!root) return;
   const gc = lastGcPressure;
   if (!gc || !gc.worldLoaded) {
-    root.innerHTML = emptyState('no gc data yet');
+    root.innerHTML = panelState('warming', 'no gc data yet', 'heap counters populate within the first minute');
     return;
   }
 
@@ -558,7 +558,7 @@ function renderLagCausality() {
   const chains = (lastAllocCausality && lastAllocCausality.chains) || [];
 
   if (chains.length === 0) {
-    setHTML(root, emptyState('no gc stalls observed'));
+    setHTML(root, panelState('empty', 'no gc stalls observed', 'no collection has blocked the main thread this session'));
     return;
   }
 
@@ -632,7 +632,7 @@ function renderLagRhythm() {
 
   if (hist.length === 0 && clusters.length === 0) {
     renderIfChanged('lagRhythm', 'empty', () => {
-      histRoot.innerHTML = emptyState('not enough events for periodicity');
+      histRoot.innerHTML = panelState('empty', 'not enough events for periodicity', 'rhythm detection needs a run of repeated lag events');
       setHTML(clusterRoot, '');
     });
     return;

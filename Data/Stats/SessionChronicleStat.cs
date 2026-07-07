@@ -201,7 +201,11 @@ public sealed class SessionChronicleStat : IDataStat<SessionChronicleSnapshot>
             "timeOfDay" => "transition",
             "subworld"  => "transition",
             "gameMode"  => "transition",
-            "session"   => "join",
+            // T8: "session opened: …" carried kind 'join', so the chronicle's
+            // first two lines wore identical 'join' chips for two different
+            // events. The session-open line is its own kind; the JS group
+            // list picks it up dynamically (present-set filtering).
+            "session"   => "session",
             _ => "transition",
         };
     }

@@ -41,7 +41,17 @@ function renderSelf() {
     // same threshold the bands already use, not a free-floating arc.
     ref: 1.5 / 3.5,
     color: s.severity === 'Severe' ? 'var(--danger)' : s.severity === 'Concerning' ? 'var(--orange)' : 'var(--good)',
-    centerValue: ratio.toFixed(2) + '×', centerSub: s.severity.toLowerCase(),
+    // The subtitle names WHICH axis drove the verdict: a healthy install can
+    // be overridden by the memory-guard growth axis (H3), and the gauge must
+    // say so rather than presenting one number as the whole story.
+    centerValue: ratio.toFixed(2) + '×',
+    centerSub: (function () {
+      const g = s.memoryGuard;
+      const phase = g && g.enabled ? g.phase : null;
+      if (phase === 'Climbing') return s.severity.toLowerCase() + ' · memory climbing';
+      if (phase === 'Growing') return s.severity.toLowerCase() + ' · memory growing';
+      return s.severity.toLowerCase();
+    })(),
   });
 
   // ---- hero stat tiles ----

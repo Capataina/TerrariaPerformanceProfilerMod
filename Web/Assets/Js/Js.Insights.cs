@@ -270,15 +270,33 @@ function renderInsightKanban() {
   if (_renderSig['insKanban'] === sig) return;
   _renderSig['insKanban'] = sig;
 
+  // I4: order columns by their STRONGEST card first (then size) so a flood
+  // of LOW findings can't push the MEDIUM+ ones past the fold.
+  const colStrength = k => Math.max(...groups[k].map(r => CONF_RANK[r.confidence] || 0));
+  if (kanGroup !== 'confidence') {
+    keys.sort((a, b) => colStrength(b) - colStrength(a) || groups[b].length - groups[a].length || a.localeCompare(b));
+  }
+
   const html = keys.map(k => {
     const cards = groups[k].slice().sort(byStrength);
     const accent = kanGroup === 'confidence' ? confColor(k) : 'var(--border-soft)';
-    return `<div class='kan-col' style='--accent:${accent}'>
-      <div class='kan-col-h'><span class='kan-col-t'>${escapeHtml(kanGroupLabel(k))}</span><span class='kan-count'>${fmtInt(cards.length)}</span></div>
+    // I4: an all-weak column (nothing above Low) starts collapsed behind its
+    // count; a click unfolds it. Strong columns always render open.
+    const weakOnly = colStrength(k) <= (CONF_RANK['Low'] || 1);
+    const colCls = weakOnly ? 'kan-col kan-collapsed' : 'kan-col';
+    // I2: the full title travels in title= so a truncated header still reads.
+    return `<div class='${colCls}' style='--accent:${accent}'>
+      <div class='kan-col-h' title='${escapeHtml(kanGroupLabel(k))} — ${cards.length} finding${cards.length === 1 ? '' : 's'}${weakOnly ? ' (all low-confidence; click to expand)' : ''}'>
+        <span class='kan-col-t'>${escapeHtml(kanGroupLabel(k))}</span><span class='kan-count'>${fmtInt(cards.length)}</span></div>
       <div class='kan-col-body'>${cards.map(kanbanCard).join('')}</div>
     </div>`;
   }).join('');
-  setHTML(board, `<div class='kanban'>${html}</div>`);
+  setHTML(board, `<div class='kanban scroll-fade-x'>${html}</div>`);
+
+  // Collapsed-column unfold (I4).
+  board.querySelectorAll('.kan-col.kan-collapsed .kan-col-h').forEach(h => {
+    h.addEventListener('click', () => h.parentElement.classList.remove('kan-collapsed'));
+  });
 
   board.querySelectorAll('.kan-card').forEach(el => {
     el.addEventListener('click', () => openInsightDetail(parseInt(el.dataset.mod, 10)));

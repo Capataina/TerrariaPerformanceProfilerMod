@@ -107,7 +107,10 @@ function renderObservatoryComposition() {
   ];
   const grid = waffle({ cells, total: loaded, cols: Math.min(20, Math.max(8, Math.ceil(Math.sqrt(loaded)))) });
   const key = legend(cells.map(c => ({ color: c.color, label: c.label, value: fmtInt(c.count) })), { inline: true });
-  const sub = `${fmtInt(loaded)} mods · ${(100 * active / denom).toFixed(0)}% active · ${(100 * dormant / denom).toFixed(0)}% dormant`;
+  // O3 warm gate: usage shares are judgement-toned; a young session frames
+  // them as an early read, not a verdict (audit X4 pattern).
+  const warmNote = sessionMinutes() < 10 ? ` · early read (${Math.max(1, Math.round(sessionMinutes()))}m of data)` : '';
+  const sub = `${fmtInt(loaded)} mods · ${(100 * active / denom).toFixed(0)}% active · ${(100 * dormant / denom).toFixed(0)}% dormant${warmNote}`;
 
   let body = root.querySelector('#wf-body');
   if (!body) {
@@ -221,15 +224,38 @@ function renderObservatoryList() {
   if (_renderSig['obsList'] === obsSig) return;
   _renderSig['obsList'] = obsSig;
 
+  const _obsModsById = new Map(((lastMods && lastMods.mods) || []).map(m => [m.id, m]));
   const cols = '2.2em minmax(0,1fr) 5em';
   setHTML(scroll, rowList(cards.map((c, i) => {
     const costFrac = c.cpuSharePct / maxCpu;
     // cpuSharePct / usageSharePct are FRACTIONS (0..1), ×100 to read as percent.
-    const micro = `${fmtInt(c.usage.itemsCreated)} items · ${fmtInt(c.usage.npcsSpawned)} npcs · ${fmtInt(c.usage.buffsApplied)} buffs · ${(c.cpuSharePct * 100).toFixed(1)}% cpu · ${(c.usageSharePct * 100).toFixed(1)}% usage`;
+    // O1: these are USED counts (items created, npcs spawned…), not roster
+    // sizes — say so, and drop the noise until anything has been used.
+    // O2: the usage share is a share of the usage OBSERVED SO FAR; while the
+    // session warms it reads as an early number, not a verdict.
+    const anyUse = (c.usage.itemsCreated + c.usage.npcsSpawned + c.usage.buffsApplied) > 0;
+    const useBits = anyUse
+      ? `${fmtInt(c.usage.itemsCreated)} items used · ${fmtInt(c.usage.npcsSpawned)} npcs spawned · ${fmtInt(c.usage.buffsApplied)} buffs applied · `
+      : '';
+    const warmTag = sessionMinutes() < 10 ? ' (early)' : '';
+    const micro = `${useBits}${(c.cpuSharePct * 100).toFixed(1)}% cpu · ${(c.usageSharePct * 100).toFixed(1)}% usage${warmTag}`;
+    // S01 split bar: /api/mods carries per-mod drawMs; when the phase lanes
+    // are live the cost bar splits update (bright) vs draw (dimmer) so a
+    // draw-bound mod is visible in the ranking itself.
+    let costHtml = cellBar(costFrac, 'var(--cpu)');
+    const lm = _obsModsById && _obsModsById.get(c.modId);
+    if (lm && lastMods && lastMods.phaseSplit && lm.cpuMs > 0) {
+      const drawFrac = Math.max(0, Math.min(1, lm.drawMs / lm.cpuMs));
+      costHtml = splitBar([
+        { frac: (1 - drawFrac) * costFrac, color: 'var(--cpu)', label: 'update', value: fmtMs(lm.cpuMs - lm.drawMs) + ' ms' },
+        { frac: drawFrac * costFrac, color: 'var(--muted)', label: 'draw', value: fmtMs(lm.drawMs) + ' ms' },
+        { frac: 1 - costFrac, color: 'transparent' },
+      ], { thin: true });
+    }
     const bodyCell = `<div class='obs-body'>` +
       `<div class='nm'>${escapeHtml(c.modName)}</div>` +
       `<div class='obs-micro'>${micro}</div>` +
-      `<div class='obs-cost'>${cellBar(costFrac, 'var(--cpu)')}</div>` +
+      `<div class='obs-cost'>${costHtml}</div>` +
       `<div class='obs-comp'>${compositionBar(c.roster)}</div>` +
       `</div>`;
     return row({

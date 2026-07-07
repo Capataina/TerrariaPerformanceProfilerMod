@@ -48,6 +48,12 @@ internal static partial class DashboardAssets
   background: var(--panel-2); border: 1px solid var(--border-soft);
   border-radius: 7px; overflow: hidden; display: flex; flex-direction: column;
 }
+/* I4: all-weak columns start folded to their header (count chip carries the
+   size); clicking the header unfolds. Keeps the LOW flood off the fold. */
+.kan-col.kan-collapsed { flex: 0 0 auto; min-width: 11rem; }
+.kan-col.kan-collapsed .kan-col-body { display: none; }
+.kan-col.kan-collapsed .kan-col-h { cursor: pointer; opacity: 0.75; }
+.kan-col.kan-collapsed .kan-col-h:hover { opacity: 1; }
 .kan-col-h {
   display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
   padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border);

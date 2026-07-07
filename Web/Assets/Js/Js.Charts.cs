@@ -104,7 +104,13 @@ function lineChart(o) {
     }
   }
   const svg = `<svg viewBox='0 0 ${w} ${h}' class='chart-svg' preserveAspectRatio='none'>${body}</svg>`;
-  if (o.axis) { const fmt = o.fmt || (v => v.toFixed(0)); return svg + `<div class='chart-axis'><span class='lo'>${escapeHtml(fmt(sc.min))}</span><span class='hi'>${escapeHtml(fmt(sc.max))}</span></div>`; }
+  if (o.axis) {
+    const fmt = o.fmt || (v => v.toFixed(0));
+    // Audit S3: bare corner numbers ('5.19' … '54.9') read as mystery values;
+    // the axis names them (callers can override via axisUnit, default ms).
+    const unit = o.axisUnit != null ? o.axisUnit : 'ms';
+    return svg + `<div class='chart-axis'><span class='lo'>min ${escapeHtml(fmt(sc.min))}${unit ? ' ' + escapeHtml(unit) : ''}</span><span class='hi'>max ${escapeHtml(fmt(sc.max))}${unit ? ' ' + escapeHtml(unit) : ''}</span></div>`;
+  }
   return svg;
 }
 

@@ -236,7 +236,29 @@ function renderTimelineHeatstrip() {
       (anySpike ? `<span class='hs-key'><span class='bar-mark spike'></span>spike min</span>` : '') +
       (anyStall ? `<span class='hs-key'><span class='bar-mark stall'></span>stall min</span>` : '') +
     `</div>`;
-  root.innerHTML = `<div class='hs-strip'>${strip}</div>${legend}`;
+  // U2 (the session gradient ribbon): a time axis anchors the strip — the
+  // bars alone had no direction or span cue — and each minute column opens
+  // its drill card on click (S18).
+  const startLbl = buckets.length > 0 ? 'min ' + buckets[0].minuteIndex : '';
+  const endLbl = buckets.length > 0 ? 'min ' + buckets[buckets.length - 1].minuteIndex + ' (now)' : '';
+  const axis = buckets.length > 1
+    ? `<div class='hs-axis'><span>${startLbl}</span><span>${buckets.length} minutes →</span><span>${endLbl}</span></div>`
+    : '';
+  root.innerHTML = `<div class='hs-strip'>${strip}</div>${axis}${legend}`;
+
+  // Minute drill card: click a column, see that minute's numbers as a popup.
+  root.querySelectorAll('.bar-col').forEach((col, i) => {
+    if (i >= buckets.length) return;
+    col.style.cursor = 'pointer';
+    col.addEventListener('click', () => {
+      const b = buckets[i];
+      openCard('minute ' + b.minuteIndex, 'session timeline drill',
+        statLine('avg frame', fmtMs(b.avgFrameMs) + ' ms', b.avgFrameMs > 25 ? 'warn' : 'good') +
+        statLine('segments open', fmtInt(b.segmentCount)) +
+        statLine('spikes', fmtInt(b.spikeCount), b.spikeCount > 0 ? 'warn' : '') +
+        statLine('stalls', fmtInt(b.stallCount), b.stallCount > 0 ? 'bad' : ''));
+    });
+  });
 }
 
 // ---- T3: transitions track — time-placed labelled chips -------------
@@ -395,6 +417,10 @@ function renderTimelineSwimlanes() {
     const laneRow = document.getElementById('tl-laneRow-' + f.toLowerCase());
     const lane = document.getElementById('tl-lane-' + f.toLowerCase());
     if (laneRow) laneRow.style.display = familyVisible(f) ? '' : 'none';
+    // T5: an idle lane collapses to one compact line instead of holding a
+    // full row's height for 'none this session' (the empty-lane sprawl that
+    // ate half the swimlane panel on quiet sessions).
+    if (laneRow) laneRow.classList.toggle('lane-idle', byFamily[f].length === 0);
     if (!lane) continue;
     if (!familyVisible(f)) { lane.innerHTML = ''; continue; }
     const arr = byFamily[f];
@@ -456,6 +482,13 @@ function renderTimelineSwimlanes() {
         selectedSegmentKey = (selectedSegmentKey === k) ? null : k;
         _tlSig.swimlanes = ''; _tlSig.detail = '';
         renderTimeline();
+        // S18: boss fights are MOMENT-shaped — a click also opens the report
+        // card popup (the drill panel below still tracks the selection for
+        // lane browsing; the two are complementary, not either/or).
+        if (el.dataset.family === 'Boss' && selectedSegmentKey === k) {
+          const parts = k.split('|');
+          openBossCard(parts[0], parts[1] === '' ? null : parts[1], parts[2] === '' ? null : Number(parts[2]));
+        }
       });
     });
   }

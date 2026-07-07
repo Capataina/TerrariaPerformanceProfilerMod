@@ -175,6 +175,7 @@ function renderFrameChart() {
     markers: marks,
     axis: true,
     fmt: showFps ? (v => v.toFixed(0)) : fmtMs,
+    axisUnit: showFps ? 'fps' : 'ms',   // S3: corner numbers name their unit
   }) + keys;
 }
 

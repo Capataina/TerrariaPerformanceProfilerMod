@@ -66,6 +66,7 @@ internal static partial class DashboardAssets
         CssChartToggle,
         CssCoherence,
         CssReset,
+        CssCards,
         CssScrollbar);
 
     /// <summary>
@@ -90,6 +91,7 @@ internal static partial class DashboardAssets
         JsSummary,
         JsMods,
         JsModCard,
+        JsCards,
         JsTimeline,
         JsLag,
         JsObservatory,
