@@ -151,11 +151,15 @@ public sealed class SessionRecorder
         // window and any pause/suspend gap (>= the stall detector's suspend
         // ceiling), so the Summary "worst frame" stops headlining a load-screen
         // or alt-tab artifact.
+        // The "worst frame" the Summary headlines is the worst REAL frame
+        // period the player felt (Update + Draw + vsync), not the update-window
+        // number that hid the draw-bound slow-motion.
+        double realFrameMs = frame.RealFrameTimeMs;
         if (_ticksObserved >= ArchiveMaxWarmupTicks
-            && frame.FrameTimeMs < StallDetector.SuspendCeilingMs
-            && frame.FrameTimeMs > _maxFrameSeen)
+            && realFrameMs < StallDetector.SuspendCeilingMs
+            && realFrameMs > _maxFrameSeen)
         {
-            _maxFrameSeen = frame.FrameTimeMs;
+            _maxFrameSeen = realFrameMs;
         }
         _gcSeen += frame.GcTimeMs;
 

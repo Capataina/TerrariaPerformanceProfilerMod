@@ -40,8 +40,29 @@ public struct TickFrame
     /// </summary>
     public long TickIndex;
 
-    /// <summary>Wall-clock duration of the tick, in milliseconds.</summary>
+    /// <summary>
+    /// Update-window work, in milliseconds: the span from PreUpdateEntities
+    /// (BeginTick) to PostUpdateEverything (EndTick). This is only the update
+    /// half of the game loop — it excludes the Draw phase and the inter-tick
+    /// gap, so it must NOT be used as the player-facing frame time (a draw-bound
+    /// slow-motion session reads as a healthy ~3 ms here while the game crawls).
+    /// Use <see cref="RealFrameTimeMs"/> for the honest frame budget; this value
+    /// is the update-vs-total-work breakdown.
+    /// </summary>
     public double FrameTimeMs;
+
+    /// <summary>
+    /// The real inter-frame wall-clock period, in milliseconds: the time between
+    /// this tick's update-start and the previous tick's update-start. It spans
+    /// the whole game loop the player experiences — Update + Draw + any vsync
+    /// sleep — so when the game is locked to 60 fps it reads ~16.7 ms and when it
+    /// drops into slow-motion it rises to the true elongated period. This is the
+    /// honest "are we hitting frame budget" signal; <see cref="FrameTimeMs"/>
+    /// (update-window only) is structurally blind to draw-phase and profiler-
+    /// harvest cost. Carries a one-frame lag (measured at the next BeginTick),
+    /// invisible to the per-second rolling aggregates that consume it.
+    /// </summary>
+    public double RealFrameTimeMs;
 
     /// <summary>GC pause time attributed to the tick, in milliseconds.</summary>
     public double GcTimeMs;

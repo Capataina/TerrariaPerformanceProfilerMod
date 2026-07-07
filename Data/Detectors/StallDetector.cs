@@ -361,7 +361,21 @@ public sealed class StallDetector
             Severity = ClassifySeverity(tickPeriodMs, baselineMs),
             Warming = _ticksSeen <= WarmupTicks,
         };
-        CaptureTopContributors(perModSmoothedMs, ref ev);
+        // A ProcessSuspended (alt-tab / OS-sleep) or WorldLoad gap is wall time
+        // in which NO mod ran — the process was paused or the world was
+        // (un)loading. Crediting the pre-gap smoothed cost to it is meaningless,
+        // and it is exactly what made a 114 s alt-tab log as
+        // "top=PerformanceProfiler (2.38ms recent)". Only real in-app stalls
+        // (freezes, GC, UI-blocking, long frames) carry per-mod contributors;
+        // suspends and loads are left unattributed.
+        if (ev.Cause != StallCause.ProcessSuspended && ev.Cause != StallCause.WorldLoad)
+        {
+            CaptureTopContributors(perModSmoothedMs, ref ev);
+        }
+        else
+        {
+            ev.C0 = ev.C1 = ev.C2 = ev.C3 = ev.C4 = StallContributor.Empty;
+        }
         _events.Push(in ev);
 
         CaptureBaseline(beginStamp);

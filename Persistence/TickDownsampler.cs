@@ -48,8 +48,13 @@ public sealed class TickDownsampler
     /// </summary>
     public void OnTickCommitted(TickFrame frame, MetricCollector collector, DbWriterThread writer, ObjectId sessionId)
     {
-        _second.Push(frame.FrameTimeMs, frame.GcTimeMs);
-        _minute.Push(frame.FrameTimeMs, frame.GcTimeMs);
+        // Player-facing frame time is the REAL inter-frame period (Update + Draw
+        // + vsync), not the update-window FrameTimeMs — otherwise a draw-bound
+        // slow-motion session reads as a healthy ~3 ms while the game visibly
+        // crawls (the v0.27.1 measurement-blindness bug: dashboard said "60 fps
+        // smooth" during genuine slow-motion).
+        _second.Push(frame.RealFrameTimeMs, frame.GcTimeMs);
+        _minute.Push(frame.RealFrameTimeMs, frame.GcTimeMs);
 
         long secondIndex = frame.TickIndex / TicksPerSecond;
         if (secondIndex != _lastSecondEmitted && _second.Count > 0)

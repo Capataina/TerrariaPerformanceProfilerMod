@@ -80,6 +80,17 @@ public sealed class MetricCollector
     // Stopwatch timestamp captured at BeginTick; -1 means "no tick currently open".
     private long _tickStartTimestamp = -1L;
 
+    // Stopwatch timestamp captured at the PREVIOUS BeginTick; -1 until the
+    // second tick of a session. The delta from it to the current BeginTick is
+    // the real inter-frame period (Update + Draw + any vsync sleep) — the honest
+    // frame time the player experiences, which FrameTimeMs (update-window only)
+    // is structurally blind to.
+    private long _prevBeginTimestamp = -1L;
+
+    // Real inter-frame period (ms) for the frame currently being closed. Set in
+    // BeginTick, read in EndTick. See TickFrame.RealFrameTimeMs.
+    private double _realFramePeriodMs;
+
     // Cumulative GC pause time (ms) read at BeginTick, so EndTick can report the
     // pause time that accrued during this tick alone.
     private double _gcPauseMsAtTickStart;
@@ -333,7 +344,16 @@ public sealed class MetricCollector
     /// <param name="tickIndex">The game's tick index for this tick. Used by the stall detector for event tagging.</param>
     public void BeginTick(long tickIndex)
     {
-        _tickStartTimestamp = Stopwatch.GetTimestamp();
+        long now = Stopwatch.GetTimestamp();
+        // Real inter-frame period: wall time since the previous BeginTick, which
+        // spans the whole game loop (Update + Draw + vsync sleep). This is the
+        // slow-motion signal FrameTimeMs cannot see; -1 guards the first tick,
+        // which has no predecessor and falls back to the update-window in EndTick.
+        _realFramePeriodMs = _prevBeginTimestamp >= 0L
+            ? (now - _prevBeginTimestamp) * TicksToMs
+            : 0d;
+        _prevBeginTimestamp = now;
+        _tickStartTimestamp = now;
         _gcPauseMsAtTickStart = GcPauseMilliseconds();
 
         // Stall detection runs HERE. At this point the per-mod accumulator
@@ -398,6 +418,9 @@ public sealed class MetricCollector
             TimestampUnixMs = Time.UnixMsNow(),
             TickIndex = tickIndex,
             FrameTimeMs = TimestampDeltaMs(_tickStartTimestamp, endTimestamp),
+            RealFrameTimeMs = _realFramePeriodMs > 0d
+                ? _realFramePeriodMs
+                : TimestampDeltaMs(_tickStartTimestamp, endTimestamp),
             GcTimeMs = gcTimeMs,
             NpcCount = npcCount,
             ProjectileCount = projectileCount,
